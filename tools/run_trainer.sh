@@ -4,9 +4,10 @@
 # Run from the build directory:
 #
 #   ../tools/run_trainer.sh                 # detached start, logs to ../run_logs
-#   ../tools/run_trainer.sh --follow        # tail the latest detached run log
+#   ../tools/run_trainer.sh --follow        # tail the latest log; press Q to save + stop, Ctrl+C just stops watching
 #   ../tools/run_trainer.sh --status        # show wrapper/log status
-#   ../tools/run_trainer.sh --stop          # stop wrapper + trainer cleanly by signal
+#   ../tools/run_trainer.sh --stop          # SAVE a checkpoint after the current iteration, then stop (no restart)
+#   ../tools/run_trainer.sh --kill          # stop immediately, nothing saved
 #   ../tools/run_trainer.sh --foreground    # old terminal-owned restart loop
 #   ../tools/run_trainer.sh -- ./OtherBin   # detached custom command
 #
@@ -55,7 +56,13 @@ CRASH_LOOP_BACKOFF_SECS="${CRASH_LOOP_BACKOFF_SECS:-900}"
 # lever for PPO's varying minibatch shapes. CUBLAS_WORKSPACE_CONFIG gives cuBLASLt
 # enough scratch (~24 MiB) to pick fast tensor-core GEMM kernels. Both respect a
 # value you set yourself and are harmless on non-CUDA (ROCm/MPS/CPU) builds.
-: "${PYTORCH_CUDA_ALLOC_CONF:=expandable_segments:True}"
+# WSL2: expandable_segments makes the CUDA allocator hang inside cuMemAddressReserve (the trainer sits at one
+# busy thread and prints nothing), so default it OFF there and ON everywhere else. Your own value always wins.
+if grep -qi microsoft /proc/version 2>/dev/null; then
+	: "${PYTORCH_CUDA_ALLOC_CONF:=expandable_segments:False}"
+else
+	: "${PYTORCH_CUDA_ALLOC_CONF:=expandable_segments:True}"
+fi
 export PYTORCH_CUDA_ALLOC_CONF
 : "${CUBLAS_WORKSPACE_CONFIG:=:4096:8}"
 export CUBLAS_WORKSPACE_CONFIG
@@ -95,6 +102,10 @@ while [ "$#" -gt 0 ]; do
 			;;
 		--follow)
 			MODE="follow"
+			shift
+			;;
+		--kill)
+			MODE="kill"
 			shift
 			;;
 		--log-dir)
@@ -210,7 +221,7 @@ case "$MODE" in
 		: > "$STOP_FILE"
 		unit="$(read_unit)"
 		if systemd_unit_active "$unit"; then
-			echo "stopping systemd user unit $unit"
+			echo "stopping systemd user unit $unit: it saves a checkpoint after the current iteration, then exits (this can take a minute)"
 			systemctl --user stop "$unit"
 			rm -f "$UNIT_FILE" 2>/dev/null || true
 			exit 0
@@ -228,9 +239,9 @@ case "$MODE" in
 			rm -f "$PID_FILE" 2>/dev/null || true
 			exit 0
 		fi
-		echo "stopping wrapper pid $pid"
+		echo "stopping wrapper pid $pid: it saves a checkpoint after the current iteration, then exits"
 		kill -TERM "$pid"
-		for _ in 1 2 3 4 5 6 7 8 9 10; do
+		for _ in $(seq 1 300); do
 			if ! is_running "$pid"; then
 				echo "stopped"
 				exit 0
@@ -239,6 +250,28 @@ case "$MODE" in
 		done
 		echo "still running after SIGTERM; inspect with: ps -p $pid -o pid,ppid,stat,etime,command"
 		exit 1
+		;;
+	kill)
+		: > "$STOP_FILE"   # tells the wrapper not to restart the trainer
+		unit="$(read_unit)"
+		if systemd_unit_active "$unit"; then
+			echo "killing systemd user unit $unit (nothing is saved)"
+			systemctl --user kill --kill-whom=all --signal=SIGKILL "$unit" 2>/dev/null || true
+			sleep 1
+			systemctl --user stop "$unit" 2>/dev/null || true
+			rm -f "$UNIT_FILE" 2>/dev/null || true
+			exit 0
+		fi
+		pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+		if is_running "$pid"; then
+			pkill -KILL -P "$pid" 2>/dev/null || true
+			kill -KILL "$pid" 2>/dev/null || true
+			rm -f "$PID_FILE" 2>/dev/null || true
+			echo "killed pid $pid (nothing is saved)"
+			exit 0
+		fi
+		echo "not running"
+		exit 0
 		;;
 	follow)
 		log_path="$(latest_log_path)"
@@ -252,6 +285,26 @@ case "$MODE" in
 		# so this is behavior-neutral on Fedora/GNU systems.
 		log_path="$(readlink -f "$log_path")"
 		echo "tailing $log_path"
+		if [ -t 0 ] && [ -t 1 ]; then
+			echo "[Q] save a checkpoint after the current iteration and stop training    [Ctrl+C] stop watching (training keeps running)"
+			tail -n 20 -f "$log_path" &
+			tail_pid=$!
+			trap 'kill "$tail_pid" 2>/dev/null; echo; exit 0' INT TERM
+			while kill -0 "$tail_pid" 2>/dev/null; do
+				if read -rsn1 -t 1 key; then
+					case "$key" in
+						q|Q)
+							echo "[run_trainer] Q pressed: saving after the current iteration, then stopping..."
+							"$SCRIPT_PATH" --stop --log-dir "$LOG_DIR"
+							sleep 1
+							kill "$tail_pid" 2>/dev/null
+							exit 0
+							;;
+					esac
+				fi
+			done
+			exit 0
+		fi
 		exec tail -f "$log_path"
 		;;
 esac
@@ -291,6 +344,7 @@ if [ "$MODE" = "detach" ]; then
 			--property=StandardOutput=append:"$run_log" \
 			--property=StandardError=append:"$run_log" \
 			--property=KillMode=mixed \
+			--property=TimeoutStopSec=900 \
 			--property=OOMPolicy=continue \
 			"$SCRIPT_PATH" \
 			--foreground \
@@ -369,6 +423,12 @@ while true; do
 		child_pid=$!
 		wait "$child_pid"
 		code=$?
+		# A trapped stop signal interrupts `wait` while the trainer is still saving its checkpoint.
+		# Keep waiting so the wrapper (and with it the systemd unit) outlives the save.
+		while kill -0 "$child_pid" 2>/dev/null; do
+			wait "$child_pid"
+			code=$?
+		done
 		child_pid=0
 	else
 		"${CMD[@]}"

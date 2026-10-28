@@ -5,6 +5,20 @@ import os
 
 wandb_run = None
 
+def _wandb_logged_in():
+	# `wandb login` stores the key in ~/.netrc under the server it logged in to. That used to be api.wandb.ai and is now
+	# api.forge.coreweave.com (W&B moved to CoreWeave), so accept any W&B / CoreWeave host. WANDB_API_KEY also counts.
+	if os.environ.get("WANDB_API_KEY"):
+		return True
+	try:
+		import netrc
+		for host, auth in netrc.netrc().hosts.items():
+			if ("wandb" in host or "coreweave" in host) and auth and auth[2]:
+				return True
+	except Exception:
+		pass
+	return False
+
 # Takes in the python executable path, the three wandb init strings, and optionally the current run ID
 # Returns the ID of the run (either newly created or resumed)
 def init(py_exec_path, project, group, name, id = None):
@@ -27,6 +41,16 @@ def init(py_exec_path, project, group, name, id = None):
 			Exception: {repr(e)}"""
 		)
 	
+	# W&B is ON by default. Without a login it falls back to an offline run (nothing is lost; upload
+	# later with `wandb sync wandb/offline-run-*`). Log in once with `wandb login` to sync live.
+	# An explicit WANDB_MODE (online/offline/disabled) always wins.
+	if not os.environ.get("WANDB_MODE"):
+		if _wandb_logged_in():
+			os.environ["WANDB_MODE"] = "online"
+		else:
+			os.environ["WANDB_MODE"] = "offline"
+			print("wandb: not logged in -> logging OFFLINE. Run `wandb login` once to sync online.")
+	print("wandb: mode = " + os.environ["WANDB_MODE"])
 	print("Calling wandb.init()...")
 	if not (id is None) and len(id) > 0:
 		wandb_run = wandb.init(project = project, group = group, name = name, id = id, resume = "allow")

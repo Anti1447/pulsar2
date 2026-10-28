@@ -1,3 +1,5 @@
+#include <csignal>
+#include <cstdlib>
 #include "Learner.h"
 
 #include <GigaLearnCPP/PPO/PPOLearner.h>
@@ -29,6 +31,17 @@
 #include <random>
 #include <thread>
 #include "Util/AvgTracker.h"
+
+namespace {
+	// SIGINT (Ctrl+C) / SIGTERM (run_trainer.sh --stop, systemctl stop, kill) act like pressing Q:
+	// the first one finishes the current iteration, saves a checkpoint and exits cleanly. A second
+	// one exits immediately without saving. The handler only touches an atomic (async-signal-safe).
+	std::atomic<int> g_stopSignals{0};
+	extern "C" void GGLStopSignalHandler(int) {
+		if (g_stopSignals.fetch_add(1) >= 1)
+			std::_Exit(130);
+	}
+}
 
 using namespace RLGC;
 
@@ -781,10 +794,16 @@ bool GGL::Learner::ReloadNewestCheckpointForRender(int64_t& loadedTimesteps) {
 void GGL::Learner::StartQuitKeyThread(std::atomic<bool>& quitPressed, std::thread& outThread) {
 	quitPressed = false;
 
+	g_stopSignals = 0;
+	if (!config.renderMode) { // the viewer keeps the default Ctrl+C / SIGTERM behaviour (just quit)
+		std::signal(SIGINT, GGLStopSignalHandler);
+		std::signal(SIGTERM, GGLStopSignalHandler);
+	}
+
 	// Detached runs (run_trainer.sh points stdin at /dev/null) have no terminal: the raw-mode
-	// reader would spin on EOF and spam termios errors. Stop via the runner or SIGTERM instead.
+	// reader would spin on EOF and spam termios errors. Stop via the runner (--stop), Ctrl+C or SIGTERM: all three save first.
 	if (!KeyPressDetector::HasTerminalInput()) {
-		RG_LOG("No interactive stdin; Q-to-save key listener disabled. Use the runner stop command or SIGTERM to stop.");
+		RG_LOG("No interactive stdin; Q key disabled. Stop with run_trainer.sh --stop (or press Q in --follow): it saves after the current iteration.");
 		return;
 	}
 
@@ -2910,7 +2929,9 @@ void GGL::Learner::Start() {
 				if (iterationCallback)
 					iterationCallback(this, report);
 
-				if (saveQueued || exitRequested) {
+				if (saveQueued || exitRequested || g_stopSignals.load() > 0) {
+					if (g_stopSignals.load() > 0 && !saveQueued)
+						RG_LOG("Stop signal received: iteration finished, saving a checkpoint, then exiting.");
 					// Never exit with a collection worker in flight
 					if (collectThread.joinable())
 						collectThread.join();
