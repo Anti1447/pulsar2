@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <GigaLearnCPP/Learner.h>
 
 #ifdef GGL_VIZ_RLBOT
@@ -1072,9 +1073,9 @@ int main(int argc, char* argv[]) {
 		// semantics unchanged). No automatic guard (the latch was removed
 		// 2026-07-25) - watch the Nexto panels. Expect to LOSE heavily at first -
 		// the goal-diff SLOPE is the signal, not the level. Revert = false.
-		cfg.externalOpponent.enabled = true;
+		cfg.externalOpponent.enabled = std::filesystem::exists("../rlbot-run/nexto/nexto-model.pt"); // Nexto is optional: without the model file this is plain self-play
 		cfg.externalOpponent.modelPath =
-			"/home/luca/Projects/pulsar2-3.0/rlbot-run/nexto/nexto-model.pt";
+			"../rlbot-run/nexto/nexto-model.pt";
 		cfg.externalOpponent.serveFrac = 0.15f;
 		// GGL_SMOKE: serve on most iterations so a short smoke exercises the
 		// adapter (obs port + action map + goal telemetry) deterministically.
