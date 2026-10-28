@@ -31,7 +31,7 @@ Step by step (`Learner.cpp` around lines 1440-1470, 1900-1920; `NextoOpponent.h/
 1. At the start of every training iteration the trainer rolls a random number. With probability
    `serveFrac = 0.15` (set in `src/ExampleMain.cpp`) this is a **serve iteration**. Otherwise it's normal self-play.
 2. On a serve iteration, **one team is picked at random (blue or orange) and Nexto plays it in every arena at once**
-   (all 256 games, or however many `numGames` is). Your bot plays the other team.
+   (all 1,024 games at the moment, or however many `numGames` is). Your bot plays the other team.
 3. Nexto is fed through an adapter: it builds Nexto's own observation from the game state, runs its model, and maps
    its 90 possible actions onto your bot's action table (the trainer refuses to start if any action can't be matched).
    Nexto starts each serve iteration "cold" (no memory of a previous action), like it does when it joins a real game.
@@ -58,7 +58,7 @@ Important properties:
   like a staircase if you zoom in, and why you can see no change for several iterations in a row.
 - **The level means little; the slope means a lot.** The code comments say the same thing. 487,597 goals for and
   471,341 against is just a running total. What matters is how fast each is growing relative to the other.
-- **Counts depend on how many arenas were running.** The run used 1,024 games early on and 256 later, and every
+- **Counts depend on how many arenas were running.** `numGames` is currently 1,024, and every
   arena can score, so an iteration with more arenas produces more goals. Compare ratios, not raw counts, across that change.
 - Every arena counts, including goals scored right after a kickoff and goals in arenas Nexto joined mid-play.
   (One code comment mentions skipping special "impossible-control" practice arenas; those are disabled in this
@@ -164,7 +164,7 @@ the streak counts evals, not iterations. Any eval below 1200 resets it to 0.
 - **It is one-way.** To go back, delete the marker file and restart. To force Phase B yourself, create the file and restart.
 - **The streak counter lives only in the training process.** Stopping and restarting resets it to 0 (the checkpoint is not affected).
   The dashboard shows when a restart threw away a streak.
-- **Phase B needs about twice the compute.** At 256 games, players per step go from 512 to about 1,022, so expect lower
+- **Phase B needs about twice the compute.** At 1,024 games, players per step go from 2,048 (all 1v1) to about 4,094, so expect lower
   steps per second and more GPU, CPU and fan load.
 - **1200 is not an absolute skill level.** The comments say `Rating/1v1` is inflated because it is measured against old copies of the bot.
   The 1200 figure was tuned for an earlier run's plateau of about 1250 to 1300, with eval noise of roughly +/-30 to 50.

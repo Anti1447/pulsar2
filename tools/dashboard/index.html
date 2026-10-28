@@ -337,10 +337,17 @@ function refreshSparks() {
 function keys() { return S ? S.keys : []; }
 function has(k) { return S && S.keys.indexOf(k) >= 0; }
 function singles(re) { return keys().filter(function (k) { return re.test(k); }).map(function (k) { return { keys: [k] }; }); }
-var OVERVIEW = [["Average Step Reward"], ["Policy Entropy"], ["Rating/1v1", "Rating/2v2", "Rating/3v3"], ["Overall Steps/Second"],
+var TEAM_WAIT = "No 2v2/3v3 rating yet. They start once Phase B is engaged and the first team eval runs. Each mode has its own scale (they start at 0), so they are not comparable with Rating/1v1.";
+var OVERVIEW = [["Average Step Reward"], ["Policy Entropy"], ["Rating/1v1"], ["Overall Steps/Second"],
   ["Nexto/Goals For", "Nexto/Goals Against"], ["Policy Update Magnitude", "Critic Update Magnitude"]];
 var PRESETS = {
-  overview: { label: "Overview", build: function () { return [{ name: "Overview", defs: OVERVIEW.map(function (ks) { return { keys: ks.filter(has) }; }).filter(function (d) { return d.keys.length; }) }]; } },
+  overview: { label: "Overview", build: function () {
+    var defs = OVERVIEW.map(function (ks) { return { keys: ks.filter(has) }; }).filter(function (d) { return d.keys.length; });
+    var at = defs.findIndex(function (d) { return d.keys[0] === "Rating/1v1"; }); at = at < 0 ? defs.length : at + 1;
+    defs.splice(at, 0, { keys: ["Rating/2v2"], emptyMsg: TEAM_WAIT }, { keys: ["Rating/3v3"], emptyMsg: TEAM_WAIT });
+    return [{ name: "Overview", defs: defs }]; } },
+  team: { label: "Team play", build: function () { return [{ name: "Team play: ratings by mode", defs: [
+    { keys: ["Rating/2v2"], emptyMsg: TEAM_WAIT }, { keys: ["Rating/3v3"], emptyMsg: TEAM_WAIT }, { keys: ["Rating/1v1"].filter(has) }].filter(function (d) { return d.keys.length; }) }]; } },
   learning: { label: "Learning", build: function () { return [{ name: "Learning health", defs: singles(/loss|update magnitude|entropy|kl|clip|grad|accuracy|corr|effrank|dead units|beta|residual/i) }]; } },
   skill: { label: "Skill & opponent", build: function () { return [{ name: "Skill & opponent", defs: singles(/^rating\/|^nexto\/|goals|win/i) }]; } },
   timing: { label: "Speed", build: function () { return [{ name: "Speed", defs: [{ keys: ["Collection Steps/Second", "Consumption Steps/Second", "Overall Steps/Second"].filter(has) },
@@ -434,7 +441,7 @@ Chart.prototype.render = function () {
   series.forEach(function (s) { var sp = document.createElement("span"); if (s.off) sp.className = "off"; sp.innerHTML = '<i style="background:' + s.color + '"></i>' + esc(s.key); sp.addEventListener("click", function () { self.hidden[s.key] = !self.hidden[s.key]; self.render(); }); self.legendEl.appendChild(sp); });
   var lastVals = series.filter(function (s) { return s.has; }).map(function (s) { for (var i = s.sm.length - 1; i >= 0; i--) { if (s.sm[i] != null) return s.sm[i]; } return null; });
   this.latestEl.textContent = series.length === 1 && lastVals.length ? fmtNum(lastVals[0]) : "";
-  if (!shown.length || xs.length === 0) { this.emptyEl.hidden = false; this.emptyEl.textContent = series.some(function (s) { return s.has; }) ? "All lines hidden." : "No data in this range."; this.geom = null; this.paint(); return; }
+  if (!shown.length || xs.length === 0) { this.emptyEl.hidden = false; this.emptyEl.textContent = series.some(function (s) { return s.has; }) ? "All lines hidden." : (this.def.emptyMsg || "No data in this range."); this.geom = null; this.paint(); return; }
   this.emptyEl.hidden = true;
   var m = { l: 56, r: 12, t: 8, b: 24 }, uselog = this.logy === null ? prefs.logy : this.logy;
   var xa = this.range && this.range.x0 != null ? this.range.x0 : xs[0], xb = this.range && this.range.x1 != null ? this.range.x1 : xs[xs.length - 1];
@@ -456,7 +463,7 @@ Chart.prototype.render = function () {
     if (this.def.refLabel) { g.fillStyle = C.muted; g.textAlign = "right"; g.textBaseline = "bottom"; g.fillText(this.def.refLabel, W - m.r - 4, ry - 3); } } }
   if (S && S.phaseB && S.phaseB.engaged && S.phaseB.engagedTs != null && prefs.axis === "ts" && S.phaseB.engagedTs >= xa && S.phaseB.engagedTs <= xb) {
     var vx = Math.round(X(S.phaseB.engagedTs)) + .5; g.save(); g.setLineDash([2, 3]); g.strokeStyle = C.accent; g.lineWidth = 1; g.beginPath(); g.moveTo(vx, m.t); g.lineTo(vx, H - m.b); g.stroke(); g.restore();
-    g.fillStyle = C.accent; g.textAlign = "left"; g.textBaseline = "top"; g.fillText("Phase B", vx + 3, m.t + 2); }
+    g.fillStyle = C.accent; g.textBaseline = "top"; if (vx > W - m.r - 56) { g.textAlign = "right"; g.fillText("Phase B", vx - 4, m.t + 2); } else { g.textAlign = "left"; g.fillText("Phase B", vx + 3, m.t + 2); } }
   g.save(); g.beginPath(); g.rect(m.l, m.t - 2, W - m.l - m.r, H - m.t - m.b + 4); g.clip();
   shown.forEach(function (s) {
     function path(arr) { g.beginPath(); var pen = false; for (var i = 0; i < arr.length; i++) { var v = arr[i]; if (v == null || (uselog && v <= 0)) continue; /* connect across rows where this metric was not logged (Rating/* only exists every ~16 iterations) */ var px = X(xs[i]), py = Y(v); if (!pen) { g.moveTo(px, py); pen = true; } else g.lineTo(px, py); } g.stroke(); }

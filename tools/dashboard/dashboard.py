@@ -57,6 +57,7 @@ class Store:
         self.lock = threading.RLock()
         self.xs, self.its, self.arr, self.fids = [], [], [], []
         self.phase_by_fid = {}
+        self._fid = 0
         self.cols = {}
         self.epoch = 0
         self.nan_keys = set()
@@ -66,6 +67,11 @@ class Store:
         self.stop_seen = False
         self.saving = False
         self.notes = deque(maxlen=60)  # interesting log lines (saves, stops, errors)
+
+    def next_fid(self):
+        with self.lock:
+            self._fid += 1
+            return self._fid
 
     def _rollback(self, ts):
         while self.xs and self.xs[-1] >= ts:
@@ -172,6 +178,8 @@ class Parser:
 
     def feed(self, line, live):
         line = line.rstrip("\r\n")
+        if line.startswith("[20") and "] launch #" in line:  # run_trainer.sh relaunched the trainer inside this same log file
+            self.fid = store.next_fid()
         if line.startswith("Team curriculum: PHASE"):
             store.phase_by_fid[self.fid] = line.split("PHASE", 1)[1].strip()[:1]
         if RULE.match(line):
@@ -229,8 +237,7 @@ class Tailer(threading.Thread):
         files = sorted(LOGS.glob("train-*.log")) if LOGS.is_dir() else []
         for f in files:  # history, oldest first (a restart from an older checkpoint rolls rows back)
             self.parser.reset()
-            self.fid += 1
-            self.parser.fid = self.fid
+            self.parser.fid = store.next_fid()
             self.path, self.off, self.partial = f, 0, b""
             try:
                 self.read_new(live=False)
@@ -244,8 +251,7 @@ class Tailer(threading.Thread):
                     if latest != self.path:
                         self.path, self.off, self.partial = latest, 0, b""
                         self.parser.reset()
-                        self.fid += 1
-                        self.parser.fid = self.fid
+                        self.parser.fid = store.next_fid()
                         store.stop_seen = store.saving = False
                     st = latest.stat()
                     store.log_path, store.file_mtime = str(latest), st.st_mtime

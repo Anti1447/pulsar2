@@ -50,7 +50,7 @@ Common knobs in `src/ExampleMain.cpp` (line numbers shift as you edit; use `grep
 grep -n 'cfg.numGames\|int tsPerItr\|miniBatchSize =' src/ExampleMain.cpp
 ```
 
-- `cfg.numGames` is the number of simulated arenas. More games means more CPU load, heat and fan noise. This clone currently uses **256**.
+- `cfg.numGames` is the number of simulated arenas. More games means more CPU load, heat and fan noise. This clone uses **1024**; with the GPU capped at 250 W the fan noise is tolerable at that size. Lower it (for example to 256 or 512) if it gets loud.
 - `miniBatchSize` must divide `tsPerItr` (200,000). If the GPU runs out of memory, lower it.
 - Do not change network layer sizes mid-run. Checkpoints and the RLBot client depend on them.
 
@@ -215,7 +215,7 @@ nvidia-smi -pl 350      # restore the RTX 3090 default
 
 These edits are not in the upstream repo; check `git diff` before pulling or switching branches:
 
-- `src/ExampleMain.cpp`: `cfg.numGames` lowered (now 256); Nexto opponent enabled only if its model file exists, with the path pointed at `rlbot-run/nexto/nexto-model.pt`; added `#include <filesystem>`.
+- `src/ExampleMain.cpp`: Nexto opponent enabled only if its model file exists, with the path pointed at `rlbot-run/nexto/nexto-model.pt`; added `#include <filesystem>`.
 - `cpp-interface/`: re-cloned at commit `8a7faf9` with `patches/cpp-interface/0001` and `0002` applied (the pinned commit is not on any remote).
 - `tools/viz/RocketSimVisWeb/`: checked out at `origin/pulsar-patches`.
 - `GigaLearnCPP/src/public/GigaLearnCPP/Learner.cpp`: SIGINT/SIGTERM now behave like Q (finish the iteration, save, exit 0; a second signal exits at once). Not active in render mode.
@@ -332,6 +332,7 @@ Then open **http://localhost:8766** (port 8766, so it does not clash with the ol
 - A crosshair and tooltip that follow the mouse across **all** charts at once. Click a legend entry to hide a line.
 - Search every metric by name (words match in any order); groups Overview, Learning, Skill & opponent, Speed, All metrics (grouped by prefix), and Pinned (use the star on any chart).
 - **Team curriculum card + tile:** shows the Phase B trigger (Rating/1v1 at or above 1200 on 3 evals in a row), the last six evals with a ✓/✕, and whether Phase B is already engaged. A dashed "Phase B trigger 1200" line is drawn on the Rating/1v1 chart, and once Phase B fires a vertical line marks the step where it started. The trainer does not log its own streak counter, so the dashboard rebuilds it from the ratings of the newest training process.
+- **Team play tab (2v2 / 3v3):** `Rating/2v2` and `Rating/3v3` each get their own chart (they start at 0 once Phase B's first team eval runs, and are on a different scale from `Rating/1v1`, so they are deliberately not drawn on one axis). The Overview tab shows them too.
 - Per chart: **table** (the numbers, with CSV download), **expand** (large view). "Export CSV" downloads every visible chart at full resolution.
 - Your choices (theme, zoom range, smoothing, pinned charts, columns) are remembered in the browser.
 
