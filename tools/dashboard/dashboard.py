@@ -55,7 +55,8 @@ class Store:
 
     def __init__(self):
         self.lock = threading.RLock()
-        self.xs, self.its, self.arr = [], [], []
+        self.xs, self.its, self.arr, self.fids = [], [], [], []
+        self.phase_by_fid = {}
         self.cols = {}
         self.epoch = 0
         self.nan_keys = set()
@@ -68,12 +69,12 @@ class Store:
 
     def _rollback(self, ts):
         while self.xs and self.xs[-1] >= ts:
-            self.xs.pop(); self.its.pop(); self.arr.pop()
+            self.xs.pop(); self.its.pop(); self.arr.pop(); self.fids.pop()
             for col in self.cols.values():
                 col.pop()
         self.epoch += 1
 
-    def add(self, m, arrival):
+    def add(self, m, arrival, fid=0):
         ts = m.get("Total Timesteps")
         if ts is None or not math.isfinite(ts):
             return
@@ -85,6 +86,7 @@ class Store:
             self.xs.append(ts)
             self.its.append(it if it is not None and math.isfinite(it) else (self.its[-1] + 1 if self.its else 1))
             self.arr.append(arrival)
+            self.fids.append(fid)
             self.nan_keys = set()
             for k, v in m.items():
                 if not math.isfinite(v):
@@ -163,12 +165,15 @@ class Parser:
 
     def __init__(self):
         self.in_block, self.cur = False, {}
+        self.fid = 0
 
     def reset(self):
         self.in_block, self.cur = False, {}
 
     def feed(self, line, live):
         line = line.rstrip("\r\n")
+        if line.startswith("Team curriculum: PHASE"):
+            store.phase_by_fid[self.fid] = line.split("PHASE", 1)[1].strip()[:1]
         if RULE.match(line):
             self.in_block, self.cur = True, {}
             return
@@ -188,7 +193,7 @@ class Parser:
         name, val = m.group(1).strip(), to_float(m.group(2))
         self.cur[name] = val
         if name == "Total Iterations":
-            store.add(self.cur, time.time() if live else None)
+            store.add(self.cur, time.time() if live else None, self.fid)
             self.in_block, self.cur = False, {}
 
 
@@ -196,6 +201,7 @@ class Tailer(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.parser, self.path, self.off, self.partial = Parser(), None, 0, b""
+        self.fid = 0
 
     @staticmethod
     def newest():
@@ -223,6 +229,8 @@ class Tailer(threading.Thread):
         files = sorted(LOGS.glob("train-*.log")) if LOGS.is_dir() else []
         for f in files:  # history, oldest first (a restart from an older checkpoint rolls rows back)
             self.parser.reset()
+            self.fid += 1
+            self.parser.fid = self.fid
             self.path, self.off, self.partial = f, 0, b""
             try:
                 self.read_new(live=False)
@@ -236,6 +244,8 @@ class Tailer(threading.Thread):
                     if latest != self.path:
                         self.path, self.off, self.partial = latest, 0, b""
                         self.parser.reset()
+                        self.fid += 1
+                        self.parser.fid = self.fid
                         store.stop_seen = store.saving = False
                     st = latest.stat()
                     store.log_path, store.file_mtime = str(latest), st.st_mtime
@@ -512,6 +522,70 @@ def build_status():
 
 # --------------------------------------------------------------------------------------------- state
 
+_pb = {"t": 0, "c": None}
+
+
+def phase_b_constants():
+    """Threshold, streak length and marker name, read from src/ExampleMain.cpp so they never drift from the trainer."""
+    if _pb["c"] and time.time() - _pb["t"] < 30:
+        return _pb["c"]
+    thr, need, marker = 1200.0, 3, "PHASE_B_ENGAGED"
+    try:
+        src = (REPO / "src" / "ExampleMain.cpp").read_text(errors="replace")
+        thr = float(re.search(r"PHASE_B_RATING_TRIGGER\s*=\s*([\d.]+)", src).group(1))
+        need = int(re.search(r"PHASE_B_TRIGGER_STREAK\s*=\s*(\d+)", src).group(1))
+        marker = re.search(r'PHASE_B_MARKER\s*=\s*"([^"]+)"', src).group(1)
+    except Exception:
+        pass
+    _pb.update(t=time.time(), c=(thr, need, marker))
+    return _pb["c"]
+
+
+def phase_b_info():
+    """The trainer's PHASE A -> B trigger: Rating/1v1 >= threshold on `need` consecutive evals. The trainer keeps that
+    counter in memory only and does not log it, so it is rebuilt here from the rating evals of the newest training
+    process (log file). `streakAll` ignores restarts, to show what a restart threw away."""
+    thr, need, marker = phase_b_constants()
+    mpath = BUILD / CKPT_NAME / marker
+    engaged, text, ts = mpath.exists(), None, None
+    if engaged:
+        try:
+            text = mpath.read_text().strip()
+        except Exception:
+            text = ""
+        m = re.search(r"engaged at ts (\d+)", text or "")
+        ts = int(m.group(1)) if m else None
+    with store.lock:
+        R = store.cols.get("Rating/1v1")
+        n = len(store.xs)
+        fid_last = store.fids[-1] if n else None
+        evals, streak, streak_all, cnt, cnt_all = [], 0, 0, True, True
+        if R:
+            i = n - 1
+            while i >= 0 and len(evals) < 12:
+                v = R[i]
+                if v is not None:
+                    ok = v >= thr
+                    evals.append({"iter": store.its[i], "steps": store.xs[i], "rating": v, "ok": ok})
+                    if cnt_all:
+                        if ok:
+                            streak_all += 1
+                        else:
+                            cnt_all = False
+                    if cnt:
+                        if ok and store.fids[i] == fid_last:
+                            streak += 1
+                        else:
+                            cnt = False
+                i -= 1
+        last_iter = store.its[-1] if n else None
+        phase = store.phase_by_fid.get(fid_last)
+    evals.reverse()
+    since = (last_iter - evals[-1]["iter"]) if evals and last_iter is not None else None
+    return {"threshold": thr, "need": need, "streak": min(streak, need), "streakAll": min(streak_all, need), "evals": evals,
+            "sinceLastEval": since, "engaged": engaged, "markerText": text, "engagedTs": ts, "phase": phase}
+
+
 def state():
     latest, p10, p60 = store.latest()
     with store.lock:
@@ -537,6 +611,7 @@ def state():
         "log": store.log_path, "notes": [{"t": t, "msg": m} for t, m in list(store.notes)[:8]],
         "checkpoints": cached("ckpt", 5, checkpoints), "releases": cached("rel", 5, releases),
         "wandb": cached("wandb", 3, wandb_info), "build": build_status(), "activity": list(activity)[:25],
+        "phaseB": phase_b_info(),
     }
 
 

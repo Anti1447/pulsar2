@@ -99,6 +99,7 @@ table{border-collapse:collapse;width:100%;font-size:12.5px}th,td{text-align:righ
   <div class="layout">
     <aside class="side" aria-label="Controls">
       <div class="card" id="trainCard"></div>
+      <div class="card" id="phaseCard"></div>
       <div class="card" id="ckptCard"></div>
       <div class="card" id="buildCard"></div>
       <div class="card"><h3>Activity</h3><ul class="log" id="log"><li class="muted">Nothing yet.</li></ul></div>
@@ -266,11 +267,42 @@ function renderSidebar() {
   (S.activity || []).slice().reverse().forEach(function (x) { var key = x.t + x.msg; if (seenActivity[key]) return; seenActivity[key] = 1; addLog(x.msg, x.err); });
 }
 
+/* ---------------- Phase B (team curriculum) ---------------- */
+function renderPhase() {
+  var c = $("phaseCard"), p = S.phaseB; if (!p) { c.hidden = true; return; } c.hidden = false; c.innerHTML = "";
+  var pips = ""; for (var i = 0; i < p.need; i++) pips += i < p.streak ? "●" : "○";
+  var head = document.createElement("div"); head.className = "card-head";
+  head.innerHTML = '<div><h3>Team curriculum</h3><div class="small muted">Phase A (1v1 only) → Phase B (1v1 + 2v2 + 3v3)</div></div><span class="state">' +
+    (p.engaged ? "Phase B engaged" : "Phase " + esc(p.phase || "A")) + "</span>";
+  c.appendChild(head);
+  if (p.engaged) {
+    var n = document.createElement("div"); n.className = "note";
+    n.textContent = "Phase B was engaged (" + (p.markerText || "marker file present") + "). It stays on until you delete build/checkpoints_5.3/PHASE_B_ENGAGED and restart."
+      + (p.phase === "A" && S.trainer.running ? " The running process still started in Phase A; the next restart switches." : "");
+    c.appendChild(n);
+  } else {
+    var big = document.createElement("div"); big.style.cssText = "display:flex;align-items:baseline;gap:10px";
+    big.innerHTML = '<span style="font-size:22px;letter-spacing:3px">' + pips + '</span><span><b>' + p.streak + " of " + p.need + "</b> evals at or above " + fmtNum(p.threshold) + "</span>";
+    c.appendChild(big);
+    var rows = document.createElement("ul"); rows.className = "list";
+    p.evals.slice(-6).forEach(function (e) { var li = document.createElement("li");
+      li.innerHTML = "<span>iteration " + Math.round(e.iter).toLocaleString() + " · " + esc(fmtSteps(e.steps)) + "</span><span>" + esc(e.rating.toFixed(1)) + " " + (e.ok ? "✓ at/above" : "✕ below") + "</span>"; rows.appendChild(li); });
+    c.appendChild(rows);
+    var m = document.createElement("div"); m.className = "small muted";
+    m.textContent = (p.sinceLastEval != null ? "Last eval " + p.sinceLastEval + " iteration" + (p.sinceLastEval === 1 ? "" : "s") + " ago; evals come about every 16 to 40 iterations. " : "")
+      + "Any eval below " + fmtNum(p.threshold) + " resets the streak to 0.";
+    c.appendChild(m);
+    if (p.streakAll > p.streak) { var w = document.createElement("div"); w.className = "note";
+      w.textContent = "A restart reset the counter: before it the streak was " + p.streakAll + " of " + p.need + ". The trainer only keeps this counter in memory."; c.appendChild(w); }
+    else { var w2 = document.createElement("div"); w2.className = "note"; w2.textContent = "The trainer keeps this counter in memory only: stopping and restarting training resets it to 0."; c.appendChild(w2); }
+  }
+}
+
 /* ---------------- tiles ---------------- */
 var TILES = [
   ["Total steps", "Total Timesteps", fmtSteps], ["Steps / second", "Overall Steps/Second", fmtNum], ["Average step reward", "Average Step Reward", fmtNum],
   ["Policy entropy", "Policy Entropy", fmtNum], ["Rating 1v1", "Rating/1v1", fmtNum], ["Nexto goal share", "@nexto", function (v) { return v == null ? "–" : (v * 100).toFixed(1) + "%"; }],
-  ["Policy update", "Policy Update Magnitude", fmtNum], ["Policy eff. rank", "Plasticity/Policy EffRank", fmtNum]];
+  ["Policy update", "Policy Update Magnitude", fmtNum], ["Policy eff. rank", "Plasticity/Policy EffRank", fmtNum], ["Phase B trigger", "@phaseb", String]];
 var sparkData = {};
 function nextoShare(L, P) { var f = L["Nexto/Goals For"], a = L["Nexto/Goals Against"], f0 = P["Nexto/Goals For"], a0 = P["Nexto/Goals Against"];
   if ([f, a, f0, a0].some(function (v) { return v == null; })) return null; var df = f - f0, da = a - a0; return df + da > 0 ? df / (df + da) : null; }
@@ -278,6 +310,10 @@ function renderTiles() {
   if (!S) return; var box = $("tiles"); box.innerHTML = ""; var L = S.latest, P = S.prev60;
   TILES.forEach(function (t) {
     var key = t[1], v, d = null, spark = sparkData[key];
+    if (key === "@phaseb") { var pb = S.phaseB; if (!pb) return; var tl = document.createElement("div"); tl.className = "tile";
+      var pp = ""; for (var q = 0; q < pb.need; q++) pp += q < pb.streak ? "●" : "○"; var lastE = pb.evals.length ? pb.evals[pb.evals.length - 1] : null;
+      tl.innerHTML = '<div class="label">Phase B trigger</div><div class="value">' + (pb.engaged ? "Engaged" : pb.streak + " / " + pb.need) + '</div><div class="foot">' +
+        (pb.engaged ? "team mix is on" : pp + " Rating/1v1 ≥ " + fmtNum(pb.threshold) + (lastE ? " · now " + lastE.rating.toFixed(0) : "")) + "</div>"; box.appendChild(tl); return; }
     if (key === "@nexto") { v = nextoShare(L, P); if (v == null) return; }
     else { if (!(key in L)) return; v = L[key]; var p = S.prev10[key]; d = p == null ? null : v - p; }
     var el = document.createElement("div"); el.className = "tile";
@@ -364,6 +400,7 @@ function refreshCharts() {
 /* ---------------- Chart ---------------- */
 var uid = 0, modalChart = null;
 function Chart(def) {
+  if (S && S.phaseB && def.keys.indexOf("Rating/1v1") >= 0 && def.ref == null) { def.ref = S.phaseB.threshold; def.refLabel = "Phase B trigger " + fmtNum(S.phaseB.threshold); }
   this.def = def; this.id = ++uid; this.view = null; this.data = null; this.visible = false; this.hidden = {}; this.logy = null; this.geom = null; this.sel = null;
   var el = this.el = document.createElement("div"); el.className = "chart";
   var title = def.keys.length === 1 ? def.keys[0] : def.keys.join(" · ");
@@ -415,9 +452,14 @@ Chart.prototype.render = function () {
   g.textAlign = "right"; yt.forEach(function (t) { var yy = Math.round(Y(t)) + .5; if (yy < m.t - 2 || yy > H - m.b + 2) return; g.beginPath(); g.moveTo(m.l, yy); g.lineTo(W - m.r, yy); g.stroke(); g.fillText(fmtNum(t), m.l - 6, yy); });
   g.textAlign = "center"; g.textBaseline = "top"; var fmtX = prefs.axis === "ts" ? fmtSteps : function (v) { return Math.round(v).toLocaleString(); };
   niceTicks(xa, xb, W < 420 ? 3 : 5).forEach(function (t) { if (t < xa || t > xb) return; g.fillText(fmtX(t), X(t), H - m.b + 6); });
+  if (this.def.ref != null) { var ry = Y(this.def.ref); if (ry >= m.t && ry <= H - m.b) { g.save(); g.setLineDash([5, 4]); g.strokeStyle = C.muted; g.lineWidth = 1; g.beginPath(); g.moveTo(m.l, Math.round(ry) + .5); g.lineTo(W - m.r, Math.round(ry) + .5); g.stroke(); g.restore();
+    if (this.def.refLabel) { g.fillStyle = C.muted; g.textAlign = "right"; g.textBaseline = "bottom"; g.fillText(this.def.refLabel, W - m.r - 4, ry - 3); } } }
+  if (S && S.phaseB && S.phaseB.engaged && S.phaseB.engagedTs != null && prefs.axis === "ts" && S.phaseB.engagedTs >= xa && S.phaseB.engagedTs <= xb) {
+    var vx = Math.round(X(S.phaseB.engagedTs)) + .5; g.save(); g.setLineDash([2, 3]); g.strokeStyle = C.accent; g.lineWidth = 1; g.beginPath(); g.moveTo(vx, m.t); g.lineTo(vx, H - m.b); g.stroke(); g.restore();
+    g.fillStyle = C.accent; g.textAlign = "left"; g.textBaseline = "top"; g.fillText("Phase B", vx + 3, m.t + 2); }
   g.save(); g.beginPath(); g.rect(m.l, m.t - 2, W - m.l - m.r, H - m.t - m.b + 4); g.clip();
   shown.forEach(function (s) {
-    function path(arr) { g.beginPath(); var pen = false; for (var i = 0; i < arr.length; i++) { var v = arr[i]; if (v == null || (uselog && v <= 0)) { pen = false; continue; } var px = X(xs[i]), py = Y(v); if (!pen) { g.moveTo(px, py); pen = true; } else g.lineTo(px, py); } g.stroke(); }
+    function path(arr) { g.beginPath(); var pen = false; for (var i = 0; i < arr.length; i++) { var v = arr[i]; if (v == null || (uselog && v <= 0)) continue; /* connect across rows where this metric was not logged (Rating/* only exists every ~16 iterations) */ var px = X(xs[i]), py = Y(v); if (!pen) { g.moveTo(px, py); pen = true; } else g.lineTo(px, py); } g.stroke(); }
     g.lineJoin = "round"; g.lineCap = "round";
     if (sm > 0) { g.globalAlpha = .28; g.strokeStyle = s.color; g.lineWidth = 1; path(s.raw); g.globalAlpha = 1; }
     g.strokeStyle = s.color; g.lineWidth = 2; path(sm > 0 ? s.sm : s.raw);
@@ -522,7 +564,7 @@ function poll() {
   getJSON("/api/state").then(function (s) {
     s.online = true; S = s; fetchedAt = performance.now();
     var dl = $("keyList"); if (dl.childElementCount !== s.keys.length) { dl.innerHTML = ""; s.keys.forEach(function (k) { var o = document.createElement("option"); o.value = k; dl.appendChild(o); }); }
-    renderHeader(); renderSidebar(); renderAlerts(); renderFresh();
+    renderHeader(); renderSidebar(); renderPhase(); renderAlerts(); renderFresh();
     if (!charts.length || structureSig() !== lastSig) buildGroups();
     var changed = s.rows !== prevRows || s.epoch !== prevEpoch; prevRows = s.rows; prevEpoch = s.epoch;
     renderTiles(); if (changed) { refreshSparks(); refreshCharts(); }

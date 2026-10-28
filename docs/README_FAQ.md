@@ -139,3 +139,34 @@ uses the RLBot match configs in `rlbot-run/` (for example `match_vs_nexto.toml`)
 - Nexto's actual skill level (the "SSL-level" claim comes from a code comment).
 - Whether the flattening around 85% means more Nexto exposure has stopped helping; that is a reading of the curve.
 - How the dashboard tile behaves while W&B is online; it is computed only from the local log.
+
+---
+
+## Phase B (team curriculum)
+
+### Does Phase B start automatically?
+
+Yes. The rule is in `src/ExampleMain.cpp` (`PHASE_B_RATING_TRIGGER = 1200`, `PHASE_B_TRIGGER_STREAK = 3`):
+**`Rating/1v1` must be at or above 1200 on 3 consecutive skill-tracker evals.** Evals happen every 16 to 40 iterations, so
+the streak counts evals, not iterations. Any eval below 1200 resets it to 0.
+
+### What happens when it fires?
+
+1. The trainer writes the marker file `build/checkpoints_5.3/PHASE_B_ENGAGED` (with the step and rating) and logs a "PHASE B ENGAGED" banner.
+2. It saves a checkpoint and exits with code 99. `run_trainer.sh` treats that as a crash and relaunches it a few seconds later.
+3. The relaunched process sees the marker and boots into Phase B on the same checkpoint (the observation size does not change):
+   - Training arenas go from all 1v1 to about a third each of 1v1, 2v2 and 3v3.
+   - `TEAM_SPIRIT` (how much teammates share reward) goes from 0.3 to 0.6.
+   - The skill tracker also evaluates 2v2 and 3v3, so `Rating/2v2` and `Rating/3v3` start to appear.
+
+### Things to know
+
+- **It is one-way.** To go back, delete the marker file and restart. To force Phase B yourself, create the file and restart.
+- **The streak counter lives only in the training process.** Stopping and restarting resets it to 0 (the checkpoint is not affected).
+  The dashboard shows when a restart threw away a streak.
+- **Phase B needs about twice the compute.** At 256 games, players per step go from 512 to about 1,022, so expect lower
+  steps per second and more GPU, CPU and fan load.
+- **1200 is not an absolute skill level.** The comments say `Rating/1v1` is inflated because it is measured against old copies of the bot.
+  The 1200 figure was tuned for an earlier run's plateau of about 1250 to 1300, with eval noise of roughly +/-30 to 50.
+- **Changing the threshold** means editing `PHASE_B_RATING_TRIGGER` and rebuilding with training stopped. The dashboard reads the
+  number from the source file, so it stays in sync.

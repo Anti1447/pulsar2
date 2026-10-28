@@ -331,6 +331,7 @@ Then open **http://localhost:8766** (port 8766, so it does not clash with the ol
 - Smoothing slider (wandb-style exponential average, raw line stays faint), log Y per chart or globally, "Trim outliers" for spiky metrics.
 - A crosshair and tooltip that follow the mouse across **all** charts at once. Click a legend entry to hide a line.
 - Search every metric by name (words match in any order); groups Overview, Learning, Skill & opponent, Speed, All metrics (grouped by prefix), and Pinned (use the star on any chart).
+- **Team curriculum card + tile:** shows the Phase B trigger (Rating/1v1 at or above 1200 on 3 evals in a row), the last six evals with a ✓/✕, and whether Phase B is already engaged. A dashed "Phase B trigger 1200" line is drawn on the Rating/1v1 chart, and once Phase B fires a vertical line marks the step where it started. The trainer does not log its own streak counter, so the dashboard rebuilds it from the ratings of the newest training process.
 - Per chart: **table** (the numbers, with CSV download), **expand** (large view). "Export CSV" downloads every visible chart at full resolution.
 - Your choices (theme, zoom range, smoothing, pinned charts, columns) are remembered in the browser.
 
