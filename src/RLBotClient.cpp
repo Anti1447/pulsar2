@@ -184,7 +184,7 @@ void RLBotClient::Run(const RLBotParams& params) {
 	RG_LOG("RLBotClient: connecting to RLBotServer at " << host << ":" << port << " as \"" << agentId << "\"...");
 
 	rlbot::BotManager<RLBotBot> manager{false /* batchHivemind */};
-	if (!manager.connect(host, port, agentId, true /* request ball prediction */))
+	if (!manager.connect(host, port, agentId, false /* ball prediction unused; requesting it floods the socket */))
 		RG_ERR_CLOSE("RLBotClient: failed to connect to RLBotServer at " << host << ":" << port);
 
 	// connect() returns once connected; the manager blocks on its service threads until

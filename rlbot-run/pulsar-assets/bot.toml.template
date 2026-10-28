@@ -1,0 +1,42 @@
+#:schema https://rlbot.org/schemas/agent.json
+[settings]
+# Must match how the checkpoint was trained (see RLBotMain.cpp)
+# The name that will be displayed in game
+name = "Pulsar2 @TAG@"
+# Path to loadout config from runner
+loadout_file = "loadout.toml"
+# (OPTIONAL) - what you want the working directory set to
+# This is relative to the location of this file
+# instead of setting to an empty string,
+# this value can be removed from the file
+root_dir = "./"
+# Start your bot with run.bat so it can set the path to libtorch
+# You may get errors trying to run the .exe directly
+run_command = '.\run_wsl.bat'
+# The command RLBot will call to start your bot on linux
+run_command_linux = "./run.sh"
+# This is the path to your bot's logo image,
+# which will be displayed in the GUI
+# The example bot does not have a logo
+logo_file = "pulsar.jpg"
+# This must be a unqiue identifier for your bot
+# recommended format is "developer/botname"
+agent_id = "pulsar2/gigalearn/@TAG@"
+hivemind = false
+
+# These values are optional but useful metadata for helper programs
+[details]
+# Short description of the bot
+description = "GigaLearn C++ PPO bot (pulsar2), @TAG@, checkpoint @STEP@. Runs inside WSL2."
+# Fun fact about the bot
+fun_fact = "Made with GigaLearn"
+# Link to your repository
+source_link = ""
+# Name of the bot's creator/developer
+developer = "Luca/Anti1447"
+# Programming language
+language = "C++"
+# ALL POSSIBLE TAGS: 1v1, teamplay, goalie, hoops, dropshot, snow-day, rumble, spike-rush, heatseeker, memebot
+# NOTE: Only add the goalie tag if your bot only plays as a goalie; this directly contrasts with the teamplay tag!
+# NOTE: Only add a tag for a special game mode if you bot properly supports it
+tags = ["1v1", "ml", "ppo"]
