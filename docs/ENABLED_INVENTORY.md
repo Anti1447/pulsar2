@@ -121,9 +121,11 @@ smoke: trunk 927/1152, policy 88/90, 0 dead units.
 ## 8. Reward stack (live weights)
 
 BallToGoal **75**, TouchAccel 10, Demo 37.5, BallProximity 4, GuardedPickupBoost 6,
-AerialTouch **120**, AirIntercept **75**, ConsecutiveAirTouch 30, WallJumpToBall 30,
-FlipReset 40, AirReward 0.45, OpposedSave 25, **CarEnergy 75**, TimeCost 0.01,
-TeamPressure 0.15, KickoffRace 25, Goal 150.
+AerialTouch **120**, AirIntercept **75**, ConsecutiveAirTouch **40**, WallJumpToBall **60**,
+OpposedSave 25, **CarEnergy 75**, TimeCost 0.01, TeamPressure 0.15, KickoffRace 60, Goal 150.
+(Re-read from `ExampleMain.cpp` 2026-10-27; FlipReset and AirReward are no longer in the stack.
+ConsecutiveAirTouch/WallJumpToBall were raised from 30/30 and are unmeasured at the new weights -
+`REWARD_SHAPING.md` section 3.4 reflects 30/30.)
 
 **Open (two):** `CarEnergy 15 → 75` is recorded but unmeasured on this lineage — extrapolation
 from `REWARD_SHAPING.md` puts it near 60% of per-step credit density. And six SCAFFOLD weights

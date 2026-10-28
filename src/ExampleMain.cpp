@@ -251,6 +251,22 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// stack average since it only fires on kickoff resets.
 		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 60.f },
 
+		// CONSECUTIVE AIR TOUCHES (2026-10-27): chain of airborne touches without landing
+		// (aerial dribble / juggle). Exact PBRS: Phi = 1 - exp(-(streak-1)/2); landing refunds
+		// the whole chain, so tap-land-tap nets ~0 and it cannot be farmed. Pays nothing for a
+		// lone air touch (AerialTouch's job), so it only matters once first aerial touches
+		// exist. 40 = chain total stays well under AerialTouch 120 per strike. Measured
+		// 12% of credit density at 30 in REWARD_SHAPING.md §3.4. Watch Rewards/ConsecutiveAirTouchReward.
+		{ new ZeroSumReward(new ConsecutiveAirTouchReward(gamma), TEAM_SPIRIT), 40.f },
+			
+		// WALL-JUMP-TO-BALL (2026-10-27): exact PBRS, active only after leaving a wall into
+		// the air, Phi = exp(-dist/1410). Rewards wall exits toward the ball; exits away from
+		// it pay ~0. Measured only 0.064% of credit density (fires ~5e-4 per player-step), so it is a
+		// cheap option on a skill the bot rarely shows, not a driver. Gate to watch:
+		// Player/Wall Drive Frac - if it's ~0 the bot never reaches the walls and this term
+		// cannot fire. NEVER gate (breaks telescoping).
+		{ new ZeroSumReward(new WallJumpToBallReward(gamma), TEAM_SPIRIT), 60.f },
+
 		// The objective. Scorer +150 / conceder -150, exactly zero-sum.
 		{ new GoalReward(), 150 }
 	};

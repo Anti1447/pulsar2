@@ -334,7 +334,7 @@ namespace RLGC {
 	// The bot can do this slowly (putting) or quickly (shooting)
 	class TouchAccelReward : public Reward {
 	public:
-		constexpr static float MAX_REWARDED_BALL_SPEED = RLGC::Math::KPHToVel(110);
+		constexpr static float MAX_REWARDED_BALL_SPEED = RLGC::Math::KPHToVel(130);
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!state.prev)
