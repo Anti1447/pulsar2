@@ -4,6 +4,7 @@
 #include "PPO/PPOLearnerConfig.h"
 #include "SkillTrackerConfig.h"
 
+#include <filesystem>
 #include <memory>
 
 namespace GGL {
@@ -58,6 +59,92 @@ namespace GGL {
 		bool enabled = false;
 		std::string modelPath = {};  // TorchScript module (Nexto's nexto-model.pt)
 		float serveFrac = 0.15f;     // per-iteration serve probability
+	};
+
+	// EXPLOITER RUN (ported from RLGymBot_v3, docs/EXPLOITERS.md): this process trains only against frozen opponents
+	// and reports how well it beats them. Set up by ConfigureExploiter() in ExampleMain.cpp; the launcher there fills
+	// role, leaguePool and the restart candidates.
+	struct ExploiterConfig {
+		bool enabled = false;                          // True = this process is an exploiter run
+		std::filesystem::path snapshotFolder = {};     // Main checkpoint to exploit (copied to <checkpointFolder>/snapshot on first start)
+		std::filesystem::path sourceCheckpointFolder = {}; // Where the launcher takes new snapshots from; unused by the Learner
+
+		// "main" plays the snapshot only; "league" plays the snapshot plus every checkpoint in leaguePool
+		std::string role = "main";
+		std::vector<std::filesystem::path> leaguePool = {};
+		std::vector<std::string> slotRoles = { "main", "league" }; // One process per slot (tools/run_exploiter.sh --slot N)
+		float mainComputeShare = 0.5f;                 // Running together: main gets this share of numGames, the slots split the rest
+		float togetherGamesScale = 1.0f;               // Running together: numGames is scaled by this before the split
+		// Running together: cap on each process's share of GPU memory (LearnerConfig::cudaMemoryFraction). Without it three
+		// trainers can overfill VRAM, and on WSL/WDDM that doesn't OOM - it spills to system RAM and everything stalls.
+		float mainVramFraction = 0;                    // 0 = no cap
+		float slotVramFraction = 0;
+		int leagueMaxMain = 16;                        // League capacity: newest main policy versions...
+		int leagueMaxExploiters = 16;                  // ...plus newest finished exploiters (both roles)
+
+		// Policy LR starts at policyLR * policyLRStartScale; once the critic's explained variance first reaches
+		// explainedVarThreshold it ramps linearly to policyLR over policyLRRampSteps
+		float policyLRStartScale = 0.1f;
+		float explainedVarThreshold = 0.5f;
+		int64_t policyLRRampSteps = 100'000'000;
+
+		// Deterministic evals (ExploiterEval): games split evenly across modes, headline = mean of the per-mode rates
+		// (league: uniform mean over opponents). Training goals stay stochastic (Exploiter/Rolling Win Rate).
+		int evalArenas = 12;                           // Eval arenas, laid out by evalEnvCreateFn (a multiple of the mode count)
+		RLGC::EnvCreateFn evalEnvCreateFn = nullptr;   // Set by ExampleMain: equal arenas per mode
+		float evalMaxGameTime = 300;                   // Seconds before an eval game without a goal counts as a draw
+		int evalGames = 504;                           // Final / periodic eval, total across modes
+		int64_t tsPerEval = 500'000'000;
+		int rollingWinRateGoals = 2000;                // Training goals in the rolling (stochastic) win rate window
+		int64_t maxTimesteps = 500'000'000;            // Step cap: final eval, save, finish (0 = run until stopped)
+
+		float opponentLossFloor = 0.05f;               // League sampling weight = loss rate + this, so none drops to 0
+		float opponentLossAlpha = 0.1f;                // How fast an opponent's loss rate follows new results
+
+		// Early stop: every earlyStopInterval steps, a deterministic eval of earlyStopGames vs the target; the run ends
+		// (FINISHED, reason "win_rate") once the headline reaches earlyStopWinRate. 0 = off.
+		float earlyStopWinRate = 0.70f;
+		int earlyStopGames = 192;                      // 64 per mode
+		int64_t earlyStopInterval = 25'000'000;
+
+		// Adaptive restart (fresh runs only): each candidate (an unused, finished same-role exploiter) plays restartGames
+		// vs the target; the one inside [restartMinWinRate, restartMaxWinRate] closest to the max becomes the starting
+		// weights, otherwise the snapshot
+		std::vector<std::filesystem::path> restartCandidates = {};
+		std::vector<std::string> restartCandidateNames = {};
+		int restartGames = 96;
+		int restartMaxCandidates = 8;                  // Newest ones only, so a long history can't stall a start
+		float restartMinWinRate = 0.2f, restartMaxWinRate = 0.5f;
+	};
+
+	// Main run: train and evaluate against finished exploiters from exploitersFolder (ExploiterPool.h).
+	// Unused by exploiter runs.
+	struct ExploiterPoolConfig {
+		bool enabled = false;
+		std::filesystem::path exploitersFolder = {};   // Where exploiter runs live; CONTROL.json there can change trainShare live
+
+		// Share of ALL iterations played against a training exploiter (when there is one). Taken out of the old-version
+		// share, so total non-self exposure is unchanged (see the opponent cascade in Learner.cpp)
+		float trainShare = 0.15f;
+		float admitMinWinRate = 0.0f;   // Exploiter's final eval vs its target needed to join (0 = all join)
+		float retireWinRate = 0.60f;    // Main's eval win rate vs a training exploiter that counts toward retiring it...
+		int retireConsecutive = 0;      // ...this many evals in a row (0 = never retire)
+		int maxTraining = 0;            // Training exploiters at once (0 = no limit)
+		int heldOutEvery = 3;           // Every Nth admitted exploiter is held out (never trained against)
+		float lossFloor = 0.05f;        // Training exploiters are picked with weight = main's loss rate vs it + this
+		float lossAlpha = 0.1f;
+		// "Mastered": main beat it at least this often in its last eval (0 = off): its sampling weight is scaled by
+		// masteredWeightScale and it's evaluated every tsPerRetiredEval until main drops below the bar again
+		float masteredWinRate = 0.60f;
+		float masteredWeightScale = 0.25f;
+
+		int scanInterval = 50;          // Iterations between scans for newly finished exploiters (and CONTROL.json re-reads)
+		int evalArenas = 12;
+		RLGC::EnvCreateFn evalEnvCreateFn = nullptr;
+		int evalGames = 252;            // Deterministic games per eval, per exploiter, total across modes
+		float evalMaxGameTime = 300;
+		int64_t tsPerEval = 500'000'000;          // Evals vs training and held-out exploiters
+		int64_t tsPerRetiredEval = 2'000'000'000; // Forgetting checks vs retired and mastered exploiters
 	};
 
 	// https://github.com/AechPro/rlgym-ppo/blob/main/rlgym_ppo/learner.py
@@ -169,6 +256,9 @@ namespace GGL {
 		bool bootSanityCheckEnabled = true;
 		float bootSanityMinRating = 400.0f;
 		LearnerDeviceType deviceType = LearnerDeviceType::AUTO; // Auto will use your CUDA GPU if available
+		// Max share of total GPU memory libtorch's caching allocator may hold (0 = no cap). Going over raises a CUDA OOM
+		// instead of silently growing - what you want when several trainers share one GPU.
+		float cudaMemoryFraction = 0;
 
 		// Allow TF32 tensor-core matmuls on CUDA (Ampere+/Blackwell). libtorch defaults cuBLAS
 		// TF32 to OFF, so without this the dense MLPs run strict fp32 and never touch the
@@ -232,5 +322,9 @@ namespace GGL {
 
 		// External fixed opponent (Nexto); additive and default-OFF
 		ExternalOpponentConfig externalOpponent = {};
+
+		// Exploiter stack (docs/EXPLOITERS.md); both default-OFF
+		ExploiterConfig exploiter = {};
+		ExploiterPoolConfig exploiterPool = {};
 	};
 }

@@ -9,6 +9,10 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
+
+#include "ExploiterLauncher.h"
+#include <GigaLearnCPP/ExploiterFiles.h>
 
 #include <RLGymCPP/Rewards/CommonRewards.h>
 #include <RLGymCPP/Rewards/ZeroSumReward.h>
@@ -298,6 +302,10 @@ static int g_SkillArenas3v3 = 0;
 static bool g_PhaseB = false;
 static int g_PhaseBStreak = 0;
 
+// EXPLOITER RUN (--exploiter-auto / --slot N; docs/EXPLOITERS.md): goal-only reward, kickoff-only resets, and always
+// the PHASE B fleet (1v1/2v2/3v3), whatever the main run's phase. Set in main() before the Learner is built.
+static bool g_ExploiterMode = false;
+
 
 // Render mode only (GGL_RENDER_TEAM_SIZE, set in main()): the viewer's single arena plays
 // this team size regardless of the curriculum split. 0 = not in render mode. The padded obs
@@ -359,6 +367,16 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 	// (44%, touches above goal height) but from the GROUND converts 0/300 (jumps 98%,
 	// reaches z>500 only 9%): the jump->boost-climb transition was never in the training
 	// (D=0) toward grounded takeoff (D=1), gated on the live aerial-conversion EMA.
+	if (g_ExploiterMode) {
+		// Exploiters (ported from RLGymBot_v3): goals scored/conceded only and natural kickoffs only. An exploiter's
+		// job is to WIN against a frozen target, so main's shaping (which describes how main should play) would only
+		// pull it back toward main's own style. Same terminal conditions as main.
+		result.stateSetter = new KickoffState();
+		result.terminalConditions = terminalConditions;
+		result.rewards = { { new GoalReward(), 1.f } };
+		result.arena = arena;
+		return result;
+	}
 	AirDrillState* airDrill = new AirDrillState();
 	result.stateSetter = new CombinedState({
 		// Ground touch bootstrap - the proven anti-freeze state
@@ -425,6 +443,134 @@ EnvCreateResult SkillEnvCreateFunc(int index) {
 	return MakeEnv(playersPerTeam, false);
 }
 
+// Create-func for the exploiter stack's deterministic eval arenas (ExploiterEval): 1v1 / 2v2 / 3v3 in rotation, so
+// every mode gets the same number of arenas and the per-mode quotas stay even. Used by exploiter runs (vs their
+// target) and by the main run (vs imported exploiters); the eval overwrites rewards, state setters and terminals.
+EnvCreateResult ExploiterEvalEnvCreateFunc(int index) {
+	return MakeEnv(1 + index % MAX_PLAYERS_PER_TEAM, false);
+}
+
+// === EXPLOITER SETTINGS (ported from RLGymBot_v3's ConfigureExploiterSettings; docs/EXPLOITERS.md) ===
+// Exploiter runs: tools/run_exploiter.sh --slot N (./GigaLearnBot --exploiter-auto --slot N) trains exploiters back to
+// back. Slot 0 is the MAIN exploiter (plays a frozen snapshot of the newest main checkpoint); slot 1 is the LEAGUE
+// exploiter (plays the snapshot plus the newest main policy versions and finished exploiters, the ones it loses to
+// most). Plain ./GigaLearnBot is main training, which imports finished exploiters through the exploiter pool.
+// Live switches without restarting anything: build/exploiters/CONTROL.json.
+static void ConfigureExploiterSettings(LearnerConfig& cfg) {
+	cfg.exploiter.sourceCheckpointFolder = cfg.checkpointFolder; // Main run's checkpoints, where new snapshots come from
+	cfg.exploiter.slotRoles = { "main", "league" };
+	cfg.exploiter.mainComputeShare = 0.5f;      // Together: main gets half of numGames, the two slots a quarter each
+	cfg.exploiter.togetherGamesScale = 0.875f;  // ...of 1024 * 0.875 = 896: main 448, slots 224 each
+	// VRAM caps, of the 3090's 24 GiB, sized so all three stay under 90% of the card: Windows holds 2.5-3.6 GiB and
+	// each process's CUDA context ~0.5 GiB on top of these, so 0.36 + 2 * 0.16 lands at <= ~21.6 GiB. Measured
+	// 2026-10-31 (after the collect-stream fix in Learner.cpp): main at a 12.5k minibatch peaks ~5.8 GiB allocated
+	// (~9.5 GiB reserved on its every-16th-iteration eval spike; the allocator frees cache before OOMing at the cap).
+	// Main also halves its miniBatchSize when together (see the split below).
+	cfg.exploiter.mainVramFraction = 0.36f;
+	cfg.exploiter.slotVramFraction = 0.16f;
+	cfg.exploiter.leagueMaxMain = 16;           // League capacity: 16 newest main policy versions...
+	cfg.exploiter.leagueMaxExploiters = 16;     // ...+ 16 newest finished exploiters (32 combined, plus the snapshot)
+
+	// A run ends at whichever comes first, then writes SUMMARY.json + FINISHED (main can import it) and the slot's
+	// wrapper starts the next run
+	cfg.exploiter.maxTimesteps = 500'000'000;   // Step cap (raise to 1B later; 0 = run until stopped)
+	cfg.exploiter.earlyStopWinRate = 0.70f;     // Deterministic headline vs the target (mean over 1v1/2v2/3v3)...
+	cfg.exploiter.earlyStopGames = 192;         // ...of this many games (64 per mode)...
+	cfg.exploiter.earlyStopInterval = 25'000'000; // ...every this many exploiter steps
+	cfg.exploiter.evalGames = 504;              // Step-0 baseline, periodic and final evals (168 per mode)
+	cfg.exploiter.tsPerEval = 500'000'000;
+	cfg.exploiter.evalArenas = 12;              // 4 per mode
+	cfg.exploiter.evalEnvCreateFn = ExploiterEvalEnvCreateFunc;
+
+	cfg.exploiter.policyLRStartScale = 0.1f;    // Policy LR starts at 10%...
+	cfg.exploiter.explainedVarThreshold = 0.5f; // ...until the critic explains half the (goal-only) return variance...
+	cfg.exploiter.policyLRRampSteps = 100'000'000; // ...then ramps to 100% over this many steps
+	cfg.exploiter.opponentLossFloor = 0.05f;    // League opponent weight = loss rate + this, so none drops to zero
+
+	// Adaptive restart: a new run starts from an unused, finished exploiter of the same role that wins 20-50% vs the
+	// role's target (closest to 50%), else from the main snapshot
+	cfg.exploiter.restartGames = 96;            // Per candidate (32 per mode)
+	cfg.exploiter.restartMaxCandidates = 8;
+	cfg.exploiter.restartMinWinRate = 0.20f;
+	cfg.exploiter.restartMaxWinRate = 0.50f;
+
+	// Main run's exploiter pool (unused by exploiter runs). Every finished exploiter joins; every 3rd is held out as
+	// an honest exploitability check; ones main beats >= 60% get 1/4 weight and rare (2B) forgetting checks.
+	cfg.exploiterPool.enabled = true;
+	cfg.exploiterPool.exploitersFolder = cfg.checkpointFolder.parent_path() / "exploiters";
+	cfg.exploiterPool.trainShare = 0.15f;       // Of ALL iterations, taken from the old-version share (CONTROL.json overrides live)
+	cfg.exploiterPool.admitMinWinRate = 0.0f;
+	cfg.exploiterPool.retireConsecutive = 0;    // Never retired: loss-weighted sampling plays the ones main beats less often
+	cfg.exploiterPool.maxTraining = 0;          // No limit
+	cfg.exploiterPool.heldOutEvery = 3;
+	cfg.exploiterPool.masteredWinRate = 0.60f;
+	cfg.exploiterPool.masteredWeightScale = 0.25f;
+	cfg.exploiterPool.evalGames = 252;          // 84 per mode
+	cfg.exploiterPool.evalArenas = 12;
+	cfg.exploiterPool.evalEnvCreateFn = ExploiterEvalEnvCreateFunc;
+	cfg.exploiterPool.tsPerEval = 500'000'000;
+	cfg.exploiterPool.tsPerRetiredEval = 2'000'000'000;
+
+	// GGL_SMOKE re-application (after the production values, per this file's rule): small evals on a short cadence so
+	// a CPU-scale smoke exercises snapshot -> eval -> finish -> SUMMARY -> import -> restart within a few iterations.
+	// Never set on the trainer.
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0") {
+		cfg.exploiter.earlyStopInterval = 50'000;
+		cfg.exploiter.earlyStopGames = 12;
+		cfg.exploiter.evalGames = 12;
+		cfg.exploiter.restartGames = 12;
+		cfg.exploiter.evalMaxGameTime = 30;
+		cfg.exploiter.tsPerEval = 100'000;
+		cfg.exploiter.maxTimesteps = 150'000;
+		cfg.exploiterPool.scanInterval = 2;
+		cfg.exploiterPool.evalGames = 12;
+		cfg.exploiterPool.evalMaxGameTime = 30;
+		cfg.exploiterPool.tsPerEval = 50'000;
+		RG_LOG("GGL_SMOKE: exploiter evals 12 games / 30s caps, early stop every 50k, step cap 150k, pool scan every 2 iters");
+	}
+}
+
+// Turns this process into an exploiter run (called by main() after the launcher picked the run). Called AFTER every
+// main-run setting is in place, so the scalings below are relative to main's live values.
+static void ConfigureExploiter(LearnerConfig& cfg, const std::filesystem::path& snapshotFolder, const std::string& name,
+	const std::string& role) {
+	// Own folder next to the main run's, never the main checkpoint folder
+	cfg.checkpointFolder = cfg.checkpointFolder.parent_path() / "exploiters" / name;
+
+	cfg.exploiter.enabled = true;
+	cfg.exploiter.role = role;
+	cfg.exploiter.snapshotFolder = snapshotFolder;
+	cfg.exploiterPool.enabled = false;           // Exploiter runs don't import other exploiters
+
+	// Entropy at 0.4x MAIN's coefficient, derived (not hard-coded) so a change to main's carries over. Goal-only
+	// rewards give a much weaker policy signal than main's shaped stack, so main's coefficient lets the entropy bonus
+	// win and sampled play spreads out (RLGymBot_v3 measured the ratio and tuned it to 0.4x).
+	float mainEntropy = cfg.ppo.entropyScale;
+	cfg.ppo.entropyScale = mainEntropy * 0.4f;
+	RG_LOG("Exploiter entropyScale " << cfg.ppo.entropyScale << " (0.4x main's " << mainEntropy << ")");
+
+	// Opponents come from the exploiter's own frozen set only: no self-play pool, no Nexto, no Elo ladder, no
+	// best-rated archive (all of those describe MAIN)
+	cfg.trainAgainstOldVersions = false;
+	cfg.savePolicyVersions = false;
+	cfg.skillTracker.enabled = false;
+	cfg.externalOpponent.enabled = false;
+	cfg.bestCheckpointsToKeep = 0;
+
+	// SLIMMED for VRAM (three trainers share one 24 GB card; one full Pulsar2 trainer peaks ~9.5-13.5 GB): the
+	// auxiliary learners that only shape or measure MAIN are off, and the minibatch is halved. The policy, shared
+	// trunk and critic are untouched, so main's snapshot loads and main can load the exploiter back as an opponent.
+	cfg.ppo.reachability.enabled = false;
+	cfg.ppo.goalCritic.enabled = false;
+	cfg.ppo.vdagEnabled = false;
+	cfg.ppo.geoEnabled = false;
+	cfg.gapSensor.enabled = false;
+	cfg.ppo.miniBatchSize /= 2;                  // Must still divide batchSize (200k / 12.5k)
+
+	cfg.metricsGroupName = "exploiters";
+	cfg.metricsRunName = "exploiter-" + name;
+}
+
 void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
 	// To prevent expensive metrics from eating at performance, we will only run them on 1/4th of steps
 	// This doesn't really matter unless you have expensive metrics (which this example doesn't)
@@ -464,6 +610,46 @@ int main(int argc, char* argv[]) {
 	// not part of the regression). Under tools/run_trainer.sh stdout is a log file, so glibc
 	// block-buffers; unitbuf flushes after every insertion so --follow behaves like a terminal.
 	std::cout << std::unitbuf;
+
+	// Exploiter-stack options (docs/EXPLOITERS.md). Plain launches are main training. --exploiter-auto (what
+	// tools/run_exploiter.sh passes) resumes the slot's active exploiter or starts one from the newest main checkpoint;
+	// --exploiter, --exploiter-name, --new-exploiter, --exploiter-steps and --slot also make it an exploiter run.
+	// --together / --alone: whether main and the exploiter slots share this machine (compute split) or this run is alone.
+	std::string exploiterSnapshotArg, exploiterNameArg;
+	int64_t exploiterStepsArg = 0;
+	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
+	bool runTogether = false, slotGiven = false;
+	int exploiterSlot = 0;
+	for (int i = 1; i < argc; i++) {
+		std::string arg = argv[i];
+		if (arg == "--exploiter" && i + 1 < argc) {
+			exploiterSnapshotArg = argv[++i];  // Main checkpoint folder to exploit, e.g. checkpoints_5.3/7467947161
+		} else if (arg == "--exploiter-name" && i + 1 < argc) {
+			exploiterNameArg = argv[++i];
+		} else if (arg == "--exploiter-steps" && i + 1 < argc) {
+			exploiterStepsArg = std::stoll(argv[++i]); // Final eval, save and finish at this many timesteps
+		} else if (arg == "--exploiter-auto") {
+			exploiterAuto = true;
+		} else if (arg == "--new-exploiter") {
+			newExploiter = true;
+		} else if (arg == "--finish-exploiter" || arg == "--discard-exploiter") {
+			(arg == "--finish-exploiter" ? finishExploiter : discardExploiter) = true;
+			if (i + 1 < argc && argv[i + 1][0] != '-')
+				exploiterNameArg = argv[++i];
+		} else if (arg == "--slot" && i + 1 < argc) {
+			exploiterSlot = std::atoi(argv[++i]);
+			slotGiven = true;
+		} else if (arg == "--together" || arg == "--alone") {
+			runTogether = (arg == "--together");
+		} else {
+			std::cout << "Unknown argument \"" << arg << "\". Options: --exploiter-auto, --slot <N>, --new-exploiter, "
+				<< "--exploiter <checkpoint folder>, --exploiter-name <name>, --exploiter-steps <N>, "
+				<< "--finish-exploiter [name], --discard-exploiter [name], --together, --alone\n";
+			return 1;
+		}
+	}
+	bool exploiterRunArg = exploiterAuto || !exploiterSnapshotArg.empty() || !exploiterNameArg.empty() || newExploiter
+		|| exploiterStepsArg > 0 || slotGiven;
 
 	// Initialize RocketSim with collision meshes (run from the repo/build dir;
 	// provision them with tools/get_collision_meshes.sh if missing)
@@ -1107,9 +1293,95 @@ int main(int argc, char* argv[]) {
 		cfg.gapSensor.enabled = true; // arch parity only; Learn() never runs in render
 	}
 
+	// ===== EXPLOITER STACK (ported from RLGymBot_v3; docs/EXPLOITERS.md) =====
+	// After every main-run setting above, so an exploiter run's scalings (entropy, minibatch, compute share) are
+	// relative to main's live values.
+	ConfigureExploiterSettings(cfg);
+	std::filesystem::path exploitersRoot = cfg.exploiterPool.exploitersFolder;
+	int numSlots = (int)cfg.exploiter.slotRoles.size();
+	if (exploiterSlot < 0 || exploiterSlot >= numSlots) {
+		std::cout << "[EXPLOITER] There's no slot " << exploiterSlot << " (slots are 0 to " << numSlots - 1 << "). Not starting.\n";
+		return 1;
+	}
+	const std::string exploiterRole = cfg.exploiter.slotRoles[exploiterSlot];
+	if (finishExploiter || discardExploiter)
+		return FinishExploiterCommand(exploitersRoot, exploiterNameArg, discardExploiter, cfg.exploiterPool.admitMinWinRate,
+			ActiveFileName(exploiterSlot));
+	if (exploiterRunArg && cfg.renderMode) {
+		std::cout << "[CONFIG] Exploiter options can't be combined with GGL_RENDER. Not starting.\n";
+		return 1;
+	}
+	if (cfg.renderMode)
+		cfg.exploiterPool.enabled = false;
+
+	ExploiterRun exploiterRun;
+	if (exploiterRunArg) {
+		if (!ExploiterFiles::ReadControl(exploitersRoot, cfg.exploiterPool.trainShare).runExploiters) {
+			std::cout << "[EXPLOITER] \"runExploiters\" is false in " << (exploitersRoot / "CONTROL.json")
+				<< ". Set it to true to run exploiters. Not starting.\n";
+			return 1;
+		}
+		if (!ResolveExploiterRun(exploitersRoot, cfg.exploiter.sourceCheckpointFolder, exploiterSnapshotArg,
+			exploiterNameArg, newExploiter, exploiterRole, ActiveFileName(exploiterSlot), exploiterRun))
+			return 1;
+		if (!LockExploiterFolder(exploiterRun.folder)) {
+			std::cout << "[EXPLOITER] " << exploiterRun.name << " is already running (" << (exploiterRun.folder / "RUN.lock")
+				<< " is locked). Stop that one first, or use --new-exploiter to start a separate one.\n";
+			return 1;
+		}
+		g_ExploiterMode = true;
+		ConfigureExploiter(cfg, exploiterRun.snapshot, exploiterRun.name, exploiterRole);
+		if (exploiterStepsArg > 0)
+			cfg.exploiter.maxTimesteps = exploiterStepsArg;
+		if (exploiterRole == "league")
+			cfg.exploiter.leaguePool = ListLeaguePool(exploitersRoot, cfg.exploiter.sourceCheckpointFolder,
+				cfg.exploiter.leagueMaxMain, cfg.exploiter.leagueMaxExploiters);
+		if (!exploiterRun.resuming) {
+			WriteRunInfo(exploiterRun.folder, exploiterRole, exploiterSlot, exploiterRun.snapshot);
+			for (auto& [name, checkpoint] : ListRestartCandidates(exploitersRoot, exploiterRole, cfg.exploiter.restartMaxCandidates)) {
+				cfg.exploiter.restartCandidateNames.push_back(name);
+				cfg.exploiter.restartCandidates.push_back(checkpoint);
+			}
+		}
+		if (runTogether) {
+			cfg.numGames = RS_MAX(1, (int)(cfg.numGames * cfg.exploiter.togetherGamesScale
+				* (1 - cfg.exploiter.mainComputeShare) / numSlots));
+			cfg.cudaMemoryFraction = cfg.exploiter.slotVramFraction;
+		}
+	} else if (runTogether && !cfg.renderMode) {
+		cfg.numGames = RS_MAX(1, (int)(cfg.numGames * cfg.exploiter.togetherGamesScale * cfg.exploiter.mainComputeShare));
+		cfg.cudaMemoryFraction = cfg.exploiter.mainVramFraction;
+		// The learn-pass activation peak scales with miniBatchSize; PPOLearner scales every minibatch loss by
+		// batchSizeRatio, so the accumulated gradient (and so training) is the same - only memory and speed change
+		cfg.ppo.miniBatchSize /= 2; // Must still divide batchSize (200k / 12.5k)
+		RG_LOG("Together: main miniBatchSize " << cfg.ppo.miniBatchSize << " (halved to fit beside the exploiter slots)");
+	}
+	RG_LOG("Compute: " << (runTogether ? "sharing the machine with the exploiter slots" : "alone") << ", numGames "
+		<< cfg.numGames);
+	if (g_ExploiterMode) {
+		std::cout << "\n======================== EXPLOITER RUN ========================\n"
+			<< "  Exploiter : " << exploiterRun.name << (exploiterRun.resuming
+				? " (resuming at " + std::to_string(exploiterRun.resumeTimesteps) + " steps)" : std::string(" (new)")) << "\n"
+			<< "  Slot      : " << exploiterSlot << " (" << exploiterRole << " exploiter)\n"
+			<< "  Snapshot  : " << exploiterRun.snapshotSource << "\n"
+			<< "  Opponent  : " << (exploiterRole == "league"
+				? "the snapshot + " + std::to_string(cfg.exploiter.leaguePool.size()) + " league checkpoints, by loss rate"
+				: std::string("the frozen snapshot")) << "\n"
+			<< (exploiterRun.resuming ? "" : "  Start     : " + (cfg.exploiter.restartCandidates.empty()
+				? std::string("the main snapshot (no unused " + exploiterRole + " exploiters to restart from)")
+				: std::to_string(cfg.exploiter.restartCandidates.size()) + " older " + exploiterRole
+					+ " exploiter(s) get evaluated first (adaptive restart)") + "\n")
+			<< "  Ends at   : " << cfg.exploiter.maxTimesteps << " steps, or earlier at a "
+			<< (int)std::lround(cfg.exploiter.earlyStopWinRate * 100) << "% deterministic win rate (mean over 1v1/2v2/3v3)\n"
+			<< "  Stop      : tools/run_exploiter.sh --slot " << exploiterSlot << " --stop, or \"runExploiters\": false in "
+			<< (exploitersRoot / "CONTROL.json").string() << "\n"
+			<< "================================================================\n\n";
+	}
+
 	// Team-mode arena split, decided by the lineage-scoped phase marker (see the
 	// PHASE_B_RATING_TRIGGER comment). Must be set before the Learner is built -
-	// EnvCreateFunc reads these.
+	// EnvCreateFunc reads these. Exploiter runs always play the PHASE B fleet: they are
+	// judged across 1v1/2v2/3v3, and their checkpoint folder never carries the marker.
 	//
 	// RESTORED 2026-07-26. This block was deleted as collateral in 0fac55f ("Remove steering
 	// wholesale"): it sat between the g_NumPracticeArenas and g_FrontierPool steering blocks
@@ -1118,7 +1390,7 @@ int main(int argc, char* argv[]) {
 	// re-fired forever - the trainer wrote the marker, exited 99, relaunched into PHASE A,
 	// and repeated every ~6 minutes for 70M+ steps (five loops in one log, ts 3.695B-3.768B).
 	// If the marker read ever disappears again the symptom is that exact restart loop.
-	g_PhaseB = std::filesystem::exists(cfg.checkpointFolder / PHASE_B_MARKER);
+	g_PhaseB = g_ExploiterMode || std::filesystem::exists(cfg.checkpointFolder / PHASE_B_MARKER);
 	TEAM_SPIRIT = g_PhaseB ? 0.6f : 0.3f; // 5.0 spirit schedule (see the declaration)
 	g_NumGames = cfg.numGames;
 	g_NumArenas2v2 = g_PhaseB ? (int)(cfg.numGames * PHASE_B_FRAC_2V2) : 0;
@@ -1145,13 +1417,16 @@ int main(int argc, char* argv[]) {
 
 	// Make the learner with the environment creation function and the config we just made
 	Learner* learner = new Learner(EnvCreateFunc, cfg, StepCallback);
+	// Only now that the run has started: a start that failed never becomes the run later launches try to resume
+	if (g_ExploiterMode)
+		MarkExploiterActive(exploitersRoot, exploiterRun.name, ActiveFileName(exploiterSlot));
 
 	// The automatic PHASE A -> PHASE B flip. Runs at the tail of every iteration; ratings
 	// only appear in the report on iterations where the skill tracker actually evaluated,
 	// so the streak counts consecutive EVALS, not iterations. On trigger: marker -> save ->
 	// exit(99) -> wrapper relaunches this same binary, which now boots into PHASE B on the
 	// checkpoint just saved. Render mode never sets the callback (no ratings there anyway).
-	if (!cfg.renderMode) {
+	if (!cfg.renderMode && !g_ExploiterMode) {
 		learner->iterationCallback = [](Learner* learner, Report& report) {
 			report["Curriculum/Team Phase"] = g_PhaseB ? 1.0f : 0.0f;
 			report["Curriculum/Phase B Streak"] = (float)g_PhaseBStreak;

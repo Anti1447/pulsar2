@@ -335,7 +335,9 @@ if [ "$MODE" = "detach" ]; then
 	ln -sfn "$(basename "$run_log")" "$LOG_DIR/latest.log" 2>/dev/null || true
 
 	if systemd_user_available; then
-		unit="gigalearn-trainer-$run_id.service"
+		# RUN_TRAINER_INSTANCE names the unit when several wrappers share the machine (tools/run_exploiter.sh sets
+		# exploiter-slotN); each instance also needs its own --log-dir, which holds its pid/unit/stop files
+		unit="gigalearn-${RUN_TRAINER_INSTANCE:-trainer}-$run_id.service"
 		if systemd-run --user \
 			--unit="$unit" \
 			--collect \
@@ -454,11 +456,24 @@ while true; do
 		log "clean exit after ${runtime}s, not restarting"
 		exit 0
 	fi
+	# Exit codes that mean "not started, don't retry" for this instance (tools/run_exploiter.sh sets
+	# RUN_TRAINER_NO_RESTART_CODES=1: the exploiter launcher found nothing to run, or runExploiters is false)
+	for c in ${RUN_TRAINER_NO_RESTART_CODES:-}; do
+		if [ "$code" -eq "$c" ]; then
+			log "exit $code after ${runtime}s: not started (see the message above), not restarting"
+			exit "$code"
+		fi
+	done
 
-	if [ "$code" -eq 99 ]; then
-		# The trainer's programmatic restart request (Learner::RequestSaveAndExit, e.g. the
-		# team-curriculum phase flip): checkpoint already saved, relaunch is the intent.
-		log "planned restart (exit 99) after ${runtime}s"
+	if [ "$code" -eq 99 ] || [ "$code" -eq 10 ]; then
+		# The trainer's programmatic restart request (Learner::RequestSaveAndExit): 99 = the
+		# team-curriculum phase flip, 10 = an exploiter run finished and the slot starts its next
+		# one. Checkpoint already saved, relaunch is the intent.
+		log "planned restart (exit $code) after ${runtime}s"
+		fast_crashes=0
+		sleep "$RESTART_DELAY_SECS" || exit 130
+		[ "$interrupted" -eq 1 ] && { log "stopped by user during restart delay, not restarting"; exit 130; }
+		continue
 	else
 		sig=""
 		if [ "$code" -gt 128 ]; then

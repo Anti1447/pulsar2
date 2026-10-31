@@ -110,6 +110,17 @@ namespace GGL {
 		std::shared_ptr<class NextoOpponent> nexto;
 		std::atomic<int64_t> nextoGoalsFor = 0, nextoGoalsAgainst = 0, nextoServeIters = 0;
 
+		// Exploiter stack (docs/EXPLOITERS.md; opaque here like the members above). exploiterRun: this process is an
+		// exploiter run (config.exploiter) - its frozen opponents and eval arenas. exploiterPool: this is the main run
+		// and imports finished exploiters (config.exploiterPool). At most one of the two is set.
+		std::shared_ptr<struct ExploiterRunState> exploiterRun;
+		std::shared_ptr<struct ExploiterPool> exploiterPool;
+		int64_t exploiterRampStartTs = -1; // Exploiter run: when the critic first explained enough (policy-LR ramp start)
+		// Exploiter run: deterministic eval vs the role's target, logged to EVAL_LOG.jsonl; returns the headline win rate
+		float RunExploiterEval(Report& report, int games);
+		// Exploiter run, fresh start: the adaptive restart (RESTART.json)
+		void ChooseExploiterStart();
+
 
 		StepCallbackFn stepCallback = NULL;
 		IterationCallbackFn iterationCallback = NULL; // optional; assign after construction

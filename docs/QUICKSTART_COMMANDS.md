@@ -99,6 +99,17 @@ rm -rf checkpoints_5.3     # smoke writes into the real checkpoint folder; delet
 
 Logs go to `run_logs/` (newest is `run_logs/latest.log`).
 
+**Main + exploiters** (details in `docs/EXPLOITERS.md`): main on half the arenas plus a main-exploiter slot and a
+league-exploiter slot on a quarter each. Each piece restarts and stops on its own; exploiter logs go to
+`run_logs/exploiter_slot<N>/`.
+
+```bash
+../tools/run_league.sh start              # all three
+../tools/run_league.sh status
+../tools/run_league.sh stop               # each saves (exploiters run a final eval first)
+../tools/run_exploiter.sh --slot 1 --follow   # one slot's live log (also --status, --stop, --kill)
+```
+
 ## 6. Watch, stop, resume
 
 ```bash

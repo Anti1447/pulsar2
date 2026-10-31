@@ -96,11 +96,12 @@ section for the resulting shape.
 | Feature | Live | Notes |
 |---|---|---|
 | Version ring | `enabled`, 32 versions @ 25M | Now the **training** opponent source as well as the Elo pool. Versions do not clone the vdag twins (~2 GB VRAM, the OOM cause). |
-| Train vs past selves | `trainAgainstOldChance 0.30` | Realized **0.255** — the cascade is sequential and Nexto rolls first. Total non-self exposure 0.405, deliberately equal to the pre-strip measured 0.408. |
+| Train vs past selves | `trainAgainstOldChance 0.30` | Realized **0.255** with no exploiters loaded (0.85 × 0.30), **~0.105** while main has imported exploiters (their 0.15 comes out of this share). Total non-self exposure 0.405 either way, deliberately equal to the pre-strip measured 0.408. |
 | `Rating/1v1` | `enabled` | **INFLATED ~6×** and kept only for continuity: new versions inherit the main's current rating and both sides move on every goal. Training against the ring makes it worse. Read `Ref/Oldest Share`. |
 | Reference set | `maxReferences 8`, battery every 64 iters | Log-spaced, never trained against, never re-rated, oldest never evicted. `Ref/Oldest Share` is the non-inflating read. Cumulative counters — the slope is the signal. |
 | Nexto opponent | `serveFrac 0.15`, CPU-only | Dose fixed 2026-07-25 (was a 127.773 s wall-clock sawtooth realizing 8.9%); counters now restore on boot. |
 | Rating watch | measurement only | `RatingWatch/Drawdown From EMA` and `/From Peak`. **No latch** — nothing acts on it. |
+| Exploiters | `exploiterPool` ON in main (share 0.15 of all iterations, from the old-version share); exploiter slots run only when launched | Added 2026-10-31, ported from RLGymBot_v3: main + a main-exploiter slot + a league-exploiter slot, 1/2 + 1/4 + 1/4 of `numGames` with `--together`. Exploiters: goal-only, entropy 0.4× main's, end at 0.70 deterministic (mean over 1v1/2v2/3v3) or 500M steps, adaptive restart 20–50%. Unmeasured on the live run. See `EXPLOITERS.md`. |
 | QD League | **REMOVED** | Tag `pre-league-strip-20260725`. Collapsed on every lineage that learned; served copies of the untrained birth network; value never measured. |
 
 ## 6. Reachability

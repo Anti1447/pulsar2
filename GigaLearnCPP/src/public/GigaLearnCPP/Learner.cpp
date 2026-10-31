@@ -21,12 +21,17 @@
 #include <private/GigaLearnCPP/PPO/GAE.h>
 #include <private/GigaLearnCPP/PolicyVersionManager.h>
 #include <private/GigaLearnCPP/NextoOpponent.h>
+#include <private/GigaLearnCPP/ExploiterPool.h>
+#include <private/GigaLearnCPP/ExploiterEval.h>
+#include <GigaLearnCPP/ExploiterFiles.h>
+#include <GigaLearnCPP/Util/Timer.h>
 #include <private/GigaLearnCPP/Util/Plasticity.h>
 
 #include "Util/KeyPressDetector.h"
 #include <private/GigaLearnCPP/Util/WelfordStat.h>
 
 #include <algorithm>
+#include <deque>
 #include <map>
 #include <random>
 #include <thread>
@@ -81,6 +86,17 @@ struct GGL::GapState {
 		optim = std::make_shared<torch::optim::Adam>(exp->parameters(), lr);
 	}
 };
+
+// Exploiter run (config.exploiter.enabled; docs/EXPLOITERS.md): its frozen opponents and its own eval arenas.
+// opponents[0] is always the main snapshot; the league role adds its league pool after it. Policy nets only.
+struct GGL::ExploiterRunState {
+	std::vector<std::string> names;
+	std::vector<ModelSet> opponents;
+	std::vector<float> lossRate;      // This exploiter's running loss rate vs each opponent (sampling weight)
+	std::deque<bool> recentWins;      // Outcome of recent training goals (true = we scored), stochastic play
+	std::unique_ptr<ExploiterEval> eval;
+};
+
 GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbackFn stepCallback) :
 	envCreateFn(envCreateFn), config(config), stepCallback(stepCallback)
 {
@@ -135,6 +151,12 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 				"Make sure your libtorch comes with CUDA support, and that CUDA is installed properly."
 			)
 		device = at::Device(at::kCUDA);
+#ifdef RG_CUDA_SUPPORT
+		if (config.cudaMemoryFraction > 0) {
+			c10::cuda::CUDACachingAllocator::setMemoryFraction(config.cudaMemoryFraction, 0);
+			RG_LOG("\tGPU memory cap: " << config.cudaMemoryFraction << " of the device (CUDA OOM past it)");
+		}
+#endif
 	} else if (
 		config.deviceType == LearnerDeviceType::GPU_MPS ||
 		(config.deviceType == LearnerDeviceType::AUTO && torch::mps::is_available())
@@ -307,6 +329,10 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 		versionMgr = NULL;
 	}
 
+	// Main run's imported-exploiter pool. Created before Load(), so LoadStats() can restore its state.
+	if (config.exploiterPool.enabled && !config.exploiter.enabled && !config.renderMode)
+		exploiterPool = std::make_shared<ExploiterPool>(config.exploiterPool, config.checkpointFolder, envSet->config);
+
 	if (!config.checkpointFolder.empty())
 		Load();
 
@@ -316,6 +342,76 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 		auto models = ppo->GetPolicyModels();
 		versionMgr->LoadVersions(models, totalTimesteps);
 		versionMgr->LoadReferences(models, totalTimesteps);
+	}
+
+	if (exploiterPool)
+		exploiterPool->LoadModels(ppo);
+
+	if (config.exploiter.enabled && !config.renderMode) {
+		auto& ec = config.exploiter;
+		std::filesystem::path snapshot = config.checkpointFolder / "snapshot";
+		// Loads a checkpoint into models, explaining the usual cause if it doesn't fit this build's networks
+		auto fnLoadSnapshot = [&](ModelSet& models, const std::filesystem::path& from) {
+			try {
+				models.Load(from, false, false);
+			} catch (std::exception& e) {
+				RG_ERR_CLOSE(
+					"Exploiter: the snapshot " << from << " doesn't fit this build's networks.\n" <<
+					"It must come from a run with the same layer sizes, obs builder and action parser as this build.\n" <<
+					"Pick a checkpoint trained with the current config, or pass --new-exploiter --exploiter <checkpoint folder>.\n" <<
+					"Details: " << e.what());
+			}
+		};
+
+		bool freshSnapshot = !std::filesystem::exists(snapshot);
+		if (totalTimesteps == 0) {
+			// Fresh exploiter (Load() found nothing): snapshot weights, fresh optimizers, fresh return stats.
+			// Loaded from the source before copying, so an incompatible snapshot fails before anything is written.
+			// Only the nets this run builds are read; any auxiliary heads the slimmed exploiter config leaves out stay
+			// unread in the snapshot.
+			std::filesystem::path from = freshSnapshot ? ec.snapshotFolder : snapshot;
+			RG_LOG("\tExploiter: initializing from snapshot " << from << "...");
+			fnLoadSnapshot(ppo->models, from);
+		}
+		if (freshSnapshot) {
+			// Keep our own copy, so the main run pruning its old checkpoints can't break a resume. Copied into a
+			// temporary folder first, so a crash mid-copy never leaves a half snapshot behind.
+			std::filesystem::path partial = config.checkpointFolder / "snapshot.partial";
+			std::filesystem::remove_all(partial);
+			std::filesystem::create_directories(config.checkpointFolder);
+			std::filesystem::copy(ec.snapshotFolder, partial, std::filesystem::copy_options::recursive);
+			std::ofstream(partial / "SOURCE.txt") << ec.snapshotFolder.string() << "\n";
+			std::filesystem::rename(partial, snapshot);
+		}
+
+		exploiterRun = std::make_shared<ExploiterRunState>();
+		auto fnAddOpponent = [&](const std::string& name, const std::filesystem::path& path, bool required) {
+			ModelSet models = ppo->GetPolicyModels().CloneAll();
+			try {
+				models.Load(path, false, false);
+			} catch (std::exception& e) {
+				models.Free();
+				if (required)
+					fnLoadSnapshot(models, path); // Exits with the explanation
+				RG_LOG("\tLeague pool: skipping " << path << " (doesn't fit this build's networks or is unreadable)");
+				return;
+			}
+			exploiterRun->names.push_back(name);
+			exploiterRun->opponents.push_back(models);
+		};
+		fnAddOpponent("snapshot", snapshot, true);
+		if (ec.role == "league") {
+			for (auto& path : ec.leaguePool)
+				fnAddOpponent(path.parent_path().filename().string() + "/" + path.filename().string(), path, false);
+			RG_LOG("\tLeague pool: " << exploiterRun->opponents.size() << " opponents (the snapshot + "
+				<< exploiterRun->opponents.size() - 1 << " checkpoints)");
+		}
+		exploiterRun->lossRate.assign(exploiterRun->opponents.size(), 0.5f);
+		exploiterRun->eval = std::make_unique<ExploiterEval>(envSet->config, ec.evalEnvCreateFn, ec.evalArenas);
+		RG_LOG("\tExploiter eval: " << ec.evalArenas << " arenas (" << exploiterRun->eval->arenasPerMode.size() << " modes)");
+
+		if (totalTimesteps == 0)
+			ChooseExploiterStart();
 	}
 
 	if (config.sendMetrics && !config.renderMode) {
@@ -381,6 +477,11 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 	if (versionMgr)
 		versionMgr->AddRunningStatsToJSON(j);
 
+	if (config.exploiter.enabled)
+		j["exploiter_ramp_start_ts"] = exploiterRampStartTs;
+	if (exploiterPool)
+		j["exploiter_pool"] = exploiterPool->ToJSON();
+
 	std::string jStr = j.dump(4);
 	fOut << jStr;
 }
@@ -428,6 +529,132 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 	nextoGoalsFor = j.value("nexto_goals_for", (int64_t)0);
 	nextoGoalsAgainst = j.value("nexto_goals_against", (int64_t)0);
 	nextoServeIters = j.value("nexto_serve_iters", (int64_t)0);
+
+	if (config.exploiter.enabled)
+		exploiterRampStartTs = j.value("exploiter_ramp_start_ts", (int64_t)-1);
+	if (exploiterPool && j.contains("exploiter_pool"))
+		exploiterPool->FromJSON(j["exploiter_pool"]);
+}
+
+// Deterministic games of the current policy (ppo->models) against this exploiter role's target. Main role: the
+// snapshot. League role: every opponent in its pool, games split evenly. Each opponent's result is the mean of its
+// per-mode win rates; the headline is the uniform mean over opponents. Pooled per-mode counts go to `pooled`.
+static float RunExploiterTargetGames(GGL::Learner& L, int totalGames,
+	std::map<std::string, GGL::ExploiterPoolLogic::ModeCounts>& pooled) {
+	using namespace GGL::ExploiterPoolLogic;
+	auto& run = *L.exploiterRun;
+	auto& ec = L.config.exploiter;
+	int modes = RS_MAX((int)run.eval->arenasPerMode.size(), 1);
+	int n = (ec.role == "league") ? (int)run.opponents.size() : 1;
+	int perModeEach = RS_MAX(1, totalGames / (modes * n));
+	std::vector<float> rates;
+	for (int i = 0; i < n; i++) {
+		auto res = run.eval->Run(L.ppo, L.ppo->models, run.opponents[i], perModeEach, ec.evalMaxGameTime, true);
+		for (auto& [mode, c] : res) {
+			pooled[mode].wins += c.wins;
+			pooled[mode].losses += c.losses;
+			pooled[mode].draws += c.draws;
+		}
+		rates.push_back(MeanOfModes(res));
+	}
+	return MeanOfOpponents(rates);
+}
+
+float GGL::Learner::RunExploiterEval(Report& report, int games) {
+	auto& ec = config.exploiter;
+	RG_LOG("Running exploiter eval (" << games << " deterministic games vs "
+		<< (ec.role == "league" ? "the league pool, " + std::to_string(exploiterRun->opponents.size()) + " opponents"
+			: std::string("the snapshot")) << ", split evenly across modes)...");
+	Timer timer = {};
+	std::map<std::string, ExploiterPoolLogic::ModeCounts> results;
+	float winRate = RunExploiterTargetGames(*this, games, results);
+
+	nlohmann::json j = {};
+	j["total_timesteps"] = totalTimesteps;
+	j["win_rate"] = winRate;
+	int played = 0, draws = 0;
+	for (auto& [mode, c] : results) {
+		float w = ExploiterPoolLogic::WinRate(c);
+		if (w >= 0)
+			report["Exploiter/Eval Win Rate " + mode] = w;
+		j[mode] = { {"wins", c.wins}, {"losses", c.losses}, {"draws", c.draws} };
+		played += c.wins + c.losses + c.draws;
+		draws += c.draws;
+		RG_LOG(" > " << mode << ": " << c.wins << "W " << c.losses << "L " << c.draws << "D");
+	}
+	report["Exploiter/Eval Win Rate"] = winRate;
+	report["Exploiter/Eval Draw Rate"] = draws / (float)RS_MAX(played, 1);
+	report["Exploiter/Eval Games"] = played;
+	RG_LOG(" > Headline win rate " << winRate << " (" << (ec.role == "league" ? "mean over opponents of " : "")
+		<< "the mean over modes), " << played << " games, " << draws << " draws, " << timer.Elapsed() << "s");
+
+	std::ofstream(config.checkpointFolder / "EVAL_LOG.jsonl", std::ios::app) << j.dump() << "\n";
+	return winRate;
+}
+
+// Adaptive restart (fresh runs only, ported from RLGymBot_v3): every candidate (an unused, finished exploiter of this
+// role) plays the role's target; the one inside [restartMinWinRate, restartMaxWinRate] closest to the max becomes
+// the starting weights, otherwise the snapshot. The decision is written to RESTART.json and reused if this run
+// restarts before its first save.
+void GGL::Learner::ChooseExploiterStart() {
+	namespace fs = std::filesystem;
+	auto& ec = config.exploiter;
+	fs::path restartFile = config.checkpointFolder / "RESTART.json";
+	fs::path snapshot = config.checkpointFolder / "snapshot";
+	std::string self = config.checkpointFolder.filename().string();
+
+	nlohmann::json prev = ExploiterFiles::ReadJSON(restartFile);
+	if (prev.contains("chosen_checkpoint")) {
+		std::string chosen = prev["chosen_checkpoint"];
+		if (!chosen.empty()) {
+			RG_LOG("\tExploiter: starting from " << prev.value("parent", std::string()) << " (decided earlier, see RESTART.json)");
+			ppo->models.Load(chosen, false, false);
+		}
+		return;
+	}
+
+	nlohmann::json j;
+	j["role"] = ec.role;
+	j["window"] = { ec.restartMinWinRate, ec.restartMaxWinRate };
+	j["candidates"] = nlohmann::json::array();
+	std::vector<float> rates;
+	for (size_t i = 0; i < ec.restartCandidates.size(); i++) {
+		const auto& path = ec.restartCandidates[i];
+		std::string name = i < ec.restartCandidateNames.size() ? ec.restartCandidateNames[i] : path.string();
+		float rate = -1;
+		std::map<std::string, ExploiterPoolLogic::ModeCounts> counts;
+		try {
+			ppo->models.Load(path, false, false);
+			rate = RunExploiterTargetGames(*this, ec.restartGames, counts);
+		} catch (std::exception&) {
+			RG_LOG("\tRestart candidate " << name << " doesn't fit this build's networks or is unreadable, skipping it");
+		}
+		rates.push_back(rate);
+		nlohmann::json perMode = nlohmann::json::object();
+		for (auto& [mode, c] : counts)
+			perMode[mode] = { {"wins", c.wins}, {"losses", c.losses}, {"draws", c.draws} };
+		j["candidates"].push_back({ {"name", name}, {"checkpoint", path.string()}, {"win_rate", rate}, {"per_mode", perMode} });
+		RG_LOG("\tRestart candidate " << name << ": win rate " << rate << " vs the target (mean over modes)");
+	}
+
+	int pick = ExploiterPoolLogic::PickRestart(rates, ec.restartMinWinRate, ec.restartMaxWinRate);
+	if (pick >= 0) {
+		std::string parent = ec.restartCandidateNames[pick];
+		ppo->models.Load(ec.restartCandidates[pick], false, false);
+		ExploiterFiles::MarkStartedFrom(ec.restartCandidates[pick].parent_path(), self);
+		j["parent"] = parent;
+		j["chosen_checkpoint"] = ec.restartCandidates[pick].string();
+		j["reason"] = RS_STR("win rate " << rates[pick] << " is inside the window and closest to " << ec.restartMaxWinRate);
+		RG_LOG("\tExploiter: starting from older exploiter " << parent << " (" << j["reason"].get<std::string>() << ")");
+	} else {
+		if (!ec.restartCandidates.empty())
+			ppo->models.Load(snapshot, false, false); // Undo the candidates' weights
+		j["parent"] = nullptr;
+		j["chosen_checkpoint"] = "";
+		j["reason"] = ec.restartCandidates.empty() ? "no unused exploiters of this role" : "no candidate inside the window";
+		RG_LOG("\tExploiter: starting from the main snapshot (" << j["reason"].get<std::string>() << ")");
+	}
+	std::ofstream(restartFile) << j.dump(4);
 }
 
 // Different than RLGym-PPO to show that they are not compatible
@@ -1427,17 +1654,24 @@ void GGL::Learner::Start() {
 			// log-probs, obs are CPU-built), and the learner joins this thread before
 			// consuming, so no GPU tensor crosses streams. Weight staleness during overlap is
 			// the standing async-PPO one-update lag and is unchanged by the stream split.
+			// The stream is picked ONCE and reused: getStreamFromPool hands out the next of 32 pool streams
+			// round-robin, and cuBLAS keeps a CUBLAS_WORKSPACE_CONFIG-sized workspace (32 MiB at :4096:8) per
+			// stream it ever ran on, never freed - a fresh pick per iteration's collect thread grew live GPU
+			// memory ~35 MB/iteration until ~1.1 GB (2026-10-31, GPU/Allocated GB).
 			std::optional<c10::cuda::CUDAStreamGuard> collectStreamGuard;
-			if (ppo->device.is_cuda())
-				collectStreamGuard.emplace(c10::cuda::getStreamFromPool(
-					/*isHighPriority=*/true, ppo->device.index()));
+			if (ppo->device.is_cuda()) {
+				static const c10::cuda::CUDAStream collectStream = c10::cuda::getStreamFromPool(
+					/*isHighPriority=*/true, ppo->device.index());
+				collectStreamGuard.emplace(collectStream);
+			}
 			// This iteration's opponent for the non-self team: Nexto, an archived past self, or
 			// (default) the current self. `oppModels` is the opponent's network (null = mirror
 			// self-play); the player masking, trajectory exclusion, and split inference below are
 			// shared by both non-self sources. The sources are mutually exclusive and the choice is
 			// made once per iteration, so the whole arena fleet faces one opponent at a time.
-			// NOTE the cascade is SEQUENTIAL, so the realized share of the second branch is
-			// (1 - serveFrac) * trainAgainstOldChance, not trainAgainstOldChance.
+			// The shares are partitions of ONE roll (see below): old versions get
+			// (1 - serveFrac) * trainAgainstOldChance of all iterations, less the imported
+			// exploiters' share while main has any.
 			ModelSet* oppModels = nullptr;
 			// External fixed opponent (Nexto): mutually exclusive with the sources
 			// below, highest-priority roll. Rows are excluded from training via the
@@ -1452,22 +1686,52 @@ void GGL::Learner::Start() {
 			for (int i = 0; i < numPlayers; i++)
 				newPlayerIndices.push_back(i);
 
+			// Which exploiter-stack opponent this iteration plays, for the loss-rate bookkeeping at the
+			// end of collection: an index into the exploiter run's own opponents, or into main's pool
+			// of imported exploiters (-1 = neither)
+			int exploiterOppIdx = -1, poolMemberIdx = -1;
 			if (!render) {
 				RG_ASSERT(config.trainAgainstOldChance >= 0 && config.trainAgainstOldChance <= 1);
 				std::uniform_real_distribution<float> oppRoll(0.0f, 1.0f);
-				if (nexto && oppRoll(oppRng) < config.externalOpponent.serveFrac) {
-					oppExternal = true;
-					nexto->BeginServe(numPlayers);
-					nextoServeIters++;
-				} else if (config.trainAgainstOldVersions && versionMgr && !versionMgr->versions.empty()
-					&& oppRoll(oppRng) < config.trainAgainstOldChance) {
-					// Uniform over the version ring. The REFERENCE set is a separate vector and is
-					// never drawn here - it is the measuring stick (Ref/*) and must stay
-					// uncontaminated by being trained against.
-					std::uniform_int_distribution<size_t> pick(0, versionMgr->versions.size() - 1);
-					oppModels = &versionMgr->versions[pick(oppRng)].models;
+				if (exploiterRun) {
+					// Exploiter run: every iteration plays one of its frozen opponents (the snapshot, plus the
+					// league for the league role), picked by how often this exploiter loses to each
+					exploiterOppIdx = ExploiterPoolLogic::SampleByLoss(exploiterRun->lossRate,
+						config.exploiter.opponentLossFloor, oppRoll(oppRng));
+					oppModels = &exploiterRun->opponents[exploiterOppIdx];
+				} else {
+					// ONE roll partitioned into shares of ALL iterations: [Nexto | imported exploiters | old
+					// versions | self]. The old-version share is the configured (1 - serveFrac) *
+					// trainAgainstOldChance minus whatever the exploiters take, so total non-self exposure
+					// stays where it was measured (~0.405) while exploiters are in the pool; with none
+					// loaded the shares are exactly the previous sequential cascade's.
+					float roll = oppRoll(oppRng);
+					float nextoShare = nexto ? config.externalOpponent.serveFrac : 0.f;
+					float poolShare = exploiterPool ? exploiterPool->EffectiveShare() : 0.f;
+					bool oldAvailable = config.trainAgainstOldVersions && versionMgr && !versionMgr->versions.empty();
+					float oldShare = oldAvailable
+						? RS_MAX(0.f, (1 - nextoShare) * config.trainAgainstOldChance - poolShare) : 0.f;
+					if (roll < nextoShare) {
+						oppExternal = true;
+						nexto->BeginServe(numPlayers);
+						nextoServeIters++;
+					} else if (roll < nextoShare + poolShare) {
+						poolMemberIdx = exploiterPool->SampleTraining(oppRoll(oppRng));
+						if (poolMemberIdx >= 0)
+							oppModels = &exploiterPool->members[poolMemberIdx].models;
+					} else if (roll < nextoShare + poolShare + oldShare) {
+						// Uniform over the version ring. The REFERENCE set is a separate vector and is
+						// never drawn here - it is the measuring stick (Ref/*) and must stay
+						// uncontaminated by being trained against.
+						std::uniform_int_distribution<size_t> pick(0, versionMgr->versions.size() - 1);
+						oppModels = &versionMgr->versions[pick(oppRng)].models;
+					}
+					if (exploiterPool)
+						collectReport.AddAvg("Exploiters/Iterations Played %", poolMemberIdx >= 0 ? 100.f : 0.f);
 				}
 			}
+			// Decided training goals vs that opponent this iteration, from our side
+			int exploiterGoalsFor = 0, exploiterGoalsAgainst = 0;
 
 			// Split every player row into "ours" and "the opponent's" for the given team.
 			// Factored out of the setup below because the VIEWER can change opponent (and
@@ -1917,6 +2181,22 @@ void GGL::Learner::Start() {
 							}
 						}
 
+						// Exploiter-stack opponents: training goals for/against, from our side. These drive
+						// the loss-weighted opponent sampling and the exploiter's rolling (stochastic) win rate.
+						if (oppModels && (exploiterOppIdx >= 0 || poolMemberIdx >= 0)) {
+							for (auto& gs : envSet->state.gameStates) {
+								if (!gs.goalScored)
+									continue;
+								bool won = (RS_TEAM_FROM_Y(gs.ball.pos.y) == oppTeam); // Ball went into the opponent's goal
+								(won ? exploiterGoalsFor : exploiterGoalsAgainst)++;
+								if (exploiterRun) {
+									exploiterRun->recentWins.push_back(won);
+									if ((int)exploiterRun->recentWins.size() > config.exploiter.rollingWinRateGoals)
+										exploiterRun->recentWins.pop_front();
+								}
+							}
+						}
+
 						// Deliberate-practice DRILL snapshot capture (Stage 3): every snapshotEveryK
 						// steps, record enough of each arena's physics state to restore play from
 						// exactly here later. Serial - O(numArenas * playersPerArena), same order
@@ -2034,7 +2314,83 @@ void GGL::Learner::Start() {
 				}
 				collectWallTime = collectionTimer.Elapsed();
 				collectReport["Collection Time"] = collectWallTime;
+
+				// Exploiter-stack bookkeeping for the opponent this iteration played. Done HERE, on the
+				// collecting thread, because the only other readers (evals, pool scans) run in the
+				// barrier zone where this worker is idle.
+				if (exploiterOppIdx >= 0) {
+					ExploiterPoolLogic::UpdateLossRate(exploiterRun->lossRate[exploiterOppIdx],
+						exploiterGoalsFor, exploiterGoalsAgainst, config.exploiter.opponentLossAlpha);
+					auto& lr = exploiterRun->lossRate;
+					if (lr.size() > 1) {
+						float sum = 0, maxLoss = 0;
+						for (float l : lr) {
+							sum += l;
+							maxLoss = RS_MAX(maxLoss, l);
+						}
+						collectReport["Exploiter/League Mean Loss Rate"] = sum / lr.size();
+						collectReport["Exploiter/League Max Loss Rate"] = maxLoss;
+					}
+					auto& rw = exploiterRun->recentWins;
+					if (!rw.empty()) {
+						collectReport["Exploiter/Rolling Win Rate"] =
+							std::count(rw.begin(), rw.end(), true) / (float)rw.size();
+						collectReport["Exploiter/Rolling Window Goals"] = (float)rw.size();
+					}
+				}
+				if (poolMemberIdx >= 0)
+					exploiterPool->RecordTrainingResult(poolMemberIdx, exploiterGoalsFor, exploiterGoalsAgainst);
 		};
+
+		// Exploiter-stack work that steps its own eval arenas and reads live weights, so it runs at the version
+		// manager's call site (the barrier zone in pipelined mode, the iteration tail otherwise) where the collection
+		// worker is idle. Main run: the imported-exploiter pool. Exploiter run: the early-stop eval, periodic evals and
+		// the step cap; finishing requests save-and-exit with code 10, and the quit path below writes SUMMARY.json and
+		// FINISHED after the save.
+		std::string exploiterFinishReason; // "win_rate" or "step_cap" once this exploiter run is done
+		auto fnExploiterBarrier = [&](Report& report, uint64_t prevTs) {
+			if (exploiterPool)
+				exploiterPool->OnIteration(ppo, report, totalTimesteps, prevTs);
+			if (!exploiterRun || render || !exploiterFinishReason.empty() || exitRequested)
+				return;
+
+			auto& ec = config.exploiter;
+			// "runExploiters": false in CONTROL.json stops this run the same way a stop signal does (final eval, save)
+			if (totalIterations % 25 == 0 &&
+				!ExploiterFiles::ReadControl(config.checkpointFolder.parent_path(), config.exploiterPool.trainShare).runExploiters) {
+				RG_LOG("\"runExploiters\" is false in CONTROL.json: saving and stopping this exploiter.");
+				RequestSaveAndExit(0);
+				return;
+			}
+
+			// ONE eval per iteration at most: when the periodic (or the step cap's final) eval is due it doubles as the
+			// early-stop check, with more games, instead of running both back to back
+			bool capped = ec.maxTimesteps > 0 && (int64_t)totalTimesteps >= ec.maxTimesteps;
+			bool earlyDue = ec.earlyStopWinRate > 0 && totalTimesteps / ec.earlyStopInterval > prevTs / ec.earlyStopInterval;
+			bool fullDue = capped || totalTimesteps / ec.tsPerEval > prevTs / ec.tsPerEval;
+			bool won = false;
+			if (earlyDue || fullDue) {
+				float winRate = RunExploiterEval(report, fullDue ? ec.evalGames : ec.earlyStopGames);
+				report["Exploiter/Target Win Rate"] = winRate;
+				if (ec.earlyStopWinRate > 0 && winRate >= ec.earlyStopWinRate) {
+					RG_LOG("Exploiter reached a " << winRate << " win rate vs its target (needs " << ec.earlyStopWinRate
+						<< "): finishing" << (capped ? "." : " early."));
+					won = true;
+				}
+			}
+			if (won || capped) {
+				exploiterFinishReason = won ? "win_rate" : "step_cap";
+				RequestSaveAndExit(10); // Tells tools/run_exploiter.sh to start the next run in this slot
+			}
+		};
+
+		// Step-0 baseline of a fresh exploiter: near 50% when it starts from the snapshot it plays (main role); about
+		// its restart-candidate win rate (20-50%) when it starts from an older exploiter. Also guarantees EVAL_LOG.jsonl
+		// has a line, so a manual --finish-exploiter always has an eval to summarize.
+		if (exploiterRun && !render && totalTimesteps == 0) {
+			Report baseline = {};
+			RunExploiterEval(baseline, config.exploiter.evalGames);
+		}
 
 		while (true) {
 			Report report = {};
@@ -2066,6 +2422,7 @@ void GGL::Learner::Start() {
 			if (pipelineOn) {
 				if (versionMgr)
 					versionMgr->OnIteration(ppo, report, totalTimesteps, prevVersionTimesteps);
+				fnExploiterBarrier(report, prevVersionTimesteps);
 				prevVersionTimesteps = totalTimesteps;
 				if (report.Has(ratingKey))
 					lastEvalRating = (float)report[ratingKey]; // feeds the best-checkpoint archive
@@ -2417,6 +2774,29 @@ void GGL::Learner::Start() {
 					);
 					report["GAE Time"] = gaeTimer.Elapsed();
 					report["Clipped Reward Portion"] = rewClipPortion;
+
+					if (exploiterRun) {
+						// Exploiter policy-LR ramp (ported from RLGymBot_v3): the critic starts from main's snapshot
+						// but now predicts goal-only returns, so the policy waits at a fraction of its LR until the
+						// critic explains enough of them. Explained variance against the actual discounted returns in
+						// the critic's units (tTargetVals would mostly echo the critic); value preds predate this update.
+						torch::Tensor tScaledReturns = tReturns / (returnStat ? returnStat->GetSTD() : 1);
+						float returnVar = tScaledReturns.var().item<float>();
+						float explainedVar = 1 - (tScaledReturns - tValPreds).var().item<float>() / RS_MAX(returnVar, 1e-8f);
+						report["Exploiter/Critic Explained Variance"] = explainedVar;
+
+						auto& ec = config.exploiter;
+						if (exploiterRampStartTs < 0 && explainedVar >= ec.explainedVarThreshold)
+							exploiterRampStartTs = (int64_t)totalTimesteps;
+						float rampFrac = (exploiterRampStartTs < 0) ? 0 :
+							RS_MIN(1.f, ((int64_t)totalTimesteps - exploiterRampStartTs) / (float)ec.policyLRRampSteps);
+						// In 5% steps, since SetLearningRates() logs every call
+						float lrScale = ec.policyLRStartScale + (1 - ec.policyLRStartScale) * floorf(rampFrac * 20) / 20;
+						float policyLR = config.ppo.policyLR * lrScale;
+						if (policyLR != ppo->config.policyLR)
+							ppo->SetLearningRates(policyLR, config.ppo.criticLR);
+						report["Exploiter/Policy LR"] = policyLR;
+					}
 
 					// Raw GAE advantage magnitude, captured BEFORE any injector touches it.
 					// GAE/Avg Advantage used to be read after the HEADROOM injection and before
@@ -2894,6 +3274,18 @@ void GGL::Learner::Start() {
 				Timer learnTimer = {};
 				ppo->Learn(experience, report, isFirstIteration);
 				report["PPO Learn Time"] = learnTimer.Elapsed();
+#ifdef RG_CUDA_SUPPORT
+				// Allocator-side GPU memory (excludes the ~0.5 GB CUDA context): what cudaMemoryFraction caps.
+				// The peak covers everything since the last reset, i.e. the whole iteration incl. learn.
+				if (ppo->device.is_cuda()) {
+					auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+					report["GPU/Peak Reserved GB"] = stats.reserved_bytes[0].peak / 1e9;
+					report["GPU/Peak Allocated GB"] = stats.allocated_bytes[0].peak / 1e9;
+					// Live tensors after learn: flat once warmed up, unless something holds GPU memory across iterations
+					report["GPU/Allocated GB"] = stats.allocated_bytes[0].current / 1e9;
+					c10::cuda::CUDACachingAllocator::resetPeakStats(0);
+				}
+#endif
 
 				// Set metrics
 				float consumptionTime = consumptionTimer.Elapsed();
@@ -2919,6 +3311,7 @@ void GGL::Learner::Start() {
 				if (!pipelineOn) {
 					if (versionMgr)
 						versionMgr->OnIteration(ppo, report, totalTimesteps, prevTimesteps);
+					fnExploiterBarrier(report, prevTimesteps);
 					if (report.Has(ratingKey))
 						lastEvalRating = (float)report[ratingKey]; // feeds the best-checkpoint archive
 				}
@@ -2935,8 +3328,22 @@ void GGL::Learner::Start() {
 					// Never exit with a collection worker in flight
 					if (collectThread.joinable())
 						collectThread.join();
+					// An exploiter stopped before finishing still gets a final eval (worker joined, so it is safe
+					// here), so its latest EVAL_LOG.jsonl line describes what is about to be saved
+					if (exploiterRun && exploiterFinishReason.empty())
+						RunExploiterEval(report, config.exploiter.evalGames);
 					if (!config.checkpointFolder.empty())
 						Save();
+					if (exploiterRun && !exploiterFinishReason.empty()) {
+						// SUMMARY.json first: the main run imports anything with a FINISHED file, using its summary
+						std::string error;
+						if (!ExploiterFiles::WriteSummary(config.checkpointFolder, exploiterFinishReason, error))
+							RG_LOG("WARNING: couldn't write SUMMARY.json (" << error << "), so the main run won't import this exploiter.");
+						std::ofstream(config.checkpointFolder / "FINISHED") << "Finished at " << totalTimesteps << " timesteps ("
+							<< exploiterFinishReason << "). See SUMMARY.json.\n";
+						RG_LOG("Exploiter finished (" << exploiterFinishReason << "). The main run can now import it; "
+							"the next launch in this slot starts a new exploiter.");
+					}
 					int exitCode = exitRequested ? requestedExitCode.load() : 0;
 					if (exitCode != 0)
 						RG_LOG("Learner: exiting with code " << exitCode
@@ -3040,6 +3447,23 @@ void GGL::Learner::Start() {
 						"Ref/Share",
 						"Ref/Oldest Share",
 						"",
+						// Exploiter stack (docs/EXPLOITERS.md): main's imported-exploiter pool, or this exploiter run
+						"Exploiters/Share",
+						"Exploiters/Iterations Played %",
+						"Exploiters/Training Count",
+						"Exploiters/Held-out Count",
+						"Exploiters/Mastered Count",
+						"Exploiters/Training Main Win Rate",
+						"Exploiters/Held-out Main Win Rate",
+						"Exploiter/Eval Win Rate",
+						"Exploiter/Eval Win Rate 1v1",
+						"Exploiter/Eval Win Rate 2v2",
+						"Exploiter/Eval Win Rate 3v3",
+						"Exploiter/Rolling Win Rate",
+						"Exploiter/League Mean Loss Rate",
+						"Exploiter/Critic Explained Variance",
+						"Exploiter/Policy LR",
+						"",
 						"Collection Steps/Second",
 						"Consumption Steps/Second",
 						"Overall Steps/Second",
@@ -3054,6 +3478,9 @@ void GGL::Learner::Start() {
 						"-Reach Read Time",
 						"-GAE Time",
 						"-PPO Learn Time",
+						"GPU/Peak Reserved GB",
+						"GPU/Peak Allocated GB",
+						"GPU/Allocated GB",
 						"",
 						"Collected Timesteps",
 						"Total Timesteps",

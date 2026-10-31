@@ -305,9 +305,12 @@ three jobs that used to be spread across three subsystems:
   they are persisted, so never delete the read side (see below).
 
 **Opponent cascade** (`Learner.cpp`; one opponent for the whole fleet per iteration,
-a sequential if/else-if): Nexto `serveFrac` → old version `trainAgainstOldChance` →
-self-play. Realized shares are **nested, not independent**: P(old version) =
-(1 − serveFrac) × chance. The roll uses a persistent `std::mt19937_64`, NOT
+ONE roll partitioned into shares of all iterations since 2026-10-31): Nexto `serveFrac`
+→ imported exploiters `exploiterPool.trainShare` (only while one is loaded) → old version
+→ self-play. The old-version share is (1 − serveFrac) × chance **minus** the exploiters'
+share, so total non-self exposure stays ≈ 0.405 with or without exploiters. Exploiter
+runs (`docs/EXPLOITERS.md`) bypass all of this and always play their own frozen
+opponents. The roll uses a persistent `std::mt19937_64`, NOT
 RocketSim's `Math::RandFloat` — that is a `thread_local` engine reseeded from the
 millisecond clock on every fresh collect thread, which turned the serve rate into a
 127.773 s wall-clock sawtooth (measured 8.9% against a configured 15%, tracking

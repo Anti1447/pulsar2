@@ -18,6 +18,7 @@ with an integration map, a rollout order, or a config table is engineering.
 | [LADDER.md](LADDER.md) | 07-18 | Optimistic-Critic Ladder integration/deploy record |
 | [FRONTIER.md](FRONTIER.md) | 07-23 | Quasimetric-potential drill curriculum, integration map |
 | [EMERGENCE.md](EMERGENCE.md) | 07-16 | RND novelty / root-cause learning-fix program |
+| [EXPLOITERS.md](EXPLOITERS.md) | 10-31 | Main + main-exploiter + league-exploiter slots (ported from RLGymBot_v3): how runs start, end, restart and get imported |
 | [LEAGUE_ANCHORS.md](LEAGUE_ANCHORS.md) | 07-19 | Spaced anchor opponents — implemented and smoke-verified |
 
 ## Superseded by the composition-critic conformance pass (2026-07-25)

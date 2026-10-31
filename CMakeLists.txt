@@ -15,7 +15,7 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-add_executable(GigaLearnBot src/ExampleMain.cpp)
+add_executable(GigaLearnBot src/ExampleMain.cpp src/ExploiterLauncher.cpp)
 
 # Set C++ version to 20
 set_target_properties(GigaLearnBot PROPERTIES LINKER_LANGUAGE CXX)

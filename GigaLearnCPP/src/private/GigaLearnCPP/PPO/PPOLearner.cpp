@@ -1185,6 +1185,13 @@ GGL::ModelSet GGL::PPOLearner::GetPolicyModels() {
 		if (name.rfind("reach_", 0) == 0)
 			continue;
 
+		// The geometric critic (geo_sigma / geo_rew / geo_v) is three standalone VALUE-side nets on raw obs -
+		// acting never reads them. Leaving them out also lets a checkpoint trained with geoEnabled = false (the
+		// slimmed exploiter runs, docs/EXPLOITERS.md) load as an opponent. Old version dirs keep their now-unread
+		// GEO_* files; Load() only requires the models the template asks for.
+		if (name.rfind("geo_", 0) == 0)
+			continue;
+
 		result.Add(model);
 	}
 	return result;
