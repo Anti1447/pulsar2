@@ -3505,6 +3505,11 @@ void GGL::Learner::Start() {
 						"Exploiter/League Mean Loss Rate",
 						"Exploiter/Critic Explained Variance",
 						"Exploiter/Policy LR",
+						// GCO run (docs/GCO.md): the gated policy-LR schedule, read by tools/dashboard_gco
+						"GCO/Critic Explained Variance",
+						"GCO/Window EV Median",
+						"GCO/LR Step",
+						"GCO/Policy LR",
 						"",
 						"Collection Steps/Second",
 						"Consumption Steps/Second",

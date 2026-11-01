@@ -67,6 +67,10 @@ schedule from 10% (W&B `gco-gated-lr`). The rolled-back checkpoints are in `chec
 
 ## What to watch
 
+The GCO dashboard (`tools/dashboard_gco/run_dashboard.sh`, or `RUN_DASHBOARD.bat` on Windows; http://localhost:8767)
+is a copy of the main dashboard that reads only `--gco` logs and `checkpoints_gco`, starts `--gco --no-exploiter-pool`,
+and replaces the Phase B card with the LR schedule: step level, next check, and every logged check.
+
 - `GCO/LR Step` (0–20), `GCO/Policy LR` and `GCO/Window EV Median`; each 25M-step check is also a
   `Policy-LR check:` line in the log.
 - `Rating/*` (Elo vs the same reference battery main uses), `Ref/Oldest Share`, the Nexto slope, and
