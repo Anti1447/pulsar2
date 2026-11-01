@@ -306,6 +306,10 @@ static int g_PhaseBStreak = 0;
 // the PHASE B fleet (1v1/2v2/3v3), whatever the main run's phase. Set in main() before the Learner is built.
 static bool g_ExploiterMode = false;
 
+// GCO RUN (--gco; docs/GCO.md): main's opponents with the exploiter's env (goal-only reward, kickoffs, PHASE B fleet)
+static bool g_GCOMode = false;
+static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco";
+
 
 // Render mode only (GGL_RENDER_TEAM_SIZE, set in main()): the viewer's single arena plays
 // this team size regardless of the curriculum split. 0 = not in render mode. The padded obs
@@ -367,10 +371,11 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 	// (44%, touches above goal height) but from the GROUND converts 0/300 (jumps 98%,
 	// reaches z>500 only 9%): the jump->boost-climb transition was never in the training
 	// (D=0) toward grounded takeoff (D=1), gated on the live aerial-conversion EMA.
-	if (g_ExploiterMode) {
+	if (g_ExploiterMode || g_GCOMode) {
 		// Exploiters (ported from RLGymBot_v3): goals scored/conceded only and natural kickoffs only. An exploiter's
 		// job is to WIN against a frozen target, so main's shaping (which describes how main should play) would only
-		// pull it back toward main's own style. Same terminal conditions as main.
+		// pull it back toward main's own style. Same terminal conditions as main. A GCO run trains the same way, but
+		// against main's opponents.
 		result.stateSetter = new KickoffState();
 		result.terminalConditions = terminalConditions;
 		result.rewards = { { new GoalReward(), 1.f } };
@@ -571,6 +576,35 @@ static void ConfigureExploiter(LearnerConfig& cfg, const std::filesystem::path& 
 	cfg.metricsRunName = "exploiter-" + name;
 }
 
+// === GCO: GOAL-CONCEDE-ONLY MAIN RUN (docs/GCO.md) ===
+// An exploiter's training recipe on a main run: starts from main's weights (seeded by SeedGCORun with fresh optimizers
+// and return stats), goal-only reward (+1 scored / -1 conceded), 0.4x entropy, and the policy-LR ramp, but instead of
+// a frozen target it self-plays against everything main does: its own old versions (main's, copied at the start),
+// Nexto, and the imported exploiters. Its checkpoints are the lineage the exploiter slots target under --gco.
+// Called AFTER every main-run setting is in place, like ConfigureExploiter.
+static void ConfigureGCO(LearnerConfig& cfg) {
+	cfg.gcoRun = true;
+
+	float mainEntropy = cfg.ppo.entropyScale;
+	cfg.ppo.entropyScale = mainEntropy * 0.4f;
+	RG_LOG("GCO entropyScale " << cfg.ppo.entropyScale << " (0.4x main's " << mainEntropy << ")");
+
+	// Policy-LR ramp: the exploiter's 10% start and 100M-step ramp (ConfigureExploiterSettings), but it starts ramping
+	// once the critic explains 40% of the goal-only return variance instead of 50%
+	cfg.exploiter.explainedVarThreshold = 0.4f;
+
+	// Same learners as an exploiter: the auxiliary ones that shape or measure main's shaped-reward play are off
+	cfg.ppo.reachability.enabled = false;
+	cfg.ppo.goalCritic.enabled = false;
+	cfg.ppo.vdagEnabled = false;
+	cfg.ppo.geoEnabled = false;
+	cfg.gapSensor.enabled = false;
+
+	cfg.metricsRunName = "gco";
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
+		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
+}
+
 void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
 	// To prevent expensive metrics from eating at performance, we will only run them on 1/4th of steps
 	// This doesn't really matter unless you have expensive metrics (which this example doesn't)
@@ -615,10 +649,13 @@ int main(int argc, char* argv[]) {
 	// tools/run_exploiter.sh passes) resumes the slot's active exploiter or starts one from the newest main checkpoint;
 	// --exploiter, --exploiter-name, --new-exploiter, --exploiter-steps and --slot also make it an exploiter run.
 	// --together / --alone: whether main and the exploiter slots share this machine (compute split) or this run is alone.
-	std::string exploiterSnapshotArg, exploiterNameArg;
+	// --gco (docs/GCO.md): the GCO lineage (checkpoints_gco) instead of main's. Without exploiter options it's the GCO
+	// run itself (--gco-from <checkpoint folder> picks the main checkpoint a new one starts from); with them, the
+	// exploiter takes its snapshots and league from the GCO run.
+	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg;
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
-	bool runTogether = false, slotGiven = false;
+	bool runTogether = false, slotGiven = false, gcoArg = false;
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -641,10 +678,16 @@ int main(int argc, char* argv[]) {
 			slotGiven = true;
 		} else if (arg == "--together" || arg == "--alone") {
 			runTogether = (arg == "--together");
+		} else if (arg == "--gco") {
+			gcoArg = true;
+		} else if (arg == "--gco-from" && i + 1 < argc) {
+			gcoFromArg = argv[++i];
+			gcoArg = true;
 		} else {
 			std::cout << "Unknown argument \"" << arg << "\". Options: --exploiter-auto, --slot <N>, --new-exploiter, "
 				<< "--exploiter <checkpoint folder>, --exploiter-name <name>, --exploiter-steps <N>, "
-				<< "--finish-exploiter [name], --discard-exploiter [name], --together, --alone\n";
+				<< "--finish-exploiter [name], --discard-exploiter [name], --together, --alone, "
+				<< "--gco, --gco-from <checkpoint folder>\n";
 			return 1;
 		}
 	}
@@ -1296,6 +1339,11 @@ int main(int argc, char* argv[]) {
 	// ===== EXPLOITER STACK (ported from RLGymBot_v3; docs/EXPLOITERS.md) =====
 	// After every main-run setting above, so an exploiter run's scalings (entropy, minibatch, compute share) are
 	// relative to main's live values.
+	// --gco: the GCO lineage's folder before the exploiter settings, which take the exploiter source from it (the
+	// shared exploiters/ folder next to it stays the same, so GCO imports main's finished exploiters too)
+	std::filesystem::path mainCheckpointFolder = cfg.checkpointFolder;
+	if (gcoArg)
+		cfg.checkpointFolder = GCO_CHECKPOINT_FOLDER;
 	ConfigureExploiterSettings(cfg);
 	std::filesystem::path exploitersRoot = cfg.exploiterPool.exploitersFolder;
 	int numSlots = (int)cfg.exploiter.slotRoles.size();
@@ -1356,6 +1404,12 @@ int main(int argc, char* argv[]) {
 		cfg.ppo.miniBatchSize /= 2; // Must still divide batchSize (200k / 12.5k)
 		RG_LOG("Together: main miniBatchSize " << cfg.ppo.miniBatchSize << " (halved to fit beside the exploiter slots)");
 	}
+	if (gcoArg && !exploiterRunArg && !cfg.renderMode) {
+		if (!SeedGCORun(cfg.checkpointFolder, mainCheckpointFolder, gcoFromArg))
+			return 1;
+		g_GCOMode = true;
+		ConfigureGCO(cfg);
+	}
 	RG_LOG("Compute: " << (runTogether ? "sharing the machine with the exploiter slots" : "alone") << ", numGames "
 		<< cfg.numGames);
 	if (g_ExploiterMode) {
@@ -1390,7 +1444,7 @@ int main(int argc, char* argv[]) {
 	// re-fired forever - the trainer wrote the marker, exited 99, relaunched into PHASE A,
 	// and repeated every ~6 minutes for 70M+ steps (five loops in one log, ts 3.695B-3.768B).
 	// If the marker read ever disappears again the symptom is that exact restart loop.
-	g_PhaseB = g_ExploiterMode || std::filesystem::exists(cfg.checkpointFolder / PHASE_B_MARKER);
+	g_PhaseB = g_ExploiterMode || g_GCOMode || std::filesystem::exists(cfg.checkpointFolder / PHASE_B_MARKER);
 	TEAM_SPIRIT = g_PhaseB ? 0.6f : 0.3f; // 5.0 spirit schedule (see the declaration)
 	g_NumGames = cfg.numGames;
 	g_NumArenas2v2 = g_PhaseB ? (int)(cfg.numGames * PHASE_B_FRAC_2V2) : 0;

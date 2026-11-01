@@ -2,6 +2,7 @@
 # Main training plus both exploiter slots on one machine (docs/EXPLOITERS.md). Run from the build directory:
 #
 #   ../tools/run_league.sh start     main (--together: half of numGames) + slot 0 (main exploiter) + slot 1 (league)
+#   ../tools/run_league.sh start --gco   the same with the GCO run as main (docs/GCO.md)
 #   ../tools/run_league.sh status
 #   ../tools/run_league.sh stop      each saves after its current iteration (exploiters run a final eval first)
 #
@@ -14,9 +15,11 @@ SLOTS="0 1"
 
 case "${1:-}" in
 	start)
-		"$SCRIPT_DIR/run_trainer.sh" -- ./GigaLearnBot --together
+		LINEAGE_ARGS=()
+		[ "${2:-}" = "--gco" ] && LINEAGE_ARGS=(--gco)
+		"$SCRIPT_DIR/run_trainer.sh" -- ./GigaLearnBot --together "${LINEAGE_ARGS[@]}"
 		for s in $SLOTS; do
-			"$SCRIPT_DIR/run_exploiter.sh" --slot "$s"
+			"$SCRIPT_DIR/run_exploiter.sh" --slot "$s" "${LINEAGE_ARGS[@]}"
 		done
 		;;
 	status)
@@ -33,7 +36,7 @@ case "${1:-}" in
 		wait
 		;;
 	*)
-		sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+		sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
 		exit 2
 		;;
 esac

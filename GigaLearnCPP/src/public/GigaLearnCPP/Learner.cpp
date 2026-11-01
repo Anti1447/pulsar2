@@ -477,7 +477,7 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 	if (versionMgr)
 		versionMgr->AddRunningStatsToJSON(j);
 
-	if (config.exploiter.enabled)
+	if (config.exploiter.enabled || config.gcoRun)
 		j["exploiter_ramp_start_ts"] = exploiterRampStartTs;
 	if (exploiterPool)
 		j["exploiter_pool"] = exploiterPool->ToJSON();
@@ -503,9 +503,10 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 	if (j.contains("run_id"))
 		runID = j["run_id"];
 
-	if (returnStat)
+	// Either may be missing: a GCO run's seeded first checkpoint (docs/GCO.md) leaves them out to start them fresh
+	if (returnStat && j.contains("return_stat"))
 		returnStat->ReadFromJSON(j["return_stat"]);
-	if (obsStat)
+	if (obsStat && j.contains("obs_stat"))
 		obsStat->ReadFromJSON(j["obs_stat"]);
 
 	if (j.contains("reach_acc_ema"))
@@ -530,7 +531,7 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 	nextoGoalsAgainst = j.value("nexto_goals_against", (int64_t)0);
 	nextoServeIters = j.value("nexto_serve_iters", (int64_t)0);
 
-	if (config.exploiter.enabled)
+	if (config.exploiter.enabled || config.gcoRun)
 		exploiterRampStartTs = j.value("exploiter_ramp_start_ts", (int64_t)-1);
 	if (exploiterPool && j.contains("exploiter_pool"))
 		exploiterPool->FromJSON(j["exploiter_pool"]);
@@ -2775,15 +2776,17 @@ void GGL::Learner::Start() {
 					report["GAE Time"] = gaeTimer.Elapsed();
 					report["Clipped Reward Portion"] = rewClipPortion;
 
-					if (exploiterRun) {
+					if (exploiterRun || config.gcoRun) {
 						// Exploiter policy-LR ramp (ported from RLGymBot_v3): the critic starts from main's snapshot
 						// but now predicts goal-only returns, so the policy waits at a fraction of its LR until the
 						// critic explains enough of them. Explained variance against the actual discounted returns in
 						// the critic's units (tTargetVals would mostly echo the critic); value preds predate this update.
+						// A GCO run (docs/GCO.md) starts the same way from a main checkpoint, so it ramps too.
+						const std::string rampPrefix = config.gcoRun ? "GCO/" : "Exploiter/";
 						torch::Tensor tScaledReturns = tReturns / (returnStat ? returnStat->GetSTD() : 1);
 						float returnVar = tScaledReturns.var().item<float>();
 						float explainedVar = 1 - (tScaledReturns - tValPreds).var().item<float>() / RS_MAX(returnVar, 1e-8f);
-						report["Exploiter/Critic Explained Variance"] = explainedVar;
+						report[rampPrefix + "Critic Explained Variance"] = explainedVar;
 
 						auto& ec = config.exploiter;
 						if (exploiterRampStartTs < 0 && explainedVar >= ec.explainedVarThreshold)
@@ -2795,7 +2798,7 @@ void GGL::Learner::Start() {
 						float policyLR = config.ppo.policyLR * lrScale;
 						if (policyLR != ppo->config.policyLR)
 							ppo->SetLearningRates(policyLR, config.ppo.criticLR);
-						report["Exploiter/Policy LR"] = policyLR;
+						report[rampPrefix + "Policy LR"] = policyLR;
 					}
 
 					// Raw GAE advantage magnitude, captured BEFORE any injector touches it.

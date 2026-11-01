@@ -326,5 +326,10 @@ namespace GGL {
 		// Exploiter stack (docs/EXPLOITERS.md); both default-OFF
 		ExploiterConfig exploiter = {};
 		ExploiterPoolConfig exploiterPool = {};
+
+		// Goal-concede-only main run (docs/GCO.md): main's opponents with an exploiter's training recipe. The Learner
+		// only needs it for the policy-LR ramp, which reads exploiter.policyLRStartScale / explainedVarThreshold /
+		// policyLRRampSteps (the exploiter block is otherwise off in a GCO run)
+		bool gcoRun = false;
 	};
 }
