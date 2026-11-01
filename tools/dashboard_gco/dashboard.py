@@ -581,7 +581,7 @@ def gco_constants():
     main's cfg.ppo.policyLR."""
     if _gc["c"] and time.time() - _gc["t"] < 30:
         return _gc["c"]
-    c = {"interval": 25_000_000, "threshold": 0.5, "startScale": 0.1, "baseLR": 1.5e-4, "levels": 20}
+    c = {"interval": 25_000_000, "threshold": 0.41, "startScale": 0.1, "baseLR": 1.5e-4, "levels": 20}
     try:
         src = (REPO / "src" / "ExampleMain.cpp").read_text(errors="replace")
         body = src.split("void ConfigureGCO", 1)[1]

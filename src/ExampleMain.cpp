@@ -591,9 +591,10 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 
 	// Policy LR: the exploiter's 10% start, then GATED steps of 4.5% (1/20 of the way to 100%) instead of a continuous
 	// ramp. A check every 25M steps steps up only if the median explained variance since the previous check is above
-	// 0.5, so full LR takes >= 500M steps. The first GCO run's continuous ramp (start at EV 0.4, 100% within 100M)
-	// peaked at Rating/1v1 1287 just before full LR, then slid to 1231 over the next 150M steps at 100%.
-	cfg.exploiter.explainedVarThreshold = 0.5f;
+	// 0.41, so full LR takes >= 500M steps. The first GCO run's continuous ramp (start at EV 0.4, 100% within 100M)
+	// peaked at Rating/1v1 1287 just before full LR, then slid to 1231 over the next 150M steps at 100%. The gate
+	// started at 0.5, but 178 checks (to 12.43B) never stepped: window medians sat at 0.35-0.38, so it was lowered.
+	cfg.exploiter.explainedVarThreshold = 0.41f;
 	cfg.exploiter.policyLRStepInterval = 25'000'000;
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
 		cfg.exploiter.policyLRStepInterval = 200'000;

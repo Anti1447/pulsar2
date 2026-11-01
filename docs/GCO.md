@@ -56,14 +56,16 @@ against its old target, so finish or discard it first if you want the next run t
 
 The policy LR starts at 10% of `cfg.ppo.policyLR`. Every 25M steps a check reads the **median** critic explained
 variance over the iterations since the previous check (per-iteration values swing about 0.2–0.7, with rare large
-negative outliers). If the median is above 0.5, the LR goes up one step, 1/20 of the way to 100% (+4.5% of full
+negative outliers). If the median is above 0.41, the LR goes up one step, 1/20 of the way to 100% (+4.5% of full
 LR). Otherwise it stays put. Full LR therefore takes at least 500M steps. The step level and the current window
 are saved in `RUNNING_STATS.json`, so restarts keep their place.
 
 History: the first GCO run (2026-11-01, W&B `gco`) used the exploiter's continuous ramp, which starts once EV first
 reaches 0.4 and reaches 100% within 100M steps. Rating/1v1 rose from 1257 to 1287 by 7.925B, just before full LR,
 then slid to 1231 by 8.09B at 100%. The run was rolled back to `best_r1287` (7.925B) and restarted on the gated
-schedule from 10% (W&B `gco-gated-lr`). The rolled-back checkpoints are in `checkpoints_gco/rolled_back/`.
+schedule from 10% (W&B `gco-gated-lr`). The rolled-back checkpoints are in `checkpoints_gco/rolled_back/`. The gate
+started at a 0.5 median; after 178 checks (to 12.43B steps) with window medians of 0.35–0.38 and no step-up, it was
+lowered to 0.41. Rating/1v1 had still risen from 1256 to about 1528 at 10% LR by then.
 
 ## What to watch
 
