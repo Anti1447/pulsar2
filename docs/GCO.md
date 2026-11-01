@@ -26,7 +26,11 @@ From the build directory:
 ../tools/run_trainer.sh -- ./GigaLearnBot --gco                       # alone: all 1024 games
 ../tools/run_league.sh start --gco                                    # with both exploiter slots targeting it
 ./GigaLearnBot --gco --gco-from checkpoints_5.3/7835941626            # start from a specific main checkpoint
+../tools/run_trainer.sh -- ./GigaLearnBot --gco --no-exploiter-pool   # alone, importing no exploiters
 ```
+
+`--no-exploiter-pool` (also works on a plain main run) turns the exploiter import off, so the opponents are Nexto 15%,
+old versions 25.5% and self-play for the rest, as main's were before exploiters.
 
 **First launch (seeding).** If `checkpoints_gco/` has no checkpoint yet, `SeedGCORun` (`src/ExploiterLauncher.cpp`)
 seeds one from the newest complete main checkpoint, or from `--gco-from`:

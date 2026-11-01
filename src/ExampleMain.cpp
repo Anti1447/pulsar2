@@ -652,10 +652,11 @@ int main(int argc, char* argv[]) {
 	// --gco (docs/GCO.md): the GCO lineage (checkpoints_gco) instead of main's. Without exploiter options it's the GCO
 	// run itself (--gco-from <checkpoint folder> picks the main checkpoint a new one starts from); with them, the
 	// exploiter takes its snapshots and league from the GCO run.
+	// --no-exploiter-pool: a main or GCO run that imports no exploiters (opponents are self-play, old versions and Nexto).
 	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg;
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
-	bool runTogether = false, slotGiven = false, gcoArg = false;
+	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false;
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -683,11 +684,13 @@ int main(int argc, char* argv[]) {
 		} else if (arg == "--gco-from" && i + 1 < argc) {
 			gcoFromArg = argv[++i];
 			gcoArg = true;
+		} else if (arg == "--no-exploiter-pool") {
+			noExploiterPool = true;
 		} else {
 			std::cout << "Unknown argument \"" << arg << "\". Options: --exploiter-auto, --slot <N>, --new-exploiter, "
 				<< "--exploiter <checkpoint folder>, --exploiter-name <name>, --exploiter-steps <N>, "
 				<< "--finish-exploiter [name], --discard-exploiter [name], --together, --alone, "
-				<< "--gco, --gco-from <checkpoint folder>\n";
+				<< "--gco, --gco-from <checkpoint folder>, --no-exploiter-pool\n";
 			return 1;
 		}
 	}
@@ -1359,8 +1362,10 @@ int main(int argc, char* argv[]) {
 		std::cout << "[CONFIG] Exploiter options can't be combined with GGL_RENDER. Not starting.\n";
 		return 1;
 	}
-	if (cfg.renderMode)
+	if (cfg.renderMode || noExploiterPool)
 		cfg.exploiterPool.enabled = false;
+	if (noExploiterPool && !exploiterRunArg)
+		RG_LOG("--no-exploiter-pool: no imported exploiters (old versions keep their full share)");
 
 	ExploiterRun exploiterRun;
 	if (exploiterRunArg) {
