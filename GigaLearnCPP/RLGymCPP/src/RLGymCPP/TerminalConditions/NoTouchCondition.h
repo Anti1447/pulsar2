@@ -7,8 +7,10 @@ namespace RLGC {
 
 		float timeSinceTouch = 0;
 		float maxTime;
+		// false = a real ending (done, no bootstrap), for runs that penalize the timeout (NoTouchTimeoutPenalty)
+		bool truncate;
 
-		NoTouchCondition(float maxTime) : maxTime(maxTime) {
+		NoTouchCondition(float maxTime, bool truncate = true) : maxTime(maxTime), truncate(truncate) {
 		}
 
 		virtual void Reset(const GameState& initialState) {
@@ -28,7 +30,7 @@ namespace RLGC {
 		}
 
 		virtual bool IsTruncation() {
-			return true;
+			return truncate;
 		}
 	};
 }

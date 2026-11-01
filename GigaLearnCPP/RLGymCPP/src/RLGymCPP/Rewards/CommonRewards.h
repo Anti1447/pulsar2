@@ -43,6 +43,35 @@ namespace RLGC {
 		}
 	};
 
+	// -1 to every player (both teams) on the step a NoTouchCondition(maxTime) with the same maxTime ends the episode.
+	// Keeps its own copy of the condition's timer (same update, run in PreStep right after the terminal check) instead
+	// of pointing at the condition, so it never outlives one that a viewer or eval rebuild deletes. A goal on the same
+	// step wins: GoalReward pays it and this pays nothing.
+	class NoTouchTimeoutPenalty : public Reward {
+	public:
+		float maxTime;
+		float timeSinceTouch = 0;
+		NoTouchTimeoutPenalty(float maxTime) : maxTime(maxTime) {}
+
+		virtual void Reset(const GameState& initialState) {
+			timeSinceTouch = 0;
+		}
+
+		virtual void PreStep(const GameState& state) {
+			for (auto& player : state.players) {
+				if (player.ballTouchedStep) {
+					timeSinceTouch = 0;
+					return;
+				}
+			}
+			timeSinceTouch += state.deltaTime;
+		}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) {
+			return (isFinal && !state.goalScored && timeSinceTouch >= maxTime) ? -1 : 0;
+		}
+	};
+
 	// https://github.com/AechPro/rocket-league-gym-sim/blob/main/rlgym_sim/utils/reward_functions/common_rewards/misc_rewards.py
 	class VelocityReward : public Reward {
 	public:

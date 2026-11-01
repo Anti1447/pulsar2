@@ -309,6 +309,8 @@ static bool g_ExploiterMode = false;
 // GCO RUN (--gco; docs/GCO.md): main's opponents with the exploiter's env (goal-only reward, kickoffs, PHASE B fleet)
 static bool g_GCOMode = false;
 static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco";
+// What a 20s no-touch timeout costs every car in a GCO game, in goals (a goal is +-1)
+static constexpr float GCO_TIMEOUT_PENALTY = 0.5f;
 
 
 // Render mode only (GGL_RENDER_TEAM_SIZE, set in main()): the viewer's single arena plays
@@ -371,16 +373,28 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 	// (44%, touches above goal height) but from the GROUND converts 0/300 (jumps 98%,
 	// reaches z>500 only 9%): the jump->boost-climb transition was never in the training
 	// (D=0) toward grounded takeoff (D=1), gated on the live aerial-conversion EMA.
-	if (g_ExploiterMode || g_GCOMode) {
+	if (g_ExploiterMode) {
 		// Exploiters (ported from RLGymBot_v3): goals scored/conceded only and natural kickoffs only. An exploiter's
 		// job is to WIN against a frozen target, so main's shaping (which describes how main should play) would only
-		// pull it back toward main's own style. Same terminal conditions as main. A GCO run trains the same way, but
-		// against main's opponents.
+		// pull it back toward main's own style. Same terminal conditions as main.
 		result.stateSetter = new KickoffState();
 		result.terminalConditions = terminalConditions;
 		result.rewards = { { new GoalReward(), 1.f } };
 		result.arena = arena;
 		return result;
+	}
+	if (g_GCOMode) {
+		// GCO (docs/GCO.md): goal-only like an exploiter, but on main's reset mix below (it was kickoffs only until
+		// 12.81B, 2026-11-01). The 20s no-touch timeout is a real ending here, not a truncation: it costs every car
+		// GCO_TIMEOUT_PENALTY, so neither team gains by keeping the ball dead (no bootstrapped value hides the cost).
+		delete terminalConditions[0];
+		terminalConditions[0] = new NoTouchCondition(20, /*truncate=*/false);
+		result.rewards = {
+			{ new GoalReward(), 1.f },
+			{ new NoTouchTimeoutPenalty(20), GCO_TIMEOUT_PENALTY },
+		};
+	} else {
+		result.rewards = BuildRewards(TRAIN_GAMMA);
 	}
 	AirDrillState* airDrill = new AirDrillState();
 	result.stateSetter = new CombinedState({
@@ -399,7 +413,6 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		{ new RandomState(true, true, false), 0.25f },
 	});
 	result.terminalConditions = terminalConditions;
-	result.rewards = BuildRewards(TRAIN_GAMMA);
 
 	result.arena = arena;
 

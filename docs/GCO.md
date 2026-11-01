@@ -8,8 +8,9 @@ self-play plus everything main plays against.
 |---|---|---|---|
 | Starting weights | its own lineage | a main snapshot (or an older exploiter) | a main checkpoint, copied once |
 | Optimizers / return stats | resumed | fresh | fresh |
-| Reward | shaped stack | `GoalReward` only (+1 scored, −1 conceded) | `GoalReward` only |
-| Resets | mixed drills | kickoffs only | kickoffs only |
+| Reward | shaped stack | `GoalReward` only (+1 scored, −1 conceded) | `GoalReward`, plus −0.5 to every car on a no-touch timeout |
+| Resets | mixed drills | kickoffs only | main's mixed drills (kickoffs only until 12.81B) |
+| 20s no-touch timeout | truncation | truncation | a real ending (no bootstrap) |
 | Fleet | phase marker | always PHASE B (1/3 each 1v1/2v2/3v3) | always PHASE B |
 | Entropy | `cfg.ppo.entropyScale` (0.035) | 0.4× main's (0.014) | 0.4× main's (0.014) |
 | Policy LR | full | 10% until critic EV ≥ 0.5, then ramps to 100% over 100M | 10%, then **gated steps** of 4.5% (see below) |
@@ -17,6 +18,12 @@ self-play plus everything main plays against.
 | Opponents | self-play, old versions, Nexto, imported exploiters | its frozen target(s) | **same as main** |
 | Skill tracker / Elo, policy-version archive, best-rated saves | on | off | on |
 | Ends | never | 0.70 eval or step cap | never |
+
+**Resets and the timeout penalty (from 12.81B steps, 2026-11-01).** GCO started on kickoff-only resets. It now uses
+main's mix: ball-near-car 30%, aerial drill 20%, air play 15%, kickoff 10% and random 25%. The 20-second no-touch
+timeout ends the episode as a real outcome instead of a truncation, and every car on both teams gets −0.5
+(`GCO_TIMEOUT_PENALTY` in `src/ExampleMain.cpp`, `NoTouchTimeoutPenalty` in `CommonRewards.h`). As a truncation, the
+critic's bootstrapped value hid what a dead ball cost, so neither team had a reason to end the stall.
 
 ## Running it
 
