@@ -247,8 +247,9 @@ namespace GGL {
 		// (dir names "best_r<rating>_<ts>" are non-numeric, so FindNumberedDirs ignores
 		// them). Bounds any future loss to "since the last new best". Rate-limited by
 		// bestArchiveMinTsSpacing + a small rating margin so a steady climb doesn't copy
-		// a checkpoint every save.
-		int bestCheckpointsToKeep = 3;
+		// a checkpoint every save. One archive per mode, N each: best_r (Rating/1v1),
+		// best2v2_r and best3v3_r; tools/package_bot.sh --best / --best-2v2 / --best-3v3 package them.
+		int bestCheckpointsToKeep = 2;
 		float bestArchiveRatingMargin = 5.0f;
 		int64_t bestArchiveMinTsSpacing = 25'000'000;
 		// Boot sanity probe: after loading a checkpoint that CLAIMS competence (rating >=

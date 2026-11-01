@@ -739,6 +739,21 @@ bool GGL::Learner::BootSanityProbe() {
 	return touchedEpisodes >= 2;
 }
 
+// Golden archives, one per mode: "<prefix><rating>_<ts>". 1v1 keeps the original "best_r" name, which the loader's
+// last-resort fallback and older tools read; the team-mode prefixes don't start with "best_r", so they never mix in.
+static const struct { const char* mode; const char* prefix; } BEST_ARCHIVE_MODES[3] = {
+	{ "1v1", "best_r" }, { "2v2", "best2v2_r" }, { "3v3", "best3v3_r" },
+};
+
+// Reads the per-mode ratings off this iteration's report into lastEvalRating
+void GGL::Learner::TrackEvalRatings(const Report& report) {
+	for (int i = 0; i < 3; i++) {
+		std::string key = std::string("Rating/") + BEST_ARCHIVE_MODES[i].mode;
+		if (report.Has(key))
+			lastEvalRating[i] = (float)report[key];
+	}
+}
+
 
 void GGL::Learner::Save() {
 	if (config.checkpointFolder.empty())
@@ -762,38 +777,41 @@ void GGL::Learner::Save() {
 	std::filesystem::remove_all(finalFolder); // paranoia: re-save at an identical timestep
 	std::filesystem::rename(saveFolder, finalFolder);
 
-	// Golden archive: keep the top-N rated checkpoints permanently (see LearnerConfig).
+	// Golden archives: keep the top-N rated checkpoints permanently, per mode (see LearnerConfig).
 	// Rate-limited (spacing + rating margin) so a steady climb doesn't copy every save.
-	if (config.bestCheckpointsToKeep > 0 && !std::isnan(lastEvalRating)
-		&& totalTimesteps - lastBestArchiveTs >= (uint64_t)config.bestArchiveMinTsSpacing) {
+	for (int m = 0; m < 3 && config.bestCheckpointsToKeep > 0; m++) {
+		const std::string prefix = BEST_ARCHIVE_MODES[m].prefix;
+		const float rating = lastEvalRating[m];
 		try {
 			std::vector<std::pair<float, std::filesystem::path>> bests;
 			for (auto& e : std::filesystem::directory_iterator(config.checkpointFolder)) {
 				std::string name = e.path().filename().string();
-				if (name.rfind("best_r", 0) == 0) {
-					size_t us = name.find('_', 6);
-					bests.push_back({ std::stof(name.substr(6, us - 6)), e.path() });
+				if (name.rfind(prefix, 0) == 0) {
+					size_t us = name.find('_', prefix.size());
+					bests.push_back({ std::stof(name.substr(prefix.size(), us - prefix.size())), e.path() });
 				}
 			}
 			std::sort(bests.begin(), bests.end());
-			bool qualifies = (int)bests.size() < config.bestCheckpointsToKeep
-				|| lastEvalRating > bests.front().first + config.bestArchiveRatingMargin;
+			bool qualifies = !std::isnan(rating)
+				&& totalTimesteps - lastBestArchiveTs[m] >= (uint64_t)config.bestArchiveMinTsSpacing
+				&& ((int)bests.size() < config.bestCheckpointsToKeep
+					|| rating > bests.front().first + config.bestArchiveRatingMargin);
 			if (qualifies) {
-				std::string bestName = "best_r" + std::to_string((int)lastEvalRating)
-					+ "_" + std::to_string(totalTimesteps);
+				std::string bestName = prefix + std::to_string((int)rating) + "_" + std::to_string(totalTimesteps);
 				std::filesystem::copy(finalFolder, config.checkpointFolder / bestName,
 					std::filesystem::copy_options::recursive);
-				bests.push_back({ lastEvalRating, config.checkpointFolder / bestName });
+				bests.push_back({ rating, config.checkpointFolder / bestName });
 				std::sort(bests.begin(), bests.end());
-				while ((int)bests.size() > config.bestCheckpointsToKeep) {
-					std::filesystem::remove_all(bests.front().second);
-					bests.erase(bests.begin());
-				}
-				lastBestArchiveTs = totalTimesteps;
-				RG_LOG(" > Archived best-rated checkpoint (" << (int)lastEvalRating << ")");
+				lastBestArchiveTs[m] = totalTimesteps;
+				RG_LOG(" > Archived best-rated " << BEST_ARCHIVE_MODES[m].mode << " checkpoint (" << (int)rating << ")");
+			}
+			// Pruned on every save, not only after an archive, so lowering bestCheckpointsToKeep takes effect at once
+			while ((int)bests.size() > config.bestCheckpointsToKeep) {
+				std::filesystem::remove_all(bests.front().second);
+				bests.erase(bests.begin());
 			}
 		} catch (std::exception& e) {
-			RG_LOG("WARNING: best-checkpoint archive maintenance failed: " << e.what());
+			RG_LOG("WARNING: best-checkpoint archive maintenance (" << BEST_ARCHIVE_MODES[m].mode << ") failed: " << e.what());
 		}
 	}
 
@@ -1316,7 +1334,7 @@ void GGL::Learner::Start() {
 
 		// The report key the skill tracker writes for the TRAINING arenas' team size
 		// ("Rating/1v1", "Rating/2v2", ...). Every in-loop rating consumer (steering rating
-		// guard, golden-archive feed, PSD plateau/freeze feed) tracks this key, so the guards
+		// guard, PSD plateau/freeze feed; the golden archives track each mode on their own) tracks this key, so the guards
 		// keep working when the fleet moves to 2v2/3v3 instead of silently going dark on a
 		// stale "Rating/1v1" literal. With a mixed-mode fleet, arena 0's mode is the one
 		// tracked - keep the primary mode at index 0.
@@ -2434,8 +2452,7 @@ void GGL::Learner::Start() {
 					versionMgr->OnIteration(ppo, report, totalTimesteps, prevVersionTimesteps);
 				fnExploiterBarrier(report, prevVersionTimesteps);
 				prevVersionTimesteps = totalTimesteps;
-				if (report.Has(ratingKey))
-					lastEvalRating = (float)report[ratingKey]; // feeds the best-checkpoint archive
+				TrackEvalRatings(report); // feeds the best-checkpoint archives
 				// Freeze the current policy for the worker, then collect the next iteration
 				// concurrently with this iteration's processing + Learn.
 				fnSyncSnapshot();
@@ -3354,8 +3371,7 @@ void GGL::Learner::Start() {
 					if (versionMgr)
 						versionMgr->OnIteration(ppo, report, totalTimesteps, prevTimesteps);
 					fnExploiterBarrier(report, prevTimesteps);
-					if (report.Has(ratingKey))
-						lastEvalRating = (float)report[ratingKey]; // feeds the best-checkpoint archive
+					TrackEvalRatings(report); // feeds the best-checkpoint archives
 				}
 
 				// User per-iteration hook (curriculum triggers etc.): sees the finished

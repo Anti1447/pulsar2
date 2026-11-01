@@ -271,16 +271,29 @@ function renderSidebar() {
   cp.numbered.slice(0, 3).forEach(function (x, i) { var li = document.createElement("li"); li.innerHTML = "<span>" + (i === 0 ? "latest " : "") + fmtSteps(x.step) + "</span><span class='muted'>" + fmtAgo(x.mtime) + "</span>"; ul.appendChild(li); });
   if (!cp.numbered.length) ul.innerHTML = "<li class='muted'>No checkpoints yet.</li>";
   k.appendChild(ul);
-  if (cp.best.length) { var h = document.createElement("div"); h.className = "small muted"; h.textContent = "Strongest rated"; k.appendChild(h);
-    var u2 = document.createElement("ul"); u2.className = "list"; cp.best.slice(0, 3).forEach(function (x, i) { var li = document.createElement("li");
-      li.innerHTML = "<span>" + (i === 0 ? "★ " : "") + "rating " + x.rating + " · " + fmtSteps(x.step) + "</span><span class='muted'>" + fmtAgo(x.mtime) + "</span>"; u2.appendChild(li); }); k.appendChild(u2); }
+  // Strongest rated, per mode (the trainer keeps the top 2 of each). One save can top several modes: it is the same
+  // bot, so packaging it a second time is refused as a duplicate, and the list says which release already has it.
+  var releasedAt = {}; S.releases.forEach(function (r) { if (!releasedAt[r.step]) releasedAt[r.step] = "v" + r.version; });
   var pa = document.createElement("div"); pa.className = "actions";
   pa.appendChild(btn("Package latest", "", false, function () { act("/api/package", { best: false }, "Package the newest checkpoint as a new bot version and install it into RLBot v5?\n(Refuses if this exact bot already exists.)"); }));
-  pa.appendChild(btn("Package best rated", "", false, function () { act("/api/package", { best: true }, "Package the strongest-rated checkpoint as a new bot version and install it into RLBot v5?\n(Refuses if this exact bot already exists.)"); }));
+  ["1v1", "2v2", "3v3"].forEach(function (mode) {
+    var list = cp.best.filter(function (x) { return x.mode === mode; });
+    var h = document.createElement("div"); h.className = "small muted"; h.textContent = "Strongest " + mode; k.appendChild(h);
+    var u2 = document.createElement("ul"); u2.className = "list";
+    list.forEach(function (x, i) { var li = document.createElement("li");
+      var tags = (x.alsoBest.length ? " · also best " + x.alsoBest.join("/") : "") + (releasedAt[String(x.step)] ? " · released " + releasedAt[String(x.step)] : "");
+      li.innerHTML = "<span>" + (i === 0 ? "★ " : "") + "rating " + x.rating + " · " + fmtSteps(x.step) + esc(tags) + "</span><span class='muted'>" + fmtAgo(x.mtime) + "</span>"; u2.appendChild(li); });
+    if (!list.length) u2.innerHTML = "<li class='muted'>None archived yet.</li>";
+    k.appendChild(u2);
+    pa.appendChild(btn("Package best " + mode, "", !list.length, function () {
+      var top = list[0], dup = top && releasedAt[String(top.step)];
+      act("/api/package", { best: mode }, "Package the strongest " + mode + "-rated checkpoint (rating " + top.rating + ", " + fmtSteps(top.step) + ") as a new bot version and install it into RLBot v5?" +
+        (dup ? "\nThat checkpoint is already released as " + dup + ", so this will be refused unless the bot code changed." : "\n(Refuses if this exact bot already exists.)")); }));
+  });
   k.appendChild(pa);
   if (S.releases.length) { var h2 = document.createElement("div"); h2.className = "small muted"; h2.textContent = "Bot releases"; k.appendChild(h2);
     var u3 = document.createElement("ul"); u3.className = "list"; S.releases.slice(0, 4).forEach(function (r) { var li = document.createElement("li");
-      li.innerHTML = "<span>v" + esc(r.version) + (r.rating ? " · rating " + esc(r.rating) : "") + "</span><span class='muted'>" + fmtSteps(+r.step) + "</span>"; u3.appendChild(li); }); k.appendChild(u3); }
+      li.innerHTML = "<span>v" + esc(r.version) + (r.rating ? " · " + esc(r.ratingMode || "1v1") + " rating " + esc(r.rating) : "") + "</span><span class='muted'>" + fmtSteps(+r.step) + "</span>"; u3.appendChild(li); }); k.appendChild(u3); }
 
   var b = $("buildCard"), bs = S.build; b.innerHTML = '<div class="card-head"><h3>Build</h3><span class="state">' + ({ running: "Building…", ok: "Built", failed: "Failed", idle: "Idle" }[bs.state] || bs.state) + "</span></div>";
   var ba = document.createElement("div"); ba.className = "actions";

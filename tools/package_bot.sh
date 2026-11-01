@@ -11,8 +11,11 @@
 #   tools/package_bot.sh --no-install         # build the release in WSL only
 #   tools/package_bot.sh --dry-run            # show what would happen
 #   tools/package_bot.sh --force              # release even if nothing changed since the last one
-#   tools/package_bot.sh --best               # strongest-rated checkpoint (best_r<rating>_<steps>) instead of the newest
+#   tools/package_bot.sh --best               # strongest 1v1-rated checkpoint (best_r<rating>_<steps>) instead of the newest
+#   tools/package_bot.sh --best-2v2           # strongest 2v2-rated checkpoint (best2v2_r<rating>_<steps>)
+#   tools/package_bot.sh --best-3v3           # strongest 3v3-rated checkpoint (best3v3_r<rating>_<steps>)
 #   tools/package_best_bot.sh                 # same as --best
+# The trainer keeps the top 2 of each (bestCheckpointsToKeep in LearnerConfig.h).
 #   tools/package_bot.sh --list               # list releases
 #
 # Duplicate guard: before anything is written, the checkpoint CONTENT (weights + stats) and the bot code are
@@ -36,6 +39,7 @@ DISTRO="${WSL_DISTRO_NAME:-Ubuntu-24.04}"
 WSL_USER="$(id -un)"
 
 BUMP=patch; EXPLICIT=""; CKPT_ARG=""; INSTALL=1; DRY=0; FORCE=0; LIST=0; BEST=0
+BEST_MODE=1v1; BEST_PREFIX=best_r   # which golden archive --best reads
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--patch) BUMP=patch ;;
@@ -44,6 +48,8 @@ while [ $# -gt 0 ]; do
 		--version) EXPLICIT="${2:?--version needs X.Y.Z}"; shift ;;
 		--checkpoint) CKPT_ARG="${2:?--checkpoint needs a step or folder}"; shift ;;
 		--best) BEST=1 ;;
+		--best-2v2) BEST=1; BEST_MODE=2v2; BEST_PREFIX=best2v2_r ;;
+		--best-3v3) BEST=1; BEST_MODE=3v3; BEST_PREFIX=best3v3_r ;;
 		--no-install) INSTALL=0 ;;
 		--dry-run) DRY=1 ;;
 		--force) FORCE=1 ;;
@@ -75,15 +81,15 @@ fi
 RATING=""
 if [ "$BEST" = 1 ]; then
 	[ -z "$CKPT_ARG" ] || die "--best chooses the checkpoint itself; do not combine it with --checkpoint"
-	# best_r<rating>_<steps> folders are the trainer's own archive of its best-rated snapshots.
-	CAND="$(ls -1 "$CKPT_DIR" 2>/dev/null | sed -nE 's/^(best_r(-?[0-9]+)_([0-9]+))$/\2 \3 \1/p' | sort -k1,1nr -k2,2nr)"
-	[ -n "$CAND" ] || die "no best_r<rating>_<steps> folders in $CKPT_DIR (the trainer has not archived a best-rated checkpoint yet)"
+	# <prefix><rating>_<steps> folders are the trainer's own archive of its best-rated snapshots, one per mode.
+	CAND="$(ls -1 "$CKPT_DIR" 2>/dev/null | sed -nE "s/^(${BEST_PREFIX}(-?[0-9]+)_([0-9]+))\$/\\2 \\3 \\1/p" | sort -k1,1nr -k2,2nr)"
+	[ -n "$CAND" ] || die "no ${BEST_PREFIX}<rating>_<steps> folders in $CKPT_DIR (the trainer has not archived a best $BEST_MODE checkpoint yet)"
 	CKPT=""
 	while read -r r s name; do
 		if ckpt_complete "$CKPT_DIR/$name"; then CKPT="$CKPT_DIR/$name"; RATING="$r"; STEP="$s"; break; fi
 		echo "note: skipping $name (incomplete)" >&2
 	done <<<"$CAND"
-	[ -n "$CKPT" ] || die "no complete best_r* checkpoint found"
+	[ -n "$CKPT" ] || die "no complete ${BEST_PREFIX}* checkpoint found"
 elif [ -z "$CKPT_ARG" ]; then
 	STEP="$(ls -1 "$CKPT_DIR" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -n1)"
 	[ -n "$STEP" ] || die "no numbered checkpoints in $CKPT_DIR"
@@ -94,7 +100,10 @@ else
 	CKPT="$CKPT_DIR/$CKPT_ARG"; STEP="$CKPT_ARG"
 fi
 CK_NAME="$(basename "$CKPT")"
-if [[ "$CK_NAME" =~ ^best_r(-?[0-9]+)_([0-9]+)$ ]]; then RATING="${BASH_REMATCH[1]}"; STEP="${BASH_REMATCH[2]}"; fi
+RATING_MODE=1v1
+if [[ "$CK_NAME" =~ ^best(2v2|3v3)?_r(-?[0-9]+)_([0-9]+)$ ]]; then
+	RATING_MODE="${BASH_REMATCH[1]:-1v1}"; RATING="${BASH_REMATCH[2]}"; STEP="${BASH_REMATCH[3]}"
+fi
 for f in SHARED_HEAD.lt POLICY.lt RUNNING_STATS.json; do
 	[ -f "$CKPT/$f" ] || die "checkpoint $CKPT is missing $f"
 done
@@ -102,8 +111,8 @@ done
 for f in GigaLearnRLBot libGigaLearnCPP.so; do
 	[ -f "$BUILD/$f" ] || die "$BUILD/$f not found; build first: cmake --build build -j\$(nproc)"
 done
-STEP_LABEL="$STEP${RATING:+ (rating $RATING)}"
-MODE="latest"; [ "$BEST" = 1 ] && MODE="best"
+STEP_LABEL="$STEP${RATING:+ ($RATING_MODE rating $RATING)}"
+MODE="latest"; [ "$BEST" = 1 ] && MODE="best"; [ "$BEST" = 1 ] && [ "$BEST_MODE" != 1v1 ] && MODE="best-$BEST_MODE"
 
 # ---- duplicate check: same weights AND same bot code as ANY existing release ---------------
 SRC_HASH="$(cat "$REPO/src/RLBotMain.cpp" "$REPO/src/RLBotClient.cpp" "$REPO/src/ExampleMain.cpp" | sha256sum | cut -c1-12)"
@@ -119,7 +128,7 @@ for v in $(versions); do
 done
 if [ -n "$DUPS" ] && [ "$FORCE" = 0 ]; then
 	echo "Nothing to release: this exact bot already exists as${DUPS}" >&2
-	echo "  weights : ${CK_NAME} (step $STEP${RATING:+, rating $RATING}), content hash $CK_SHA" >&2
+	echo "  weights : ${CK_NAME} (step $STEP${RATING:+, $RATING_MODE rating $RATING}), content hash $CK_SHA" >&2
 	echo "  code    : source hash $SRC_HASH (RLBotMain/RLBotClient/ExampleMain)" >&2
 	echo "  Use --force to release it again anyway." >&2
 	exit 3
@@ -196,6 +205,7 @@ cat > "$REL/release.json" <<EOF
   "checkpoint_name": "$CK_NAME",
   "checkpoint_sha": "$CK_SHA",
   "rating": "$RATING",
+  "rating_mode": "${RATING:+$RATING_MODE}",
   "mode": "$MODE",
   "source_hash": "$SRC_HASH",
   "git_commit": "$(git -C "$REPO" rev-parse --short HEAD)",

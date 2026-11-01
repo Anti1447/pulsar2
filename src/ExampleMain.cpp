@@ -311,6 +311,10 @@ static bool g_GCOMode = false;
 static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco";
 // What a 20s no-touch timeout costs every car in a GCO game, in goals (a goal is +-1)
 static constexpr float GCO_TIMEOUT_PENALTY = 0.5f;
+// GCO's mode split (from 2026-11-01, was PHASE B's 1/3 each): 6/12 1v1, 4/12 2v2, 2/12 3v3 of the arenas, for training
+// and the skill tracker alike. Rows scale with players, so in data terms that is 6 : 8 : 6 (30% / 40% / 30%).
+static constexpr float GCO_FRAC_2V2 = 4.f / 12;
+static constexpr float GCO_FRAC_3V3 = 2.f / 12;
 
 
 // Render mode only (GGL_RENDER_TEAM_SIZE, set in main()): the viewer's single arena plays
@@ -601,6 +605,9 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 	float mainEntropy = cfg.ppo.entropyScale;
 	cfg.ppo.entropyScale = mainEntropy * 0.4f;
 	RG_LOG("GCO entropyScale " << cfg.ppo.entropyScale << " (0.4x main's " << mainEntropy << ")");
+
+	// Skill tracker: 32 eval games (main uses 16), split like GCO's training fleet (GCO_FRAC_*): 16 / 11 / 5
+	cfg.skillTracker.numArenas = 32;
 
 	// Policy LR: the exploiter's 10% start, then GATED steps of 4.5% (1/20 of the way to 100%) instead of a continuous
 	// ramp. A check every 25M steps steps up only if the median explained variance since the previous check is above
@@ -1471,8 +1478,12 @@ int main(int argc, char* argv[]) {
 	g_PhaseB = g_ExploiterMode || g_GCOMode || std::filesystem::exists(cfg.checkpointFolder / PHASE_B_MARKER);
 	TEAM_SPIRIT = g_PhaseB ? 0.6f : 0.3f; // 5.0 spirit schedule (see the declaration)
 	g_NumGames = cfg.numGames;
-	g_NumArenas2v2 = g_PhaseB ? (int)(cfg.numGames * PHASE_B_FRAC_2V2) : 0;
-	g_NumArenas3v3 = g_PhaseB ? (int)(cfg.numGames * PHASE_B_FRAC_3V3) : 0;
+	// GCO's own split (GCO_FRAC_*), rounded to the nearest arena so 1024 games land at 512 / 341 / 171
+	const float frac2v2 = g_GCOMode ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2;
+	const float frac3v3 = g_GCOMode ? GCO_FRAC_3V3 : PHASE_B_FRAC_3V3;
+	auto fnArenas = [&](int n, float frac) { return g_GCOMode ? (int)std::lround(n * frac) : (int)(n * frac); };
+	g_NumArenas2v2 = g_PhaseB ? fnArenas(cfg.numGames, frac2v2) : 0;
+	g_NumArenas3v3 = g_PhaseB ? fnArenas(cfg.numGames, frac3v3) : 0;
 	RG_LOG("Team curriculum: PHASE " << (g_PhaseB ? "B" : "A") << " - "
 		<< (cfg.numGames - g_NumArenas2v2 - g_NumArenas3v3) << " 1v1 / "
 		<< g_NumArenas2v2 << " 2v2 / " << g_NumArenas3v3 << " 3v3 arenas");
@@ -1485,8 +1496,9 @@ int main(int argc, char* argv[]) {
 	// SkillEnvCreateFunc is orphaned and the tracker clones the TRAINING create-func over its
 	// low indices, i.e. an all-1v1 eval fleet - the bug this function exists to prevent.
 	g_SkillNumArenas = cfg.skillTracker.numArenas;
-	g_SkillArenas2v2 = g_PhaseB ? RS_MAX(1, (int)(g_SkillNumArenas * PHASE_B_FRAC_2V2)) : 0;
-	g_SkillArenas3v3 = g_PhaseB ? RS_MAX(1, (int)(g_SkillNumArenas * PHASE_B_FRAC_3V3)) : 0;
+	// (GCO: 32 arenas -> 16 / 11 / 5, the closest 32 gets to 6/12, 4/12, 2/12)
+	g_SkillArenas2v2 = g_PhaseB ? RS_MAX(1, fnArenas(g_SkillNumArenas, frac2v2)) : 0;
+	g_SkillArenas3v3 = g_PhaseB ? RS_MAX(1, fnArenas(g_SkillNumArenas, frac3v3)) : 0;
 	cfg.skillTracker.envCreateFn = SkillEnvCreateFunc;
 	if (cfg.skillTracker.enabled)
 		RG_LOG("Skill tracker eval fleet: "

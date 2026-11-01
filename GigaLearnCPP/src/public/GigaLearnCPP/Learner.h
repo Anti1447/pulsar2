@@ -48,10 +48,10 @@ namespace GGL {
 		// touch-prediction agreement (persisted in the checkpoint stats)
 		float reachAccEMA = 0, reachAgreeEMA = 0;
 
-		// Last Rating/1v1 seen from the skill tracker (drives the best-checkpoint archive)
-		// and the archive's rate limiter
-		float lastEvalRating = NAN;
-		uint64_t lastBestArchiveTs = 0;
+		// Last Rating/1v1, 2v2, 3v3 seen from the skill tracker (each drives its own best-checkpoint archive,
+		// see BEST_ARCHIVE_MODES in Learner.cpp) and each archive's rate limiter
+		float lastEvalRating[3] = { NAN, NAN, NAN };
+		uint64_t lastBestArchiveTs[3] = {};
 
 		// Kickoff-touch probe on a throwaway arena; used by Load() to reject checkpoints
 		// that load structurally but are behaviorally destroyed (see LearnerConfig)
@@ -148,6 +148,7 @@ namespace GGL {
 		void StartQuitKeyThread(std::atomic<bool>& quitPressed, std::thread& outThread);
 
 		void Save();
+		void TrackEvalRatings(const Report& report);
 		void Load();
 		void SaveStats(std::filesystem::path path);
 		void LoadStats(std::filesystem::path path);
