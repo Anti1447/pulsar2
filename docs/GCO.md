@@ -12,7 +12,7 @@ self-play plus everything main plays against.
 | Resets | mixed drills | kickoffs only | kickoffs only |
 | Fleet | phase marker | always PHASE B (1/3 each 1v1/2v2/3v3) | always PHASE B |
 | Entropy | `cfg.ppo.entropyScale` (0.035) | 0.4× main's (0.014) | 0.4× main's (0.014) |
-| Policy LR | full | 10% until critic EV ≥ 0.5, then ramps to 100% over 100M | 10% until critic EV ≥ **0.4**, then the same ramp |
+| Policy LR | full | 10% until critic EV ≥ 0.5, then ramps to 100% over 100M | 10%, then **gated steps** of 4.5% (see below) |
 | Auxiliary learners (reach, goal critic, V-dagger, geo, gap sensor) | on | off | off |
 | Opponents | self-play, old versions, Nexto, imported exploiters | its frozen target(s) | **same as main** |
 | Skill tracker / Elo, policy-version archive, best-rated saves | on | off | on |
@@ -52,9 +52,23 @@ shared with main's lineage: the GCO run imports main's finished exploiters too. 
 against its old target, so finish or discard it first if you want the next run to target GCO
 (`./GigaLearnBot --finish-exploiter --slot N`).
 
+## Policy LR schedule
+
+The policy LR starts at 10% of `cfg.ppo.policyLR`. Every 25M steps a check reads the **median** critic explained
+variance over the iterations since the previous check (per-iteration values swing about 0.2–0.7, with rare large
+negative outliers). If the median is above 0.5, the LR goes up one step, 1/20 of the way to 100% (+4.5% of full
+LR). Otherwise it stays put. Full LR therefore takes at least 500M steps. The step level and the current window
+are saved in `RUNNING_STATS.json`, so restarts keep their place.
+
+History: the first GCO run (2026-11-01, W&B `gco`) used the exploiter's continuous ramp, which starts once EV first
+reaches 0.4 and reaches 100% within 100M steps. Rating/1v1 rose from 1257 to 1287 by 7.925B, just before full LR,
+then slid to 1231 by 8.09B at 100%. The run was rolled back to `best_r1287` (7.925B) and restarted on the gated
+schedule from 10% (W&B `gco-gated-lr`). The rolled-back checkpoints are in `checkpoints_gco/rolled_back/`.
+
 ## What to watch
 
-- `GCO/Critic Explained Variance` reaching 0.4, then `GCO/Policy LR` stepping from 10% to 100% over the next 100M steps.
+- `GCO/LR Step` (0–20), `GCO/Policy LR` and `GCO/Window EV Median`; each 25M-step check is also a
+  `Policy-LR check:` line in the log.
 - `Rating/*` (Elo vs the same reference battery main uses), `Ref/Oldest Share`, the Nexto slope, and
   `Exploiters/Held-out Main Win Rate`. These numbers are directly comparable with main's `5.3-geo` run.
 

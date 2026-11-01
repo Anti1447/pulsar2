@@ -87,6 +87,10 @@ namespace GGL {
 		float policyLRStartScale = 0.1f;
 		float explainedVarThreshold = 0.5f;
 		int64_t policyLRRampSteps = 100'000'000;
+		// > 0: gated steps instead of the continuous ramp. The LR goes up one step (1/20 of the way from the start
+		// scale to 100%) at a time, and only at a check: every policyLRStepInterval steps, if the MEDIAN explained
+		// variance over the iterations since the previous check is above explainedVarThreshold
+		int64_t policyLRStepInterval = 0;
 
 		// Deterministic evals (ExploiterEval): games split evenly across modes, headline = mean of the per-mode rates
 		// (league: uniform mean over opponents). Training goals stay stochastic (Exploiter/Rolling Win Rate).

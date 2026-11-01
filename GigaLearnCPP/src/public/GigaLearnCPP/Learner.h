@@ -116,6 +116,11 @@ namespace GGL {
 		std::shared_ptr<struct ExploiterRunState> exploiterRun;
 		std::shared_ptr<struct ExploiterPool> exploiterPool;
 		int64_t exploiterRampStartTs = -1; // Exploiter run: when the critic first explained enough (policy-LR ramp start)
+		// Gated policy-LR steps (ExploiterConfig::policyLRStepInterval): steps taken so far, the last check's timestep,
+		// and the explained variance of each iteration since then
+		int lrStepLevel = 0;
+		int64_t lrLastCheckTs = -1;
+		std::vector<float> lrWindowEV;
 		// Exploiter run: deterministic eval vs the role's target, logged to EVAL_LOG.jsonl; returns the headline win rate
 		float RunExploiterEval(Report& report, int games);
 		// Exploiter run, fresh start: the adaptive restart (RESTART.json)

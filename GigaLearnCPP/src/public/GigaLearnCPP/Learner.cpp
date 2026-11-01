@@ -479,6 +479,11 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 
 	if (config.exploiter.enabled || config.gcoRun)
 		j["exploiter_ramp_start_ts"] = exploiterRampStartTs;
+	if ((config.exploiter.enabled || config.gcoRun) && config.exploiter.policyLRStepInterval > 0) {
+		j["lr_step_level"] = lrStepLevel;
+		j["lr_last_check_ts"] = lrLastCheckTs;
+		j["lr_window_ev"] = lrWindowEV;
+	}
 	if (exploiterPool)
 		j["exploiter_pool"] = exploiterPool->ToJSON();
 
@@ -533,6 +538,10 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 
 	if (config.exploiter.enabled || config.gcoRun)
 		exploiterRampStartTs = j.value("exploiter_ramp_start_ts", (int64_t)-1);
+	// Gated LR steps: a checkpoint saved without them (older code, or the continuous ramp) starts at step 0
+	lrStepLevel = j.value("lr_step_level", 0);
+	lrLastCheckTs = j.value("lr_last_check_ts", (int64_t)-1);
+	lrWindowEV = j.value("lr_window_ev", std::vector<float>());
 	if (exploiterPool && j.contains("exploiter_pool"))
 		exploiterPool->FromJSON(j["exploiter_pool"]);
 }
@@ -2789,12 +2798,42 @@ void GGL::Learner::Start() {
 						report[rampPrefix + "Critic Explained Variance"] = explainedVar;
 
 						auto& ec = config.exploiter;
-						if (exploiterRampStartTs < 0 && explainedVar >= ec.explainedVarThreshold)
-							exploiterRampStartTs = (int64_t)totalTimesteps;
-						float rampFrac = (exploiterRampStartTs < 0) ? 0 :
-							RS_MIN(1.f, ((int64_t)totalTimesteps - exploiterRampStartTs) / (float)ec.policyLRRampSteps);
+						float rampFrac;
+						if (ec.policyLRStepInterval > 0) {
+							// Gated steps: per-iteration explained variance is noisy (GCO's swings ~0.2-0.7 with rare
+							// large negative outliers), so each check reads the median of the window since the last one
+							if (lrLastCheckTs < 0)
+								lrLastCheckTs = (int64_t)totalTimesteps;
+							if (std::isfinite(explainedVar))
+								lrWindowEV.push_back(explainedVar);
+							auto fnMedian = [](std::vector<float> v) {
+								if (v.empty())
+									return 0.f;
+								std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+								return v[v.size() / 2];
+							};
+							float windowMedian = fnMedian(lrWindowEV);
+							if ((int64_t)totalTimesteps - lrLastCheckTs >= ec.policyLRStepInterval) {
+								bool step = lrStepLevel < 20 && windowMedian > ec.explainedVarThreshold;
+								if (step)
+									lrStepLevel++;
+								RG_LOG("Policy-LR check: median explained variance " << windowMedian << " over "
+									<< lrWindowEV.size() << " iterations " << (step ? "> " : "<= ") << ec.explainedVarThreshold
+									<< (step ? ", stepping up to " : ", staying at ") << "step " << lrStepLevel << "/20");
+								lrLastCheckTs = (int64_t)totalTimesteps;
+								lrWindowEV.clear();
+							}
+							report[rampPrefix + "LR Step"] = (float)lrStepLevel;
+							report[rampPrefix + "Window EV Median"] = windowMedian;
+							rampFrac = lrStepLevel / 20.f;
+						} else {
+							if (exploiterRampStartTs < 0 && explainedVar >= ec.explainedVarThreshold)
+								exploiterRampStartTs = (int64_t)totalTimesteps;
+							rampFrac = (exploiterRampStartTs < 0) ? 0 :
+								RS_MIN(1.f, ((int64_t)totalTimesteps - exploiterRampStartTs) / (float)ec.policyLRRampSteps);
+						}
 						// In 5% steps, since SetLearningRates() logs every call
-						float lrScale = ec.policyLRStartScale + (1 - ec.policyLRStartScale) * floorf(rampFrac * 20) / 20;
+						float lrScale = ec.policyLRStartScale + (1 - ec.policyLRStartScale) * floorf(rampFrac * 20 + 1e-4f) / 20;
 						float policyLR = config.ppo.policyLR * lrScale;
 						if (policyLR != ppo->config.policyLR)
 							ppo->SetLearningRates(policyLR, config.ppo.criticLR);

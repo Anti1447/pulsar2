@@ -589,9 +589,14 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 	cfg.ppo.entropyScale = mainEntropy * 0.4f;
 	RG_LOG("GCO entropyScale " << cfg.ppo.entropyScale << " (0.4x main's " << mainEntropy << ")");
 
-	// Policy-LR ramp: the exploiter's 10% start and 100M-step ramp (ConfigureExploiterSettings), but it starts ramping
-	// once the critic explains 40% of the goal-only return variance instead of 50%
-	cfg.exploiter.explainedVarThreshold = 0.4f;
+	// Policy LR: the exploiter's 10% start, then GATED steps of 4.5% (1/20 of the way to 100%) instead of a continuous
+	// ramp. A check every 25M steps steps up only if the median explained variance since the previous check is above
+	// 0.5, so full LR takes >= 500M steps. The first GCO run's continuous ramp (start at EV 0.4, 100% within 100M)
+	// peaked at Rating/1v1 1287 just before full LR, then slid to 1231 over the next 150M steps at 100%.
+	cfg.exploiter.explainedVarThreshold = 0.5f;
+	cfg.exploiter.policyLRStepInterval = 25'000'000;
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
+		cfg.exploiter.policyLRStepInterval = 200'000;
 
 	// Same learners as an exploiter: the auxiliary ones that shape or measure main's shaped-reward play are off
 	cfg.ppo.reachability.enabled = false;
@@ -600,7 +605,7 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 	cfg.ppo.geoEnabled = false;
 	cfg.gapSensor.enabled = false;
 
-	cfg.metricsRunName = "gco";
+	cfg.metricsRunName = "gco-gated-lr";
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
