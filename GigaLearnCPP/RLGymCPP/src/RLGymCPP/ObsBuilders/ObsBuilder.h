@@ -13,6 +13,10 @@ namespace RLGC {
 
 		virtual void Reset(const GameState& initialState) {}
 
+		// Ball prediction for `state`, if this builder maintains one (see GameState::ballPred). Called by EnvSet
+		// once per step before rewards; must be cheap when called again for the same tick from BuildObs.
+		virtual const std::vector<BallState>* GetBallPrediction(const GameState& state) { return nullptr; }
+
 		// NOTE: May be called once during environment initialization to determine policy neuron size
 		virtual FList BuildObs(const Player& player, const GameState& state) = 0;
 	};

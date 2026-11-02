@@ -51,6 +51,10 @@ namespace RLGC {
 
 		virtual FList BuildObs(const Player& player, const GameState& state) override;
 
+		// Per-tick prediction (ballPredSlices * BALL_PRED_SLICE_TICKS + 1 ticks) for rewards; null when
+		// ballPredSlices == 0 or the state has no arena (external slices are not per-tick).
+		virtual const std::vector<BallState>* GetBallPrediction(const GameState& state) override;
+
 		// The predictor this builder uses for arena states (null until the first such build)
 		const BallPredictor* GetBallPredictor() const { return ballPredictor; }
 
@@ -60,5 +64,6 @@ namespace RLGC {
 		std::vector<PhysState> externalBallPred;
 
 		void AddBallPredToObs(FList& obs, const GameState& state, bool inv);
+		BallPredictor* UpdateBallPredictor(const GameState& state); // creates/updates; null if no arena
 	};
 }

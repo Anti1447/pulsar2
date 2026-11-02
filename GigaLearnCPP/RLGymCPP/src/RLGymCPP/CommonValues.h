@@ -19,6 +19,10 @@ namespace RLGC {
 
 			GRAVITY_Z = -650.0,
 
+			// Added for the RLGymBot_v3 reward port (same values as v3's CommonValues.h)
+			GOAL_LINE_Y = 5120.0f,      // front of goal (same as BACK_WALL_Y)
+			BALL_GRAVITY = -650.0f,     // ball gravity acceleration in z (same as GRAVITY_Z)
+
 			BOOST_CONSUMED_PER_SECOND = 100.0 / 3.0;
 
 		constexpr Vec

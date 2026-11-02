@@ -23,6 +23,14 @@ namespace RLGC {
 
 		float deltaTime = 0; // Time that has passed since last update
 
+		// Per-tick ball prediction for this step, owned by the arena's obs builder (null when the builder
+		// has none: ballPredSlices == 0, or a state without an arena). ballPred->at(i) is the ball i ticks
+		// after this state (index 0 = state.ball). Set by EnvSet right after UpdateFromArena, BEFORE
+		// rewards run (rewards run before BuildObs, so the builder would otherwise be one step stale).
+		// Valid only for THIS state: it points at live predictor storage, so a copy of the state (e.g.
+		// state.prev) must not read it. The horizon is whatever the builder predicts (2.0s at 8 slices).
+		const std::vector<BallState>* ballPred = NULL;
+
 		bool goalScored = false; // If the ball is in the goal
 		int lastTouchCarID = -1;
 		std::vector<Player> players;

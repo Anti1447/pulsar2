@@ -190,6 +190,10 @@ void RLGC::EnvSet::StepSecondHalf(const IList& actionIndices, bool async) {
 				gsPrev = NULL;
 
 			gs.UpdateFromArena(arena, actions, gsPrev);
+
+			// Rewards run before BuildObs, so ask the builder for its ball prediction now (it is the same
+			// predictor BuildObs will use; the later call for this tick is a no-op).
+			gs.ballPred = obsBuilders[arenaIdx]->GetBallPrediction(gs);
 		}
 
 		// Update terminal

@@ -106,6 +106,26 @@ void RLGC::AdvancedObsPadded::SetExternalBallPred(const std::vector<PhysState>& 
 	externalBallPred = slices;
 }
 
+// One predictor per builder, and EnvSet makes one builder per arena. A new arena (the boot
+// probe, a rebuilt env) gets a new predictor. Every call for a step carries the same tick and
+// ball (EnvSet's pre-reward GetBallPrediction, then each player's BuildObs), which is a no-op
+// after the first.
+RLGC::BallPredictor* RLGC::AdvancedObsPadded::UpdateBallPredictor(const GameState& state) {
+	if (ballPredArena != state.lastArena) {
+		delete ballPredictor;
+		ballPredictor = new BallPredictor(state.lastArena->gameMode, ballPredSlices * BALL_PRED_SLICE_TICKS + 1);
+		ballPredArena = state.lastArena;
+	}
+	ballPredictor->Update(state.ball, state.lastTickCount);
+	return ballPredictor;
+}
+
+const std::vector<BallState>* RLGC::AdvancedObsPadded::GetBallPrediction(const GameState& state) {
+	if (ballPredSlices <= 0 || !state.lastArena)
+		return nullptr;
+	return &UpdateBallPredictor(state)->pred;
+}
+
 void RLGC::AdvancedObsPadded::AddBallPredToObs(FList& obs, const GameState& state, bool inv) {
 	auto fnAddSlice = [&](const PhysState& predBall) {
 		auto ball = InvertPhys(predBall, inv);
@@ -121,17 +141,7 @@ void RLGC::AdvancedObsPadded::AddBallPredToObs(FList& obs, const GameState& stat
 		return;
 	}
 
-	// One predictor per builder, and EnvSet makes one builder per arena. A new arena (the boot
-	// probe, a rebuilt env) gets a new predictor. Every player's build in a step calls Update with
-	// the same tick and ball, which is a no-op after the first.
-	if (ballPredArena != state.lastArena) {
-		delete ballPredictor;
-		ballPredictor = new BallPredictor(state.lastArena->gameMode, ballPredSlices * BALL_PRED_SLICE_TICKS + 1);
-		ballPredArena = state.lastArena;
-	}
-	ballPredictor->Update(state.ball, state.lastTickCount);
-
-	auto& pred = ballPredictor->pred;
+	auto& pred = UpdateBallPredictor(state)->pred;
 	for (int i = 1; i <= ballPredSlices; i++)
 		fnAddSlice(pred[(size_t)i * BALL_PRED_SLICE_TICKS]);
 }
