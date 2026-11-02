@@ -44,6 +44,24 @@ Everything on the page is the trace the reward reported: nothing is recomputed f
 Page logic tests (node; pass exported pages to also check real runs): `node tools/reward_lab/viewer/test_core.js /tmp/lab_out/*.lab.html`.
 A browser caches pages by URL: add `?v=2` after re-exporting.
 
+## Macros and the decision grid (P3, headless)
+
+A macro is what was done at engine-tick resolution (120 Hz); the bot decides every `tick_skip` ticks and holds. So a macro is projected onto the
+decision grid before it is judged: decision step k takes the macro's action at tick `phase + k*skip` and holds it (**hold-last**). Anything done
+between two sampled ticks is lost; that is the point (a 1-tick press survives 1 phase of 8 at skip 8).
+
+```bash
+# record a scenario's scripted run as a macro (a scenario with "tick_skip":1 gives an exact 120 Hz recording)
+build-lab/reward_lab_run packs/x.scenario.json --record-macro /tmp/x.macro.json
+# play a macro INSTEAD of the script: --skip N (default the scenario's tick_skip), --phase P, or --sweep for every phase
+build-lab/reward_lab_run packs/x.scenario.json --macro /tmp/x.macro.json --sweep
+```
+
+File: `{"schema":1,"kind":"lab_macro","cars":N,"ticks":T,"entries":[{"car":0,"tick":20,"action":{...}}]}`, hold-until-next per car, strict parsing like scenarios.
+Expectations are written for the scenario's own tick skip and are only evaluated when the macro is played at that skip. A sweep prints, per phase, the
+weighted sum per reward per car and the event counts. Code: `Lab/Macro.h`; tests: `tests/test_reward_lab_macro.cpp`.
+Not built: recording from a person (needs a live host), a viewer view of the 120 Hz and the grid trace side by side.
+
 Adding a reward: one line in `Lab/RewardRegistry.h`. Adding a scenario: copy one from `packs/core/`, derive the expected values by hand first and
 write the derivation in `description`, keep cars off the boost-pad grid.
 
