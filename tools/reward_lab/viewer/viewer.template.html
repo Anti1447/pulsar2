@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reward Lab</title>
+<style><!--INLINE:viewer.css--></style>
+</head>
+<body>
+<header>
+  <h1 id="title">Reward Lab</h1><span class="badge" id="result" data-result="NONE">-</span>
+  <span class="muted" id="runinfo"></span>
+  <div class="desc" id="desc"></div>
+</header>
+<main>
+  <section>
+    <div class="card" id="views">
+      <div class="row">
+        <button id="play" title="Space">Play</button>
+        <button id="prev" title="Left arrow">&#9664; step</button><button id="next" title="Right arrow">step &#9654;</button>
+        <button id="first" title="Home">|&#9664;</button><button id="last" title="End">&#9654;|</button>
+        <label>speed <select id="speed"><option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option></select></label>
+        <label>car <select id="car"></select></label>
+        <label><input type="checkbox" id="allcars"> geometry from all cars</label>
+        <label><input type="checkbox" id="vels" checked> velocities</label>
+        <span id="frameinfo" aria-live="polite"></span>
+      </div>
+      <canvas id="top" tabindex="0" aria-label="Top-down field view"></canvas>
+      <canvas id="side" tabindex="0" aria-label="Side view along the field"></canvas>
+      <div class="legend muted" id="legend"></div>
+      <div class="muted" style="margin-top:4px">Top view: blue goal left, orange goal right, +x up. Side view: height above the floor. Cars and ball are drawn 2.5x for visibility. <kbd>Space</kbd> play, <kbd>&larr;</kbd><kbd>&rarr;</kbd> step, <kbd>Home</kbd><kbd>End</kbd>, <kbd>[</kbd><kbd>]</kbd> previous / next event.</div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h2>Timeline (selected car, <label style="display:inline"><select id="which"><option value="raw">raw</option><option value="wrapped">wrapped</option><option value="weighted">weighted</option></select></label>)</h2>
+      <canvas id="timeline" tabindex="0" aria-label="Reward timeline; click or drag to scrub"></canvas>
+      <div class="muted" id="tlnote"></div>
+    </div>
+  </section>
+  <section>
+    <div class="card" id="hud">
+      <h2>Rewards at this frame</h2>
+      <div id="controls" class="muted"></div>
+      <table id="rewards"><thead><tr><th>reward</th><th>weight</th><th>raw</th><th>wrapped</th><th>weighted</th><th>sum raw</th></tr></thead><tbody></tbody>
+        <tfoot><tr id="totalrow"><td>stack total</td><td></td><td></td><td></td><td id="total"></td><td id="sumtotal"></td></tr></tfoot></table>
+      <div id="details"></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h2>Expectations (<span id="expcount"></span>)</h2>
+      <ul id="expectations"></ul>
+    </div>
+    <div class="card" style="margin-top:12px" id="checks"></div>
+  </section>
+</main>
+<script type="application/json" id="labdata"><!--LAB_RUN_JSON--></script>
+<script><!--INLINE:viewer_core.js--></script>
+<script><!--INLINE:viewer_ui.js--></script>
+</body>
+</html>

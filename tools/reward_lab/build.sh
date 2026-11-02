@@ -19,6 +19,6 @@ INC="-I$P/src/public -I$P/libsrc/json -I$P/RLGymCPP/src -I$P/RLGymCPP/thread_poo
 g++ -std=gnu++20 -O2 -DRG_ROCKETSIM_V3 $INC tools/reward_lab/reward_lab_run.cpp -o "$O/reward_lab_run" $LIBS
 echo "built $O/reward_lab_run"
 if [ "$1" = "--tests" ]; then
-  g++ -std=gnu++20 -O1 -DRG_ROCKETSIM_V3 -Itests $INC tests/TestMain.cpp tests/test_reward_lab.cpp -o "$O/lab_tests" $LIBS
+  g++ -std=gnu++20 -O1 -DRG_ROCKETSIM_V3 -Itests $INC tests/TestMain.cpp tests/test_reward_lab.cpp tests/test_reward_lab_export.cpp -o "$O/lab_tests" $LIBS
   echo "built $O/lab_tests (run from the repo root)"
 fi

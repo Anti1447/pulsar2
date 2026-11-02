@@ -1,12 +1,13 @@
 // reward_lab_run - headless Reward Lab runner (docs/REWARD_VIEWER_SPEC.md, P1).
 //
-//   reward_lab_run <scenario.json | directory> [...] [--out DIR] [--quiet]
+//   reward_lab_run <scenario.json | directory> [...] [--out DIR] [--html] [--viewer TEMPLATE] [--quiet]
 //
 // For each scenario: runs its script on the real EnvSet, prints a text report (rewards, events, gates, expectations with the
 // author's intent line) and, with --out, writes <DIR>/<name>.report.txt and <DIR>/<name>.trace.jsonl (one reward trace per step).
+// --html (with --out) also writes <DIR>/<name>.lab.html: one self-contained page (field view, reward HUD, timeline) to open in a browser.
 // A directory runs every *.scenario.json under it. Run from the repo root (needs build/collision_meshes).
 // Exit code: 0 all expectations passed, 1 some expectation failed (or a scenario had none), 2 a scenario could not be read or run.
-#include <RLGymCPP/Lab/LabReport.h>
+#include <RLGymCPP/Lab/LabExport.h>
 
 #include <filesystem>
 #include <fstream>
@@ -16,12 +17,14 @@ using namespace RLGC::Lab;
 namespace fs = std::filesystem;
 
 int main(int argc, char** argv) {
-	std::vector<std::string> inputs; std::string outDir; bool quiet = false;
+	std::vector<std::string> inputs; std::string outDir, viewer = "tools/reward_lab/viewer/viewer.template.html"; bool quiet = false, html = false;
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
 		if (a == "--out" && i + 1 < argc) outDir = argv[++i];
 		else if (a == "--quiet") quiet = true;
-		else if (a == "-h" || a == "--help") { std::cout << "usage: reward_lab_run <scenario.json|dir>... [--out DIR] [--quiet]\n"; return 0; }
+		else if (a == "--html") html = true;
+		else if (a == "--viewer" && i + 1 < argc) viewer = argv[++i];
+		else if (a == "-h" || a == "--help") { std::cout << "usage: reward_lab_run <scenario.json|dir>... [--out DIR] [--html] [--viewer TEMPLATE] [--quiet]\n"; return 0; }
 		else inputs.push_back(a);
 	}
 	if (inputs.empty()) { std::cerr << "no scenarios given (try --help)\n"; return 2; }
@@ -34,6 +37,7 @@ int main(int argc, char** argv) {
 	std::sort(files.begin(), files.end());
 	if (files.empty()) { std::cerr << "no *.scenario.json files found\n"; return 2; }
 	if (!outDir.empty()) fs::create_directories(outDir);
+	if (html && outDir.empty()) { std::cerr << "--html needs --out DIR\n"; return 2; }
 
 	int exitCode = 0, pass = 0, fail = 0, broken = 0;
 	for (auto& file : files) {
@@ -61,6 +65,11 @@ int main(int argc, char** argv) {
 		if (!outDir.empty()) {
 			std::ofstream(fs::path(outDir) / (sc.name + ".report.txt")) << report;
 			std::ofstream tr(fs::path(outDir) / (sc.name + ".trace.jsonl")); WriteTraceJsonl(session, tr);
+			if (html) {
+				std::string page, err;
+				if (!ExportHtml(session, viewer, page, err)) { std::cerr << file << ": cannot export html: " << err << "\n"; exitCode = 2; }
+				else std::ofstream(fs::path(outDir) / (sc.name + ".lab.html")) << page;
+			}
 		}
 	}
 	std::cout << "reward_lab_run: " << pass << " passed, " << fail << " failed, " << broken << " unreadable of " << files.size() << " scenarios\n";

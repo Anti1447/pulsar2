@@ -26,6 +26,24 @@ build-lab/lab_tests
 
 `build.sh` caches objects per `.cpp`; after editing a header the library includes (`Reward.h`, `GameState.h`, ...) run it with `FORCE=1`.
 
+## The viewer (P2)
+
+```bash
+build-lab/reward_lab_run tools/reward_lab/packs/core --out /tmp/lab_out --html     # writes <name>.lab.html next to the report and trace
+cd /tmp/lab_out && python3 -m http.server 8765 --bind 127.0.0.1                     # or just open the .html file
+```
+
+Each `.lab.html` is one file with the run embedded (no network, no server needed). It shows a top-down and a side view with the reward's own
+geometry (offside planes, landing targets, potentials) drawn by role, a HUD with every reward's raw / wrapped / weighted value for the selected car,
+each gate with pass or fail and its reason, the named components and events, cumulative sums, a timeline with event and gate-flip markers, and the
+scenario's expectations (click one to jump to the frames it checks). Keys: Space play, arrows step, Home/End, `[` `]` previous / next event.
+Everything on the page is the trace the reward reported: nothing is recomputed from the state, and the page re-checks its own arithmetic
+(weighted = wrapped x weight, total = sum of weighted). Claude reads the same page through the browser's text/DOM (`data-raw`, `data-gate`,
+`data-passed`, ... hold the exact JSON values) or `window.LAB.snapshot()`.
+
+Page logic tests (node; pass exported pages to also check real runs): `node tools/reward_lab/viewer/test_core.js /tmp/lab_out/*.lab.html`.
+A browser caches pages by URL: add `?v=2` after re-exporting.
+
 Adding a reward: one line in `Lab/RewardRegistry.h`. Adding a scenario: copy one from `packs/core/`, derive the expected values by hand first and
 write the derivation in `description`, keep cars off the boost-pad grid.
 
