@@ -1,5 +1,6 @@
 #pragma once
 #include "Reward.h"
+#include "RewardTrace.h"
 #include "../Gamestates/GameState.h"
 #include "../CommonValues.h"
 
@@ -89,13 +90,31 @@ private:
 
 public:
     virtual float GetReward(const Player& player, const GameState& state, bool /*isFinal*/) override {
-        if (player.isDemoed) return 0.0f;
+        // Trace (Reward Lab): observation only, never changes a branch or a value.
+        // The offside plane for this car's team: past it (deeper upfield) the car is offside.
+        if (trace) {
+            const float planeY = state.ball.pos.y + (player.team == Team::BLUE ? OFFSIDE_DEADZONE : -OFFSIDE_DEADZONE);
+            trace->Line(player.carId, TraceRole::Threshold, Vec(-4096.0f, planeY, 20.0f), Vec(4096.0f, planeY, 20.0f));
+        }
+
+        if (player.isDemoed) {
+            if (trace) trace->Gate(player.carId, "alive", false, "demoed");
+            return 0.0f;
+        }
 
         // Skip kickoff: ball near center with near-zero velocity
-        if (state.ball.pos.Length() < 300.0f && state.ball.vel.Length() < 100.0f)
+        if (state.ball.pos.Length() < 300.0f && state.ball.vel.Length() < 100.0f) {
+            if (trace) trace->Gate(player.carId, "not_kickoff", false, "ball near centre and slower than 100 uu/s");
             return 0.0f;
+        }
 
         float oMe = Offsideness(player, state);
+        if (trace) {
+            trace->Gate(player.carId, "alive", true);
+            trace->Gate(player.carId, "not_kickoff", true);
+            trace->Component(player.carId, "offsideness", oMe);
+            trace->Gate(player.carId, "offside", oMe > 0.0f, oMe > 0.0f ? "upfield of the ball plane + dead zone" : "goalside, or inside the dead zone");
+        }
         if (oMe <= 0.0f) return 0.0f;
 
         float offMine = 0.0f, offOpp = 0.0f;
@@ -112,6 +131,13 @@ public:
         }
 
         float c = covered ? RS_CLAMP((offMine - offOpp) / oMe, 0.0f, 1.0f) : 1.0f;
+        if (trace) {
+            trace->Gate(player.carId, "covered_by_teammate", covered, covered ? "a live teammate is goalside of the ball" : "last man: full penalty");
+            trace->Component(player.carId, "off_mine", offMine);
+            trace->Component(player.carId, "off_opp", offOpp);
+            trace->Component(player.carId, "team_factor", c);
+            trace->Component(player.carId, "severity", Severity(player, state));
+        }
         return -Severity(player, state) * c;
     }
 };

@@ -1,0 +1,90 @@
+# Reward change log (Pulsar)
+
+One line per change to a reward, its weight, or its registration. Format: **date | change | hypothesis | result**.
+Result is filled in after the observation window (a measured panel, not a feeling). Ported from RLGymBot_v3's
+`Reward_Change_Log.md`; this file also carries the status of the v3-ported rewards. Read-only audit reports do not
+get a line here (they live in `docs/reward_scenarios/`). Companion docs: `docs/REWARD_SHAPING.md` (why the stack
+is shaped like this, and the graveyard of killed changes), `docs/ENABLED_INVENTORY.md` (live weights).
+
+Rules carried over (and aligned with `CLAUDE.md`): one lever per change; write the hypothesis *before* the run;
+never raise a weight more than +-50% in one step; a reward is not enabled until `reward-scenario-test` (trace) and
+`reward-harness` (compiled test) have both been run on it and its pre-registration block exists.
+
+## Log (newest first)
+
+2026-11-02 | Reward Lab P0 (`docs/REWARD_VIEWER_SPEC.md`): added the reward trace contract (`Rewards/RewardTrace.h` sink; `RewardTraceStack.h` runs a stack exactly as EnvSet does and collects one trace per step; `RewardTraceJson.h` schema 1 JSONL), an optional `trace` pointer and `SetTrace()` on `Reward` (forwarded by `RewardWrapper`), and emission inside `OffsidePenalty`, `CarEnergyPotentialReward` and `PassingSetupReward`. No reward value, branch or state changed; `trace` is null in training. Tests: `tests/test_reward_trace.cpp` (12). | A human and Claude can only agree on what a reward does if both read what the training call itself computed, so emission must be observation only. | Each reward's output is bit-identical with a sink attached and without, over 10,200 steps of 1v1/2v2/3v3 rollouts, at -O1 and at the production flags (-march=native -ffast-math); the null-sink path allocates nothing; each reward is called once per step; 16/16 deliberate mutations are caught (one, a leak inside the cooldown branch, needed a dedicated dense-touch test). Full reward suite 80/80. Not wired into the trainer or EnvSet. Side findings: `Reward::GetName()` is the mangled type name under gcc (kept, it is the pinned W&B key; the trace carries a readable name and the key); `BallPredCache::AtTime(1.5f)` lands on the 176-tick slice, not 184, from a float rounding tie at 22.5 (pre-existing, unchanged).
+2026-11-02 | Built step 1 of the wavedash scaffold controller: `Rewards/ScaffoldController.h` (pure function: decayed pooled counts, gates, two-way fade/re-arm with hysteresis, override parsing, atomic sidecar persistence) + `tests/test_scaffold_controller.cpp`. Not wired to any reward or the trainer; nothing enabled. | The controller must be correct and inspectable offline before it touches training. | 10 tests pass; 14/14 mutations caught; full reward suite 51/51.
+2026-11-02 | Added section 9 to `docs/WAVEDASH_REWARD_SPEC.md`: automatic scaffold controller for the wavedash terms. Trigger = pooled success per attempt (raw counts, before weights), two-way with hysteresis (anneal >= 0.50, re-arm < 0.30), slow rates (fade ~100M steps, re-arm ~20M), floor 0.05, gates on sample size / attempts-per-opportunity / cap-hit share, scale applied at episode start, state persisted, manual override file (`auto`/`pin v`/`off`), default off until flipped. All thresholds provisional. Nothing implemented. | The skill needs a bonus to be discovered, not to be kept; a regulator finds the minimum dose and recovers if the skill decays. | Pre-registered: 8 offline controller tests; review gate at >= 5000 attempts; red flag = success per attempt stuck near chance (0.25).
+2026-11-02 | Revised `docs/WAVEDASH_REWARD_SPEC.md` (rev 2): both terms individual and NOT ZeroSum-wrapped (a mechanical skill; opponent doing it is irrelevant); event capped at N_cap = 3 paid events per player per episode (+ 3-decision cooldown) as the farming defense; per-iteration cap rejected (a reward cannot see iterations, a cross-arena cap needs shared mutable state). Records the doctrine exception (second non-zero-sum term after TimeCost). Nothing implemented. | A cap that leaves the first N events exactly Markov keeps the critic unaffected where it matters; the potential is exact PBRS and needs no cap. | Pre-registered: farm-bound test is a hard gate; cap-hit share < 5% healthy, > 20% means binding.
+2026-11-02 | Wrote `docs/WAVEDASH_REWARD_SPEC.md`: a proposed general wavedash reward (snapshot-form event with jump-input and gain-threshold conditions, plus an exact-PBRS ready-state potential, plus an approach state setter) built from the formal definition and the ts8 findings. Nothing implemented or enabled. | At 15 Hz the event is only visible as airborne+flip-available -> jump+direction -> grounded with retained speed; the learnable part is the approach, so it needs a dense PBRS term and a curriculum, not a bigger event reward. | Pre-registered checks listed in the spec; no result yet.
+2026-11-02 | Added `tools/wavedash_sim/wavedash_sim.html` (2D pitch-only wavedash simulator with presets, press-timing scan and decision-grid alignment) and measured the flip dynamics it uses (no-jump flip availability with no timer, impulse curve clamp(2300-v,0,500), back-flip -(533+0.348v), dodge vertical damping x0.65/tick from tick 18, rotation 7.37 rad/s x 79 ticks, pitch control); spec updated, 4 new engine tests. No reward changed. | A flip is available from a jump or from leaving a surface; the mechanic should be modelled from engine constants, not guessed. | Toy matches the engine on the 1-2 tick window, +500 retained, nose-down never cancelling, availability; differs on 3-8 tick early presses (documented). Corrects the spec: retention rho ~ 1 (the earlier +422 was deflated by the control car's throttle).
+2026-11-02 | Wrote `docs/WAVEDASH_FORMAL.md` (formal general form of a wavedash, engine-measured values marked) and `tests/test_wavedash_formal.cpp` (4 engine tests). No reward changed. | A reward should be judged against a stated definition, not a throttle-confounded speed label. | Engine confirms the model: nose-up flip 1-2 ticks before contact cancels in 9-10 ticks and keeps +422 uu/s; 3+ ticks early is a flip hop; nose down is never cancelled; pitch +1 = nose up.
+2026-11-02 | Ran the ts8 wavedash oracle (real engine, 8-tick held actions, level and nose-tilted approaches) and scored Basic, Rolv and a candidate outcome rule on it: `docs/reward_scenarios/wavedash_ts8_experiments_2026-11-02.md`, `tests/test_wavedash_ts8_oracle.cpp`. No reward changed. | A reward for wavedashing at ts8 must be judged on what an 8-tick-action bot can actually produce, not on 1-tick presses. | Basic/Rolv: 0/10,000 on level approaches, 74%/82% on a nose-up approach; the census-style speed label is satisfied by throttle alone in 90%+ of no-flip controls, so an outcome rule needs a jump-input condition AND a gain threshold near 250-300 (flip-attributable gain ~300-350). Supersedes the "captured 40-60%" figure below. Two fixture bugs (mirrored orientation matrix, stale airTimeSinceJump) produced wrong numbers earlier the same day; retracted in the report.
+2026-11-01 | **Retired `SupersonicReward`** (never enabled in Pulsar; commented entry in `BuildRewards()` replaced by a RETIRED note; header kept). | Speed/energy is already priced by `CarEnergyPotentialReward`; the bare per-second income term would add ~one goal per 30 s of supersonic at the v3 weight and break the zero-sum invariant. | n/a (never trained).
+2026-11-01 | Audited `RolvWavedashReward` against an engine probe and compared it with the stock `WavedashReward` and v3's `WavedashBasicReward` (see the comparison below). First audit draft claimed plain flip hops are paid: WRONG, corrected the report and the test. | The three detectors share one narrow signature (flip active at/just before touchdown). | Engine-confirmed: only flips pressed within ~3 ticks of landing are detected; at tickSkip 8 Basic captures 4/8, 2/8, 0/8 and Rolv 5/8, 3/8, 1/8 sampler phases at 3, 2, 1 ticks.
+2026-11-01 | Added `ActiveSupportingPositionReward.h` ... `UnifiedAirDribbleReward.h` (24 rewards) + `RewardMath.h`, `RewardTiming.h`, `KickoffUtil.h`, `AirDribbleUtilities.h`, `BallPredCache.h`; `CommonValues` + `GOAL_LINE_Y`, `BALL_GRAVITY`; `GameState::ballPred`, `ObsBuilder::GetBallPrediction`, EnvSet sets it before rewards. Commit `a23129e` on branch `v3-reward-port`. | v3's reward set contains mechanics the live stack lacks; porting costs nothing while they stay disabled. | Headers compile together; BallPredCache (7) and PassingSetup (6) tests pass; nothing enabled. Result for any individual reward: TBD (untested).
+2026-11-01 | Registered the 24 as commented-out entries in `BuildRewards()` at v3 PHASE_3_GOLD weights (UnifiedAirDribble: Platinum 40). | Keeping the exact v3 weights makes the entries a reference, not a recommendation; v3 ran ~40 rewards at once, Pulsar ~12. | No behavior change (all disabled). TBD per reward.
+2026-11-01 | Comment fix in `BuildRewards()`: OffsidePenalty and TooFarFromTheBallPenalty apply in 1v1 (only TeammateSpacingPenalty is team-only). | Comment-only. | n/a
+
+## Wavedash detector comparison (2026-11-01)
+
+| | stock `WavedashReward` (Pulsar `CommonRewards.h:321`, unregistered) | v3 `WavedashBasicReward` | `RolvWavedashReward` (ported) | v3 `WavedashReward` (not ported; name collides with the stock one) |
+|---|---|---|---|---|
+| trigger | `cur.ground && prev.flipping && !prev.ground` | same + skip kickoff formation | `cur.ground && !prev.ground && (cur.flipping or prev.flipping)` | landing + flip near landing + wheels-down geometry vs the nearest surface + tilt + speed gain >= 25 |
+| payout | flat 1.0 | flat 1.0 | stored dv at flip start / 2300 (engine: ~0.2, near-constant) | 0.5-1.2 by speed gain at landing |
+| sees a flip started this step | no | no | yes (`cur.flipping`) | yes |
+| kickoff gate | no | yes | no | no |
+| speed/direction check | none | none | none (dv of the flip-start step, any direction) | speed gain at landing |
+| cooldown / ball context | none | none | none | none |
+| at tickSkip 8, flip 3 ticks before touchdown | 4/8 sampler phases | 4/8 | 5/8 | not run |
+| at 2 ticks / 1 tick | 2/8, 0/8 | same | 3/8, 1/8 | not run |
+
+All three simple detectors share one signature: a flip still active at (or the step before) ground contact. In the engine that only happens
+for flips pressed within about 3 ticks of touchdown - ordinary jump-flip hops are NOT detected (a dodge lifts the car; the flip is over before it
+lands). They differ in sampling tolerance (Rolv strictly catches more), payout shape, and the kickoff gate. v3's own comment calls Rolv with
+`scaleByAcceleration=false` "identical to WavedashBasicReward"; it is not (no kickoff gate, extra `cur.flipping` term).
+Probe: `tests/test_wavedash_engine.cpp` (level front flip after one jump, 1-tick presses). **The sampler-phase fractions in this table are for 1-tick presses and do not describe the bot**: with 8-tick actions see `wavedash_ts8_experiments_2026-11-02.md` (level approach 0%; nose-up approach up to ~75%).
+
+## Ported-reward status
+
+Triage below is **structural only**: it comes from reading each class while porting, not from an audit or a run.
+"Tested" means a compiled test in `tests/`. Nothing here is enabled.
+
+| reward | kind / wrapper | first thing to check | v3 history (dates in v3 `Reward_Change_Log.md`) |
+|---|---|---|---|
+| KickoffOutcomeReward | one-shot event (team score once per kickoff) | low; overlaps KickoffRaceReward | 2 entries: 2026-10-18, 2026-10-17 |
+| KickoffStandoffPenalty | one-shot terminal penalty | low | 2 entries: 2026-10-18, 2026-09-28 |
+| OffsidePenalty | individual penalty, not zero-sum (raw [-6,0]) | avoidance by net-camping; accumulated per-step cost vs episode length | 5 entries: 2026-10-20, 2026-10-18 |
+| TooFarFromTheBallPenalty | individual penalty (raw [-1,0]) | avoidance by hugging the ball; opposes net-camping in 1v1 | 1 entries: 2026-10-20 |
+| TeammateSpacingPenalty | individual penalty, team only | pushes the support car off the carrier | 2 entries: 2026-10-22 |
+| GoalSpeedReward | event on goal only (ZeroSum-wrapped in v3) | needs the scorer flag from the engine event tracker | 4 entries: 2026-10-19, 2026-08-28 |
+| TouchBallToGoalAccelReward | event on touch, signed, ZeroSum-wrapped; speed-pump guard | overlaps live TouchAccelReward | 2 entries: 2026-10-17 |
+| ActiveSupportingPositionReward | continuous positive shaping, individual, 2v2+ | sit in a slot while the team holds the ball | 1 entries: 2026-06-25 |
+| RetreatAfterTouchReward | continuous/event shaping, individual | not audited | 3 entries: 2026-07-31, 2026-06-29, 2026-06-13 |
+| InstantSpacingTransitionReward | event on zone change, +/- symmetric | oscillation across a boundary should net 0; not verified | 6 entries: 2026-09-22, 2026-09-13, 2026-08-30, 2026-08-28, 2026-08-27 |
+| RoleCycleTransitionReward | event on completed rotation leg | two cars can cycle roles repeatedly; not audited | 2 entries: 2026-08-28, 2026-08-27 |
+| ProgressiveRotationReward | composite of Retreat + InstantSpacing + RoleAwareness | double-counts the three above | 3 entries: 2026-08-27, 2026-07-31 |
+| PassingSetupReward | event on touch, ZeroSum-wrapped, cooldown | 6 tests pass; ground passes may collect the no-bounce bonus | 5 entries: 2026-09-14, 2026-08-04, 2026-07-06 |
+| ReceivingPassReward | event, ZeroSum-wrapped | not tested | 3 entries: 2026-09-14, 2026-08-04 |
+| DribbleReward | continuous positive shaping | not audited | 4 entries: 2026-08-27, 2026-07-29, 2026-06-30, 2026-06-19 |
+| DribbleMasteryReward | continuous/event shaping, cooldown | not audited | 6 entries: 2026-10-16, 2026-08-27, 2026-07-29, 2026-06-30 |
+| CatchBallOnCarReward | event on catch | not audited | 1 entries: 2026-06-30 |
+| FlickReward | event | not audited | 3 entries: 2026-10-17, 2026-10-15 |
+| AdvancedFlickReward | event | not audited | 3 entries: 2026-10-17, 2026-06-28 |
+| SupersonicReward | **RETIRED** (CarEnergyPotentialReward covers it) | do not enable | 1 entries: 2026-09-16 |
+| RolvWavedashReward | event per wavedash landing, individual, NOT wrapped | engine-probed: detects only flips <=3 ticks before touchdown, 15 Hz captures ~40-60%, near-constant 0.2 payout, no cooldown | 2 entries: 2026-07-31, 2026-06-27 |
+| PitchControlAerialReward | event per fast-aerial sequence (ZeroSum in v3) | loop needs a landing per repeat; check at tickSkip 8 | 4 entries: 2026-07-31, 2026-07-28, 2026-06-22, 2026-06-21 |
+| MultiAirTouchReward | event per air touch (0.5 s apart), ZeroSum-wrapped | overlaps live ConsecutiveAirTouchReward | 5 entries: 2026-08-28, 2026-08-04, 2026-07-30, 2026-06-28 |
+| UnifiedAirDribbleReward | event/continuous mix, state machine, ZeroSum-wrapped | not tested; horizon 2.0 s vs v3 4 s | 10 entries: 2026-09-19, 2026-09-13, 2026-08-28, 2026-08-01, 2026-07-31, 2026-07-29 ... |
+
+Tested so far (compiled tests in `tests/`): `BallPredCache` (`test_ballpred_cache.cpp`), `PassingSetupReward`
+(`test_passing_setup.cpp`), and **audited 2026-11-01** `SupersonicReward`, `RolvWavedashReward`,
+`PitchControlAerialReward` (`test_reward_audit_movement.cpp`, reports in `docs/reward_scenarios/`). Findings:
+Supersonic is a bare positive income term (about one Goal per 30 s at the v3 weight; retired); RolvWavedash is a narrow
+last-moment-flip detector (engine-probed) with no cooldown and a near-constant payout, captured only ~40-60% at 15 Hz; PitchControlAerial is farmable by a hop loop with no ball and its
+post-double-jump height bonus never accumulates. None of the three is safe to enable as written.
+Everything else: untested in this repo.
+
+Suggested audit order (farm risk first, since a bare one-sided positive term breaks the zero-sum invariant by itself):
+Supersonic, RolvWavedash, PitchControlAerial, MultiAirTouch, then the rotation cluster, then the penalties (avoidance and
+early-termination checks), then the one-shot kickoff terms.

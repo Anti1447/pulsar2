@@ -1,5 +1,6 @@
 #pragma once
 #include "Reward.h"
+#include "RewardTrace.h"
 #include "../Math.h"
 #include "../CommonValues.h"
 #include "RewardMath.h"
@@ -204,25 +205,49 @@ namespace RLGC {
         }
 
         virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
-            if (player.isDemoed) return 0.0f;
+            if (player.isDemoed) {
+                if (trace) trace->Gate(player.carId, "alive", false, "demoed");
+                return 0.0f;
+            }
 
             // Only reward if WE just touched the ball (setting up the pass)
-            if (!player.ballTouchedStep) return 0.0f;
+            if (!player.ballTouchedStep) {
+                if (trace) trace->Gate(player.carId, "touched_ball", false, "no touch this step");
+                return 0.0f;
+            }
 
             // No living teammate to pass to -- this is just an ordinary shot/clear,
             // not a pass setup of any kind. Previously only the primary reward tier
             // checked this, so 1v1 (or a demoed sole teammate) could still bank
             // secondary/trajectory/zone credit for a plain shot.
-            if (!HasLivingTeammate(player, state)) return 0.0f;
+            if (!HasLivingTeammate(player, state)) {
+                if (trace) { trace->Gate(player.carId, "touched_ball", true); trace->Gate(player.carId, "has_living_teammate", false, "nobody to pass to"); }
+                return 0.0f;
+            }
 
             // Check ball velocity direction
             Vec ballVel = state.ball.vel;
-            if (ballVel.Length() < MIN_PASS_SPEED_UU_S) return 0.0f;  // Ball too slow to be a pass
+            if (trace) trace->Component(player.carId, "ball_speed", ballVel.Length());
+            if (ballVel.Length() < MIN_PASS_SPEED_UU_S) {  // Ball too slow to be a pass
+                if (trace) { trace->Gate(player.carId, "touched_ball", true); trace->Gate(player.carId, "has_living_teammate", true); trace->Gate(player.carId, "ball_fast_enough", false, "slower than the pass speed floor"); }
+                return 0.0f;
+            }
 
             // Anti-farm (F3): a teammate standing right on top of the passer isn't a real
             // pass target. Gated on distance at the moment of touch, not the 1.5s predicted
             // landing point, so it can't be dodged by aiming somewhere prediction reads as far.
-            if (GetTeammateDistToPos(state.ball.pos, player, state) < MIN_PASS_DISTANCE_UU) return 0.0f;
+            if (trace) trace->Component(player.carId, "teammate_dist_at_touch", GetTeammateDistToPos(state.ball.pos, player, state));
+            if (GetTeammateDistToPos(state.ball.pos, player, state) < MIN_PASS_DISTANCE_UU) {
+                if (trace) {
+                    trace->Gate(player.carId, "touched_ball", true); trace->Gate(player.carId, "has_living_teammate", true); trace->Gate(player.carId, "ball_fast_enough", true);
+                    trace->Gate(player.carId, "teammate_not_adjacent", false, "a teammate is within the minimum pass spacing of the ball");
+                }
+                return 0.0f;
+            }
+            if (trace) {
+                trace->Gate(player.carId, "touched_ball", true); trace->Gate(player.carId, "has_living_teammate", true);
+                trace->Gate(player.carId, "ball_fast_enough", true); trace->Gate(player.carId, "teammate_not_adjacent", true);
+            }
 
             Vec ballVelNorm = ballVel.Normalized();
 
@@ -242,6 +267,7 @@ namespace RLGC {
             // Port guard: v3's cache was always valid. Here a missing prediction (obs builder without
             // ballPredSlices, or a state with no arena) would make AtTime() return a stationary-ball
             // fallback and silently change what this pays, so pay nothing instead.
+            if (trace) trace->Gate(player.carId, "ball_prediction_valid", _ballCache.valid, _ballCache.valid ? "" : "no ball prediction on this state: pays nothing");
             if (!_ballCache.valid) return 0.0f;
 
             bool isSurfacePass = _ballCache.HitSurfaceBy(2.0f);
@@ -253,18 +279,28 @@ namespace RLGC {
             // goalward.
             float goalwardComponent = ballVelNorm.Dot(towardTheirGoal);
             bool towardTeammate = IsBallHeadingTowardTeammate(ballVelNorm, player, state);
+            if (trace) {
+                trace->Component(player.carId, "goalward_component", goalwardComponent);
+                trace->Gate(player.carId, "surface_pass", isSurfacePass);
+                trace->Gate(player.carId, "heading_toward_teammate", towardTeammate);
+                trace->Arrow(player.carId, TraceRole::Info, state.ball.pos, state.ball.pos + ballVelNorm * 600.0f);
+            }
             if (goalwardComponent < 0.2f && !isSurfacePass && !towardTeammate) {
                 // Ball moving backward, no surface redirect, and not toward any teammate either
+                if (trace) { trace->Gate(player.carId, "pass_direction_ok", false, "backward, no surface redirect, not toward a teammate: -0.2"); trace->Event(player.carId, "aimless_penalty"); }
                 return -0.2f;
             }
+            if (trace) trace->Gate(player.carId, "pass_direction_ok", true);
 
             // Anti-farm (F2): cap how often a single passer can bank positive pass-setup
             // credit. Checked AFTER the direction gate above so a genuinely aimless hit is
             // still always penalized -- cooldown only suppresses the positive-credit path.
             if (_cooldown.IsOnCooldown(player.carId)) {
                 s_cooldownBlocked.fetch_add(1);
+                if (trace) { trace->Gate(player.carId, "not_on_cooldown", false, "anti-farm: a credited touch happened less than the cooldown ago"); trace->Event(player.carId, "cooldown_blocked"); }
                 return 0.0f;
             }
+            if (trace) trace->Gate(player.carId, "not_on_cooldown", true);
 
             // Use the slice at ~1.5 seconds as the "landing zone" for pass evaluation.
             // This is close enough to where a typical pass will reach a teammate.
@@ -273,6 +309,11 @@ namespace RLGC {
             // Check if teammates are better positioned than opponents at ball destination
             float tmDist = GetTeammateDistToPos(predictedBallPos, player, state);
             float oppDist = GetOpponentDistToPos(predictedBallPos, player, state);
+            if (trace) {
+                trace->Point(player.carId, TraceRole::Target, predictedBallPos);
+                trace->Component(player.carId, "teammate_dist_to_landing", tmDist);
+                trace->Component(player.carId, "opponent_dist_to_landing", oppDist);
+            }
 
             float reward = 0.0f;
 
@@ -285,6 +326,7 @@ namespace RLGC {
                 float margin = oppDist - tmDist;
                 reward += 2.0f * RS_CLAMP((margin + 500.0f) / 1000.0f, 0.0f, 1.0f);
             }
+            if (trace) trace->Component(player.carId, "primary", reward);
 
             // TRAJECTORY QUALITY BONUS: reward clean passes and intentional surface redirects.
             if (isSurfacePass) {
@@ -337,15 +379,18 @@ namespace RLGC {
                 zoneAccuracyBonus = RS_MAX(zoneAccuracyBonus, bonus);
             }
 
+            if (trace) trace->Component(player.carId, "primary_plus_trajectory", reward);
             if (zoneAccuracyBonus > 0.0f) {
                 reward += zoneAccuracyBonus;
                 s_zoneBonusActive.fetch_add(1);
             }
+            if (trace) trace->Component(player.carId, "zone_bonus", zoneAccuracyBonus);
 
             // Only start the cooldown when credit was actually earned (CLAUDE.md 7C common-bug
             // table: setting it unconditionally would also block the next legitimate touch
             // after a step that happened to score 0, e.g. no teammate closer than the opponent).
             if (reward > 0.0f) {
+                if (trace) { trace->Event(player.carId, "paid"); trace->Event(player.carId, "cooldown_started"); }
                 _cooldown.Trigger(player.carId, PASS_SETUP_COOLDOWN_SEC);
                 s_touchesFired.fetch_add(1);
                 s_rewardMilli.fetch_add(static_cast<long long>(reward * 1000.0f));

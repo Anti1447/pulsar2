@@ -4,11 +4,19 @@
 
 // https://github.com/AechPro/rocket-league-gym-sim/blob/main/rlgym_sim/utils/reward_functions/reward_function.py
 namespace RLGC {
+	class TraceSink; // RewardTrace.h
+
 	class Reward {
 	private:
 		std::string _cachedName = {};
 
 	public:
+		// Optional step trace for the Reward Lab (docs/REWARD_VIEWER_SPEC.md). Null in training. A reward that
+		// opts in emits from inside its own GetReward() with `if (trace) ...`; emission is observation only
+		// and never changes the returned value. Wrappers forward it to their child.
+		TraceSink* trace = nullptr;
+		virtual void SetTrace(TraceSink* sink) { trace = sink; }
+
 		virtual void Reset(const GameState& initialState) {}
 
 		virtual void PreStep(const GameState& state) {}

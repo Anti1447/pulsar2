@@ -1,5 +1,6 @@
 #pragma once
 #include "Reward.h"
+#include "RewardTrace.h"
 #include "../Math.h"
 
 namespace RLGC {
@@ -197,7 +198,8 @@ namespace RLGC {
 	class CarEnergyPotentialReward : public Reward {
 	public:
 		float gamma;
-		CarEnergyPotentialReward(float gamma = 0.99f) : gamma(gamma) {}
+		// No default: gamma MUST match the learner's gaeGamma (stack rule)
+		explicit CarEnergyPotentialReward(float gamma) : gamma(gamma) {}
 
 		static float Phi(const Player& p) {
 			constexpr float KE_NORM = 0.5f * 2300.f * 2300.f; // KE at supersonic ~ 1.0
@@ -217,17 +219,36 @@ namespace RLGC {
 			// real player actions (the demo-respawn tank stays guarded in GetReward).
 			// Pickup credit intentionally overlaps GuardedPickupBoost - this term adds
 			// the SPEND side of the ledger, which a pickup reward cannot express.
-			float be = sqrtf(0.01f * p.boost) * KE_NORM;      // boost 0-100 -> 0..KE_NORM, concave
+			// Softened near empty: (sqrt(0.01b + 0.01) - 0.1) / 0.905 keeps 0 at empty and 1.0 at full
+			// (0.905 = sqrt(1.01) - 0.1) but caps the slope at empty, so draining the last 2 boost costs
+			// ~0.087 per step instead of 0.148 under plain sqrt(0.01b)
+			float be = (sqrtf(0.01f * p.boost + 0.01f) - 0.1f) / 0.905f * KE_NORM; // boost 0-100 -> 0..KE_NORM, concave
 			return (ke + pe + be) / KE_NORM;
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
-			if (!state.prev || !player.prev)
+			if (!state.prev || !player.prev) {
+				if (trace) trace->Gate(player.carId, "has_prev", false, "first step of the episode");
 				return 0;
+			}
 			// Demo/respawn teleports are not the player's action
-			if (player.isDemoed || player.isDemoed != player.prev->isDemoed)
+			if (player.isDemoed || player.isDemoed != player.prev->isDemoed) {
+				if (trace) trace->Gate(player.carId, "not_demo_transition", false, "demoed, or demo state changed (teleport is not the player's action)");
 				return 0;
-			return gamma * Phi(player) - Phi(*player.prev);
+			}
+			// Terminal: on a goal step Phi(s') = 0, so the episode leaves no energy bonus behind.
+			// Truncations still bootstrap, so they keep the full gamma * Phi(s').
+			float phiNext = state.goalScored ? 0.f : Phi(player);
+			if (trace) {
+				trace->Gate(player.carId, "has_prev", true);
+				trace->Gate(player.carId, "not_demo_transition", true);
+				trace->Gate(player.carId, "not_goal_step", !state.goalScored, state.goalScored ? "Phi(s') = 0 on the goal step" : "");
+				trace->Component(player.carId, "phi_prev", Phi(*player.prev));
+				trace->Component(player.carId, "phi_next", phiNext);
+				trace->Component(player.carId, "gamma", gamma);
+				trace->Point(player.carId, TraceRole::Phi, player.pos);
+			}
+			return gamma * phiNext - Phi(*player.prev);
 		}
 	};
 

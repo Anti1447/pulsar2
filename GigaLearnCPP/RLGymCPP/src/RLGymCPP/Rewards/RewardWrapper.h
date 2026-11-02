@@ -16,6 +16,12 @@ namespace RLGC {
 			delete child;
 		}
 
+		// The child is the reward that emits; the wrapper only forwards the sink.
+		virtual void SetTrace(TraceSink* sink) override {
+			Reward::SetTrace(sink);
+			child->SetTrace(sink);
+		}
+
 	protected:
 		virtual void Reset(const GameState& initialState) override {
 			child->Reset(initialState);
