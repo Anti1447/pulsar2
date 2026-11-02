@@ -51,3 +51,14 @@ li .why { color: var(--muted); }
 .muted { color: var(--muted); }
 .warn { color: var(--fail); }
 kbd { border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 11px; color: var(--muted); }
+[hidden] { display: none !important; }
+.liverow { display: inline-flex; gap: 6px; align-items: center; margin: 0 14px 4px 0; }
+.liverow output { min-width: 3.2em; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.liverow input[type=range] { width: 110px; }
+input[type=number], input[type=file] { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 2px 5px; font: inherit; }
+#keytable td { text-align: left; vertical-align: middle; }
+#keytable td:last-child { text-align: right; white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 4px; margin: 1px 4px 1px 0; padding: 0 4px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.chip button { border: 0; background: transparent; padding: 0 4px; color: var(--muted); }
+.chip button:hover { color: var(--fail); }
+#keytable button.listening { border-color: var(--accent); color: var(--accent); }

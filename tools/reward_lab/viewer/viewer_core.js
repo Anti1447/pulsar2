@@ -192,7 +192,113 @@ const LabCore = (function () {
   // The frames an expectation looks at, clamped to the run.
   function expectationRange(exp, run) { return [Math.max(1, exp.from), Math.min(exp.to, run.frames.length - 1)]; }
 
-  const api = { parseRun, validate, consistency, fmt, playerOf, rewardRows, totalAt, cumulative, series, eventMarks, gateFlips, FIELD, makeView, topViewHeight, sideViewHeight, prims, ROLES, roleStyle, expectationRange };
+  // ---- live mode (P3-2): merging a host reply, keyboard controls, the scenario's own script ------------------------------
+  // A delta says "keep your first `keep` frames, then append `frames`" (LabHost.h). Returns a NEW run; throws if the result is not a valid run.
+  function applyDelta(run, d) {
+    if (!d || d.ok !== true || !Array.isArray(d.frames) || !Array.isArray(d.expectations)) throw new Error('not a valid delta');
+    if (!Number.isInteger(d.keep) || d.keep < 1 || d.keep > run.frames.length) throw new Error('delta keeps ' + d.keep + ' of ' + run.frames.length + ' frames');
+    const next = Object.assign({}, run, { frames: run.frames.slice(0, d.keep).concat(d.frames), expectations: d.expectations, result: d.result });
+    const errs = validate(next);
+    if (errs.length) throw new Error('delta makes an invalid run: ' + errs.join('; '));
+    return next;
+  }
+
+  const ACTION_NAMES = ['throttle', 'steer', 'pitch', 'yaw', 'roll', 'jump', 'boost', 'handbrake'];
+  // ---- controls: what each input is, and which keys / mouse buttons drive it ----------------------------------------------
+  // An input is one direction of one of the 8 action slots. Signs were MEASURED on the engine (a car facing +y in the air, 6 held steps):
+  // pitch +1 = nose UP (forward.z +0.85), yaw +1 = turn RIGHT, roll +1 = roll RIGHT, steer +1 = steer right on the ground.
+  const ACTIONS = [
+    { id: 'throttle_fwd',  label: 'Throttle forward',  slot: 0, value: 1 },
+    { id: 'throttle_back', label: 'Brake / reverse',   slot: 0, value: -1 },
+    { id: 'steer_left',    label: 'Steer left',        slot: 1, value: -1 },
+    { id: 'steer_right',   label: 'Steer right',       slot: 1, value: 1 },
+    { id: 'pitch_down',    label: 'Pitch nose down',   slot: 2, value: -1 },
+    { id: 'pitch_up',      label: 'Pitch nose up',     slot: 2, value: 1 },
+    { id: 'yaw_left',      label: 'Yaw left',          slot: 3, value: -1 },
+    { id: 'yaw_right',     label: 'Yaw right',         slot: 3, value: 1 },
+    { id: 'roll_left',     label: 'Air roll left',     slot: 4, value: -1 },
+    { id: 'roll_right',    label: 'Air roll right',    slot: 4, value: 1 },
+    { id: 'jump',          label: 'Jump',              slot: 5, value: 1 },
+    { id: 'boost',         label: 'Boost',             slot: 6, value: 1 },
+    { id: 'handbrake',     label: 'Powerslide (handbrake)', slot: 7, value: 1 },
+    { id: 'step',          label: 'Take one decision step', slot: null, value: 0 },
+  ];
+  // Codes are KeyboardEvent.code (the physical key, so layouts do not matter) or 'Mouse0' / 'Mouse1' / 'Mouse2' (left / middle / right).
+  // In Rocket League the same W/A/S/D drive throttle+pitch and steer+yaw: the car uses throttle/steer on the ground and pitch/yaw in the air,
+  // so the default binds each of those keys to both inputs. The default is Rocket League's keyboard-and-mouse layout as reported by Liquipedia's
+  // control-settings table (via a search summary; the page itself could not be opened): UNVERIFIED in game, check Settings > Controls.
+  const PRESETS = {
+    rocket_league: { label: 'Rocket League default (keyboard + mouse)', bindings: {
+      throttle_fwd: ['KeyW'], throttle_back: ['KeyS'], steer_left: ['KeyA'], steer_right: ['KeyD'],
+      pitch_down: ['KeyW'], pitch_up: ['KeyS'], yaw_left: ['KeyA'], yaw_right: ['KeyD'],
+      roll_left: ['KeyQ'], roll_right: ['KeyE'], jump: ['Mouse2'], boost: ['Mouse0'], handbrake: ['ShiftLeft'], step: ['Enter'] } },
+    keyboard_only: { label: 'Keyboard only (no mouse)', bindings: {
+      throttle_fwd: ['KeyW'], throttle_back: ['KeyS'], steer_left: ['KeyA'], steer_right: ['KeyD'],
+      pitch_down: ['KeyW'], pitch_up: ['KeyS'], yaw_left: ['KeyA'], yaw_right: ['KeyD'],
+      roll_left: ['KeyQ'], roll_right: ['KeyE'], jump: ['KeyJ'], boost: ['KeyK'], handbrake: ['ShiftLeft'], step: ['Enter'] } },
+    lab_separate: { label: 'Lab: separate air keys', bindings: {
+      throttle_fwd: ['KeyW'], throttle_back: ['KeyS'], steer_left: ['KeyA'], steer_right: ['KeyD'],
+      pitch_down: ['ArrowUp'], pitch_up: ['ArrowDown'], yaw_left: ['KeyQ'], yaw_right: ['KeyE'],
+      roll_left: ['KeyZ'], roll_right: ['KeyC'], jump: ['KeyJ'], boost: ['KeyB'], handbrake: ['KeyH'], step: ['Enter'] } },
+  };
+  const DEFAULT_PRESET = 'rocket_league';
+  function copyBindings(b) { const o = {}; ACTIONS.forEach(a => { o[a.id] = (b && Array.isArray(b[a.id]) ? b[a.id] : []).slice(); }); return o; }
+  // Problems that make a bindings object unusable (empty list = fine). Unknown actions are errors so a typo is not silently ignored.
+  function validateBindings(b) {
+    const e = [];
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return ['bindings must be an object'];
+    const ids = new Set(ACTIONS.map(a => a.id));
+    Object.keys(b).forEach(k => {
+      if (!ids.has(k)) { e.push('unknown input "' + k + '"'); return; }
+      if (!Array.isArray(b[k])) { e.push(k + ': expected a list of keys'); return; }
+      b[k].forEach(c => { if (typeof c !== 'string' || !/^(Mouse[0-4]|(?!Mouse)[A-Za-z][A-Za-z0-9]*)$/.test(c)) e.push(k + ': "' + c + '" is not a key code'); });
+    });
+    return e;
+  }
+  // The 8-slot action for the codes held right now. Opposite directions of a slot cancel; buttons are 0 or 1.
+  function actionFromHeld(bindings, held) {
+    const a = [0, 0, 0, 0, 0, 0, 0, 0];
+    ACTIONS.forEach(x => {
+      if (x.slot === null) return;
+      const codes = bindings[x.id] || [];
+      if (codes.some(c => held.has(c))) a[x.slot] += x.value;
+    });
+    return a.map((v, i) => i < 5 ? Math.max(-1, Math.min(1, v)) : (v > 0 ? 1 : 0));
+  }
+  function inputsForCode(bindings, code) { return ACTIONS.filter(x => (bindings[x.id] || []).indexOf(code) >= 0).map(x => x.id); }
+  // The viewer's playback keys; while live a bound code takes priority over them.
+  const PLAYBACK_CODES = ['Space', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'BracketLeft', 'BracketRight'];
+  // Things worth telling the person about (not errors): a key that always cancels itself, the step key doing double duty, a playback key taken over.
+  function bindingWarnings(bindings) {
+    const w = [], byCode = {};
+    ACTIONS.forEach(x => (bindings[x.id] || []).forEach(c => { (byCode[c] = byCode[c] || []).push(x); }));
+    Object.keys(byCode).forEach(c => {
+      const xs = byCode[c], label = codeLabel(c);
+      const slots = {};
+      xs.forEach(x => { if (x.slot !== null) (slots[x.slot] = slots[x.slot] || []).push(x.value); });
+      Object.keys(slots).forEach(s => { if (slots[s].indexOf(1) >= 0 && slots[s].indexOf(-1) >= 0) w.push(label + ' is bound to both directions of ' + ACTIONS.find(a => a.slot === Number(s)).id.replace(/_.*/, '') + ': it always cancels itself'); });
+      if (xs.some(x => x.id === 'step') && xs.length > 1) w.push(label + ' is bound to "Take one decision step" and to an input: it steps every time you use it');
+      if (PLAYBACK_CODES.indexOf(c) >= 0) w.push(label + ' also moves the playback (play / step / jump); while live, your binding wins');
+    });
+    return w;
+  }
+  function codeLabel(code) {
+    const m = { Mouse0: 'Left mouse', Mouse1: 'Middle mouse', Mouse2: 'Right mouse', Mouse3: 'Mouse back', Mouse4: 'Mouse forward', ShiftLeft: 'Left Shift', ShiftRight: 'Right Shift',
+      ControlLeft: 'Left Ctrl', ControlRight: 'Right Ctrl', AltLeft: 'Left Alt', AltRight: 'Right Alt', Space: 'Space', Enter: 'Enter', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Tab: 'Tab', Backspace: 'Backspace' };
+    if (m[code]) return m[code];
+    let r = /^Key([A-Z])$/.exec(code); if (r) return r[1];
+    r = /^Digit([0-9])$/.exec(code); if (r) return r[1];
+    r = /^Numpad(.+)$/.exec(code); if (r) return 'Numpad ' + r[1];
+    return code;
+  }
+  // The action the scenario's script gives a car at decision step `step` (the latest entry with from <= step, else idle) - Scenario.h ScriptedAction.
+  function scriptedAction(scenario, car, step) {
+    let best = -1, act = null;
+    (scenario.actions || []).forEach(e => { if (e.car === car && e.from <= step && e.from >= best) { best = e.from; act = e.action; } });
+    return ACTION_NAMES.map(n => (act && act[n] !== undefined) ? act[n] : 0);
+  }
+
+  const api = { parseRun, validate, consistency, fmt, playerOf, rewardRows, totalAt, cumulative, series, eventMarks, gateFlips, FIELD, makeView, topViewHeight, sideViewHeight, prims, ROLES, roleStyle, expectationRange, applyDelta, ACTION_NAMES, ACTIONS, PRESETS, DEFAULT_PRESET, copyBindings, validateBindings, actionFromHeld, inputsForCode, PLAYBACK_CODES, bindingWarnings, codeLabel, scriptedAction };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();

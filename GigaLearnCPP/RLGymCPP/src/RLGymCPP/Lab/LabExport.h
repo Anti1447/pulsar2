@@ -24,40 +24,52 @@
 namespace RLGC {
 namespace Lab {
 
-	inline nlohmann::json RunToJson(const LabSession& s) {
+	inline nlohmann::json FrameToJson(const Frame& f) {
 		using nlohmann::json;
-		const auto results = s.EvaluateExpectations();
-		json j;
-		j["schema"] = 1; j["kind"] = "lab_run";
-		j["result"] = results.empty() ? "NONE" : AllPass(results) ? "PASS" : "FAIL";
-		j["scenario"] = ToJson(s.GetScenario());
-		json frames = json::array();
-		for (auto& f : s.Frames()) {
-			json jf;
-			jf["i"] = f.index; jf["terminal"] = f.terminal; jf["goal"] = f.goalScored;
-			jf["ball"] = { { "pos", detail::V3J(f.ball.pos) }, { "vel", detail::V3J(f.ball.vel) } };
-			json players = json::array();
-			for (auto& p : f.players)
-				players.push_back({ { "car", p.carId }, { "team", p.team }, { "pos", detail::V3J(p.pos) }, { "vel", detail::V3J(p.vel) },
-					{ "forward", detail::V3J(p.forward) }, { "up", detail::V3J(p.up) }, { "boost", p.boost }, { "on_ground", p.onGround },
-					{ "flipping", p.isFlipping }, { "jumped", p.hasJumped }, { "double_jumped", p.hasDoubleJumped }, { "flipped", p.hasFlipped },
-					{ "demoed", p.isDemoed }, { "touched", p.ballTouchedStep } });
-			jf["players"] = players;
-			json acts = json::array();
-			for (auto& a : f.actions) acts.push_back(json(std::vector<float>(a.begin(), a.end())));
-			jf["actions"] = acts;
-			jf["trace"] = f.hasTrace ? ToJson(f.trace) : json(nullptr);
-			frames.push_back(jf);
-		}
-		j["frames"] = frames;
+		json jf;
+		jf["i"] = f.index; jf["terminal"] = f.terminal; jf["goal"] = f.goalScored;
+		jf["ball"] = { { "pos", detail::V3J(f.ball.pos) }, { "vel", detail::V3J(f.ball.vel) } };
+		json players = json::array();
+		for (auto& p : f.players)
+			players.push_back({ { "car", p.carId }, { "team", p.team }, { "pos", detail::V3J(p.pos) }, { "vel", detail::V3J(p.vel) },
+				{ "forward", detail::V3J(p.forward) }, { "up", detail::V3J(p.up) }, { "boost", p.boost }, { "on_ground", p.onGround },
+				{ "flipping", p.isFlipping }, { "jumped", p.hasJumped }, { "double_jumped", p.hasDoubleJumped }, { "flipped", p.hasFlipped },
+				{ "demoed", p.isDemoed }, { "touched", p.ballTouchedStep } });
+		jf["players"] = players;
+		json acts = json::array();
+		for (auto& a : f.actions) acts.push_back(json(std::vector<float>(a.begin(), a.end())));
+		jf["actions"] = acts;
+		jf["trace"] = f.hasTrace ? ToJson(f.trace) : json(nullptr);
+		return jf;
+	}
+
+	inline nlohmann::json ExpectationsToJson(const LabSession& s) {
+		using nlohmann::json;
 		json ex = json::array();
 		const int last = s.Frames().back().index;
-		for (auto& r : results) {
+		for (auto& r : s.EvaluateExpectations()) {
 			const Expectation& e = *r.expectation;
 			ex.push_back({ { "kind", e.kind }, { "intent", e.intent }, { "ok", r.ok }, { "detail", r.detail }, { "reward", e.reward }, { "car", e.car },
 				{ "from", e.from }, { "to", std::min(e.to, last) } });
 		}
-		j["expectations"] = ex;
+		return ex;
+	}
+
+	inline const char* ResultOf(const LabSession& s) {
+		const auto results = s.EvaluateExpectations();
+		return results.empty() ? "NONE" : AllPass(results) ? "PASS" : "FAIL";
+	}
+
+	inline nlohmann::json RunToJson(const LabSession& s) {
+		using nlohmann::json;
+		json j;
+		j["schema"] = 1; j["kind"] = "lab_run";
+		j["result"] = ResultOf(s);
+		j["scenario"] = ToJson(s.GetScenario());
+		json frames = json::array();
+		for (auto& f : s.Frames()) frames.push_back(FrameToJson(f));
+		j["frames"] = frames;
+		j["expectations"] = ExpectationsToJson(s);
 		return j;
 	}
 
@@ -87,7 +99,7 @@ namespace Lab {
 	}
 
 	// The template carries <!--INLINE:file--> markers and one <!--LAB_RUN_JSON--> marker for the run.
-	inline bool ExportHtml(const LabSession& s, const std::filesystem::path& templatePath, std::string& out, std::string& err) {
+	inline bool ExportHtml(const LabSession& s, const std::filesystem::path& templatePath, std::string& out, std::string& err, const std::string& liveScript = "") {
 		std::ifstream f(templatePath);
 		if (!f) { err = "cannot read viewer template " + templatePath.string(); return false; }
 		std::stringstream ss; ss << f.rdbuf();
@@ -97,6 +109,9 @@ namespace Lab {
 		size_t p = out.find(marker);
 		if (p == std::string::npos) { err = "template has no <!--LAB_RUN_JSON--> marker"; return false; }
 		out.replace(p, marker.size(), JsonForScript(RunToJson(s)));
+		// <!--LAB_LIVE--> is where a live host (tools/reward_lab/serve.py) injects its script; a static export leaves nothing behind.
+		const std::string liveMarker = "<!--LAB_LIVE-->";
+		if (size_t q = out.find(liveMarker); q != std::string::npos) out.replace(q, liveMarker.size(), liveScript);
 		return true;
 	}
 

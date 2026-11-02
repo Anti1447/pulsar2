@@ -37,6 +37,41 @@
     </div>
   </section>
   <section>
+    <div class="card" id="live" hidden style="margin-bottom:12px">
+      <h2>Live: you drive <span id="livecar"></span></h2>
+      <div class="row">
+        <label>scenario <select id="livescn"></select></label>
+        <label>sandbox steps <input id="livesteps" type="number" min="1" max="100000" value="600" style="width:6em"></label>
+        <button id="liveload">Load</button>
+        <button id="livereset">Reset</button>
+      </div>
+      <div id="liveactions"></div>
+      <div class="row">
+        <button id="livestep" title="Enter">Step</button>
+        <label>hold for <input id="livecount" type="number" min="1" max="600" value="8" style="width:5em"> steps</label>
+        <button id="livestepn">Step N</button>
+        <label>other cars <select id="liveothers"><option value="script" selected>follow the scenario script</option><option value="idle">idle</option><option value="hold">hold their last input</option></select></label>
+      </div>
+      <div class="row">
+        <button id="liverec">Save macro</button>
+        <label>play macro <input id="livemacro" type="file" accept=".json,application/json"></label>
+        <label>skip <input id="liveskip" type="number" min="1" max="120" value="8" style="width:4em"></label>
+        <label>phase <input id="livephase" type="number" min="0" max="119" value="0" style="width:4em"></label>
+      </div>
+      <div id="livestatus" class="muted" aria-live="polite">Hold keys to set the inputs (see Controls below); the Step key takes one decision step. Stepping while viewing an earlier frame branches from it.</div>
+      <div class="muted">One decision step holds the inputs for tick_skip engine ticks. Mouse buttons count only over the two field views.</div>
+      <details id="livekeys" style="margin-top:8px">
+        <summary>Controls</summary>
+        <div class="row" style="margin-top:6px">
+          <label>layout <select id="keypreset"></select></label>
+          <button id="keyreset" title="Put the selected layout back exactly as it ships">Reset to layout</button>
+          <span id="keysaved" class="muted"></span>
+        </div>
+        <table id="keytable"><thead><tr><th>input</th><th>keys</th><th></th></tr></thead><tbody></tbody></table>
+        <div id="keywarn" class="warn"></div>
+        <div class="muted" id="keynote"></div>
+      </details>
+    </div>
     <div class="card" id="hud">
       <h2>Rewards at this frame</h2>
       <div id="controls" class="muted"></div>
@@ -51,6 +86,7 @@
     <div class="card" style="margin-top:12px" id="checks"></div>
   </section>
 </main>
+<!--LAB_LIVE-->
 <script type="application/json" id="labdata"><!--LAB_RUN_JSON--></script>
 <script><!--INLINE:viewer_core.js--></script>
 <script><!--INLINE:viewer_ui.js--></script>

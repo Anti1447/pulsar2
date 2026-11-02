@@ -10,20 +10,26 @@
   try { run = C.parseRun($('labdata').textContent); }
   catch (e) { document.body.innerHTML = '<pre class="warn" style="padding:16px">Reward Lab could not read this run: ' + String(e.message).replace(/</g, '&lt;') + '</pre>'; throw e; }
 
-  const nFrames = run.frames.length - 1;            // frames 1..N carry a trace; frame 0 is the initial state
-  const nCars = run.frames[0].players.length;
+  let nFrames = run.frames.length - 1;              // frames 1..N carry a trace; frame 0 is the initial state
+  let nCars = run.frames[0].players.length;
+  const LIVE = !!window.LAB_LIVE;                   // set by tools/reward_lab/serve.py; a static export never has it
   const st = { frame: 0, car: 0, playing: false, speed: 1, allCars: false, vels: true, which: 'raw', expActive: -1 };
 
   // ---- header --------------------------------------------------------------------------------------------------
-  const sc = run.scenario;
-  $('title').textContent = sc.name;
-  $('result').textContent = run.result; $('result').dataset.result = run.result;
-  $('desc').textContent = sc.description || '';
-  $('runinfo').textContent = nFrames + ' steps, tick_skip ' + sc.tick_skip + ', ' + nCars + ' cars, ' + run.expectations.filter(e => e.ok).length + '/' + run.expectations.length + ' expectations';
-  document.title = 'Reward Lab - ' + sc.name + ' - ' + run.result;
-  run.frames[0].players.forEach((p, i) => {
-    const o = document.createElement('option'); o.value = i; o.textContent = 'car ' + i + ' (' + (p.team ? 'orange' : 'blue') + ')'; $('car').appendChild(o);
-  });
+  function renderHeader() {
+    const sc = run.scenario;
+    $('title').textContent = sc.name;
+    $('result').textContent = run.result; $('result').dataset.result = run.result;
+    $('desc').textContent = sc.description || '';
+    $('runinfo').textContent = nFrames + ' steps, tick_skip ' + sc.tick_skip + ', ' + nCars + ' cars, ' + run.expectations.filter(e => e.ok).length + '/' + run.expectations.length + ' expectations' + (LIVE ? '  [LIVE]' : '');
+    document.title = 'Reward Lab - ' + sc.name + ' - ' + run.result;
+    $('car').innerHTML = '';
+    run.frames[0].players.forEach((p, i) => {
+      const o = document.createElement('option'); o.value = i; o.textContent = 'car ' + i + ' (' + (p.team ? 'orange' : 'blue') + ')'; $('car').appendChild(o);
+    });
+    $('car').value = st.car;
+  }
+  renderHeader();
   $('legend').innerHTML = Object.keys(C.ROLES).map(k => '<span><i style="border-color:' + C.ROLES[k].color + ';border-top-style:' + (C.ROLES[k].dash.length ? 'dashed' : 'solid') + '"></i>' + C.ROLES[k].label + '</span>').join('');
 
   // ---- canvases ------------------------------------------------------------------------------------------------
@@ -246,8 +252,10 @@
   tl.addEventListener('pointerdown', (ev) => { dragging = true; tl.setPointerCapture(ev.pointerId); play(false); tlScrub(ev); });
   tl.addEventListener('pointermove', (ev) => { if (dragging) tlScrub(ev); });
   tl.addEventListener('pointerup', () => { dragging = false; });
+  function liveOwns(code) { return LIVE && (live.listening || C.inputsForCode(live.bindings, code).length > 0); }   // a live binding beats the playback key
   document.addEventListener('keydown', (e) => {
     if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (liveOwns(e.code)) return;
     if (e.key === ' ') { e.preventDefault(); play(!st.playing); }
     else if (e.key === 'ArrowLeft') { play(false); setFrame(st.frame - 1); } else if (e.key === 'ArrowRight') { play(false); setFrame(st.frame + 1); }
     else if (e.key === 'Home') setFrame(0); else if (e.key === 'End') setFrame(nFrames);
@@ -261,7 +269,216 @@
   const firstEvent = C.eventMarks(run, 0).map(m => m.frame).sort((a, b) => a - b)[0];
   setFrame(firstEvent !== undefined ? firstEvent : Math.min(1, nFrames));
 
+  // ---- live mode (tools/reward_lab/serve.py): step with your own inputs, branch from any frame, record and play macros -------
+  // The page only sends inputs and shows what the host's EnvSet/reward stack returned; nothing is simulated or scored here.
+  function setRun(next, frame) {
+    run = next; nFrames = run.frames.length - 1; nCars = run.frames[0].players.length;
+    if (st.car >= nCars) st.car = 0;
+    st.expActive = -1; renderHeader(); layout(); buildExpectations(); buildChecks();
+    setFrame(frame === undefined ? st.frame : frame);
+  }
+  const live = { held: [], down: new Set(), bindings: C.copyBindings(C.PRESETS[C.DEFAULT_PRESET].bindings), preset: C.DEFAULT_PRESET, listening: null, others: 'script', busy: false };
+  function heldFor(c) { if (!live.held[c]) live.held[c] = [0, 0, 0, 0, 0, 0, 0, 0]; return live.held[c]; }
+  function setStatus(msg, bad) { const s = $('livestatus'); if (!s) return; s.textContent = msg; s.className = bad ? 'warn' : 'muted'; }
+
+  async function hostCall(cmd) {
+    if (live.busy) return null;
+    live.busy = true;
+    try {
+      const resp = await fetch('/api', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Lab-Client': '1' }, body: JSON.stringify(cmd) });
+      const r = await resp.json();
+      if (!r.ok) { setStatus(String(r.error), true); return null; }
+      return r;
+    } catch (e) { setStatus('server unreachable: ' + e.message, true); return null; }
+    finally { live.busy = false; }
+  }
+  function adopt(r, frame) {                  // a reply with a whole run (load, macro_play)
+    const errs = C.validate(r.run);
+    if (errs.length) { setStatus('host sent an invalid run: ' + errs[0], true); return false; }
+    setRun(r.run, frame); return true;
+  }
+  function merge(d, frame) {                  // a reply with a delta (step, seek)
+    try { setRun(C.applyDelta(run, d), frame); return true; } catch (e) { setStatus(e.message, true); return false; }
+  }
+
+  function syncWidgets() {
+    const h = heldFor(st.car);
+    document.querySelectorAll('#liveactions [data-i]').forEach(w => {
+      const i = Number(w.dataset.i);
+      if (w.type === 'checkbox') w.checked = h[i] === 1; else { w.value = h[i]; w.nextElementSibling.textContent = C.fmt(h[i]); }
+    });
+    $('livecar').textContent = 'car ' + st.car;
+  }
+  function buildLiveWidgets() {
+    const box = $('liveactions'); box.innerHTML = '';
+    C.ACTION_NAMES.forEach((n, i) => {
+      const lab = el('label', { class: 'liverow' }); lab.appendChild(document.createTextNode(n + ' '));
+      const w = el('input', i < 5 ? { type: 'range', min: -1, max: 1, step: 0.05, 'data-i': i } : { type: 'checkbox', 'data-i': i });
+      lab.appendChild(w); if (i < 5) lab.appendChild(el('output', null, '0'));
+      w.addEventListener('input', () => { heldFor(st.car)[i] = w.type === 'checkbox' ? (w.checked ? 1 : 0) : Number(w.value); syncWidgets(); });
+      box.appendChild(lab);
+    });
+  }
+  function actionsForStep(stepIdx) {
+    const out = [];
+    for (let c = 0; c < nCars; c++) {
+      if (c === st.car || live.others === 'hold') out.push(heldFor(c).slice());
+      else if (live.others === 'script') out.push(C.scriptedAction(run.scenario, c, stepIdx));
+      else out.push([0, 0, 0, 0, 0, 0, 0, 0]);
+    }
+    return out;
+  }
+  async function liveStep(n) {
+    play(false);
+    if (st.frame < nFrames) {                 // viewing the past: stepping from here BRANCHES, the later frames are dropped
+      const dropped = nFrames - st.frame;
+      const s = await hostCall({ cmd: 'seek', frame: st.frame }); if (!s || !merge(s, st.frame)) return;
+      setStatus('branched at frame ' + st.frame + '; ' + dropped + ' later frame(s) dropped', false);
+    }
+    // The scenario's script changes with the step number, so under "script" each step is its own request; otherwise one request repeats the held inputs.
+    const requests = live.others === 'script' ? n : 1, repeat = live.others === 'script' ? 1 : n;
+    for (let i = 0; i < requests; i++) {
+      const d = await hostCall({ cmd: 'step', actions: actionsForStep(nFrames), repeat });
+      if (!d) return;
+      if (!merge(d, d.keep + d.frames.length - 1)) return;
+      if (d.finished) { setStatus('the run is finished (' + d.max_steps + ' steps max or the episode ended); branch from an earlier frame or reset', false); return; }
+    }
+    setStatus('at step ' + nFrames + ' of ' + run.scenario.steps + '; car ' + st.car + ' is under your control', false);
+  }
+  function download(name, text) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  if (LIVE) {
+    $('live').hidden = false;
+    document.body.dataset.live = 'true';
+    buildLiveWidgets(); syncWidgets();
+    fetch('/api/scenarios').then(r => r.json()).then(j => {
+      (j.scenarios || []).forEach(n => { const o = el('option', { value: n }, n); $('livescn').appendChild(o); });
+      $('livescn').value = run.scenario.name;
+    }).catch(() => {});
+    $('liveothers').onchange = (e) => { live.others = e.target.value; };
+    $('livestep').onclick = () => liveStep(1);
+    $('livestepn').onclick = () => liveStep(Math.max(1, Math.min(600, Math.floor(Number($('livecount').value) || 1))));
+    $('livereset').onclick = async () => { play(false); const r = await hostCall({ cmd: 'reset' }); if (r && merge(r, 0)) setStatus('reset to the start state', false); };
+    $('liveload').onclick = async () => {
+      play(false);
+      const r = await hostCall({ cmd: 'load_named', name: $('livescn').value, steps: Math.max(1, Math.min(100000, Math.floor(Number($('livesteps').value) || 600))) });
+      if (r && adopt(r, 0)) setStatus('loaded ' + run.scenario.name + ' as a sandbox of up to ' + run.scenario.steps + ' steps', false);
+    };
+    $('liverec').onclick = async () => {
+      const r = await hostCall({ cmd: 'macro_record' });
+      if (r) { download((run.scenario.name || 'run') + '.macro.json', JSON.stringify(r.macro, null, 1) + '\n'); setStatus('macro with ' + r.macro.ticks + ' ticks saved', false); }
+    };
+    $('livemacro').onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      let macro; try { macro = JSON.parse(await f.text()); } catch (x) { setStatus('that file is not JSON', true); return; }
+      e.target.value = '';
+      const skip = Math.max(1, Math.floor(Number($('liveskip').value) || run.scenario.tick_skip)), phase = Math.max(0, Math.floor(Number($('livephase').value) || 0));
+      play(false);
+      const r = await hostCall({ cmd: 'macro_play', macro, skip, phase });
+      if (r && adopt(r, 1)) setStatus('played the macro at skip ' + skip + ', phase ' + phase + ' (' + (run.frames.length - 1) + ' steps)', false);
+    };
+    // ---- controls: configurable bindings (defaults: Rocket League keyboard + mouse), saved in this browser ----------------------------
+    const STORE = 'rewardlab.controls.v1';
+    function presetOf(b) {
+      const key = (x) => JSON.stringify(C.ACTIONS.map(a => (x[a.id] || []).slice().sort()));
+      const mine = key(b);
+      return Object.keys(C.PRESETS).find(n => key(C.PRESETS[n].bindings) === mine) || 'custom';
+    }
+    function loadControls() {
+      try {
+        const j = JSON.parse(localStorage.getItem(STORE));
+        if (j && C.validateBindings(j.bindings).length === 0) { live.bindings = C.copyBindings(j.bindings); live.preset = presetOf(live.bindings); }
+      } catch (e) { /* no storage, or nothing saved: keep the default */ }
+    }
+    function saveControls() {
+      try { localStorage.setItem(STORE, JSON.stringify({ bindings: live.bindings })); $('keysaved').textContent = 'saved in this browser'; }
+      catch (e) { $('keysaved').textContent = 'could not save (browser storage unavailable): kept for this page only'; }
+    }
+    function setHeldFromDown() { heldFor(st.car).splice(0, 8, ...C.actionFromHeld(live.bindings, live.down)); syncWidgets(); }
+    function bindingsChanged() {
+      live.down.clear(); setHeldFromDown();
+      live.preset = presetOf(live.bindings);
+      buildKeyTable(); saveControls();
+    }
+    function stopListening() { live.listening = null; buildKeyTable(); }
+    function buildKeyTable() {
+      const tb = $('keytable').tBodies[0]; tb.innerHTML = '';
+      C.ACTIONS.forEach(a => {
+        const tr = el('tr', { 'data-input': a.id });
+        tr.appendChild(el('td', null, a.label));
+        const td = el('td');
+        (live.bindings[a.id] || []).forEach(code => {
+          const chip = el('span', { class: 'chip', 'data-code': code }); chip.appendChild(document.createTextNode(C.codeLabel(code)));
+          const x = el('button', { title: 'remove ' + C.codeLabel(code), 'aria-label': 'remove ' + C.codeLabel(code) }, '×');
+          x.onclick = () => { live.bindings[a.id] = live.bindings[a.id].filter(c => c !== code); bindingsChanged(); };
+          chip.appendChild(x); td.appendChild(chip);
+        });
+        if (!(live.bindings[a.id] || []).length) td.appendChild(el('span', { class: 'muted' }, 'unbound'));
+        tr.appendChild(td);
+        const add = el('td'); const b = el('button', { 'data-add': a.id }, live.listening === a.id ? 'press a key or click… (Esc cancels)' : 'Add key');
+        if (live.listening === a.id) b.className = 'listening';
+        b.onclick = () => { live.listening = live.listening === a.id ? null : a.id; buildKeyTable(); };
+        add.appendChild(b); tr.appendChild(add); tb.appendChild(tr);
+      });
+      const sel = $('keypreset'); sel.innerHTML = '';
+      Object.keys(C.PRESETS).forEach(n => sel.appendChild(el('option', { value: n }, C.PRESETS[n].label)));
+      if (live.preset === 'custom') sel.appendChild(el('option', { value: 'custom' }, 'Custom (edited)'));
+      sel.value = live.preset;
+      $('keywarn').textContent = C.bindingWarnings(live.bindings).join('  •  ');
+      $('keynote').textContent = 'Click Add, then press a key or click a mouse button (Esc cancels). A key may drive several inputs: in Rocket League W/A/S/D are throttle+pitch and steer+yaw at once, because the car uses throttle/steer on the ground and pitch/yaw in the air. Engine signs (measured): pitch up = nose up, yaw/roll/steer right = right. The Rocket League layout is from Liquipedia\'s control-settings table as summarised by a search; I could not open the page, so check it against Settings > Controls in the game.';
+    }
+    $('keypreset').onchange = (e) => { if (C.PRESETS[e.target.value]) { live.bindings = C.copyBindings(C.PRESETS[e.target.value].bindings); bindingsChanged(); } };
+    $('keyreset').onclick = () => { const n = C.PRESETS[live.preset] ? live.preset : C.DEFAULT_PRESET; live.bindings = C.copyBindings(C.PRESETS[n].bindings); bindingsChanged(); };
+    loadControls(); buildKeyTable(); setHeldFromDown();
+
+    // Rebinding: the next key or mouse button pressed anywhere is added to the input being edited (capture phase, so nothing else sees it).
+    function bindCode(code) {
+      const id = live.listening; if (!id) return;
+      if ((live.bindings[id] || []).indexOf(code) < 0) live.bindings[id] = (live.bindings[id] || []).concat(code);
+      live.listening = null; bindingsChanged();
+    }
+    document.addEventListener('keydown', (e) => {
+      if (!live.listening) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (e.code === 'Escape') stopListening(); else if (!e.repeat) bindCode(e.code);
+    }, true);
+    let swallowContext = false;
+    document.addEventListener('mousedown', (e) => {
+      if (!live.listening) return;
+      if (e.target && e.target.closest && e.target.closest('#keytable button')) return;   // clicking Add / × is not a binding
+      e.preventDefault(); e.stopImmediatePropagation(); swallowContext = e.button === 2; bindCode('Mouse' + e.button);
+    }, true);
+    document.addEventListener('contextmenu', (e) => { if (swallowContext || (live.listening)) { e.preventDefault(); swallowContext = false; } }, true);
+
+    // Playing: keys anywhere on the page, mouse buttons over the two field views.
+    const typing = (e) => /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '');
+    const activates = (e) => /^(BUTTON|SUMMARY)$/.test((e.target && e.target.tagName) || '') && (e.code === 'Enter' || e.code === 'Space');
+    function press(code, repeat) {
+      const ids = C.inputsForCode(live.bindings, code);
+      if (!ids.length) return false;
+      if (ids.indexOf('step') >= 0 && !repeat) liveStep(1);
+      if (ids.some(id => id !== 'step')) { live.down.add(code); setHeldFromDown(); }
+      return true;
+    }
+    document.addEventListener('keydown', (e) => {
+      if (live.listening || typing(e) || activates(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (press(e.code, e.repeat)) e.preventDefault();
+    });
+    document.addEventListener('keyup', (e) => { if (live.down.delete(e.code)) setHeldFromDown(); });
+    ['top', 'side'].forEach(id => {
+      const cv = $(id);
+      cv.addEventListener('mousedown', (e) => { if (live.listening) return; if (press('Mouse' + e.button, false)) e.preventDefault(); });
+      cv.addEventListener('contextmenu', (e) => { if (C.inputsForCode(live.bindings, 'Mouse2').length) e.preventDefault(); });
+    });
+    document.addEventListener('mouseup', (e) => { if (live.down.delete('Mouse' + e.button)) setHeldFromDown(); });
+    window.addEventListener('blur', () => { if (live.down.size) { live.down.clear(); setHeldFromDown(); } });
+    $('car').addEventListener('change', syncWidgets);
+  }
+
   // For tools (and Claude through the browser): the same data the page shows, by function.
-  window.LAB = { run, core: C, state: st, setFrame, setCar: (c) => { st.car = c; $('car').value = c; render(); },
+  window.LAB = { get run() { return run; }, core: C, state: st, live, setFrame, setCar: (c) => { st.car = c; $('car').value = c; render(); if (LIVE) syncWidgets(); },
+    liveStep, hostCall,
     snapshot: () => ({ frame: st.frame, car: st.car, rows: C.rewardRows(run, st.frame, st.car), total: C.totalAt(run, st.frame, st.car), cumulative: C.cumulative(run, st.frame, st.car) }) };
 })();

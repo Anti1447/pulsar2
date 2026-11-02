@@ -100,6 +100,72 @@ check('fmt keeps small numbers readable', C.fmt(0.000123456789) === '0.000123457
   check('prims: all cars, tagged with the car index', eq(C.prims(r, 1, 0, true).map(p => p.kind + '/' + p.car), ['line/0', 'point/1']));
   check('prims: frame 0 has none', C.prims(r, 0, 0, true).length === 0);
 }
+// ---- live mode: merging host replies --------------------------------------------------------------------------------------
+{
+  const r = makeRun();                                   // frames 0..3
+  const extra = JSON.parse(JSON.stringify(r.frames[3])); extra.i = 4;
+  const exps = [{ kind: 'x', intent: 'i', ok: false, detail: 'd', reward: 'A', car: 0, from: 1, to: 4 }];
+  const appended = C.applyDelta(r, { ok: true, keep: 4, frames: [extra], expectations: exps, result: 'FAIL' });
+  check('applyDelta: appends after the kept frames', appended.frames.length === 5 && appended.frames[4].i === 4 && appended.frames[3] === r.frames[3]);
+  check('applyDelta: takes the new expectations and result', appended.result === 'FAIL' && eq(appended.expectations, exps));
+  check('applyDelta: does not change the old run', r.frames.length === 4 && r.result === 'PASS');
+  const branched = C.applyDelta(r, { ok: true, keep: 2, frames: [], expectations: [], result: 'NONE' });
+  check('applyDelta: keep < length truncates (a branch)', branched.frames.length === 2 && branched.frames[1] === r.frames[1] && branched.result === 'NONE');
+  const rebuilt = C.applyDelta(branched, { ok: true, keep: 2, frames: [JSON.parse(JSON.stringify(r.frames[2]))], expectations: [], result: 'NONE' });
+  check('applyDelta: a branch can grow again', rebuilt.frames.length === 3 && rebuilt.frames[2].i === 2);
+  throws('applyDelta: refuses a failed reply', () => C.applyDelta(r, { ok: false, error: 'x' }), 'not a valid delta');
+  throws('applyDelta: refuses an error reply even if it looks complete', () => C.applyDelta(r, { ok: false, keep: 4, frames: [], expectations: [], result: 'NONE' }), 'not a valid delta');
+  throws('applyDelta: refuses keep 0', () => C.applyDelta(r, { ok: true, keep: 0, frames: [], expectations: [], result: 'NONE' }), 'keeps 0');
+  throws('applyDelta: refuses keep past the run', () => C.applyDelta(r, { ok: true, keep: 5, frames: [], expectations: [], result: 'NONE' }), 'keeps 5');
+  throws('applyDelta: refuses a non-integer keep', () => C.applyDelta(r, { ok: true, keep: 2.5, frames: [], expectations: [], result: 'NONE' }), 'keeps 2.5');
+  const gap = JSON.parse(JSON.stringify(extra)); gap.i = 9;
+  throws('applyDelta: refuses a frame with the wrong index', () => C.applyDelta(r, { ok: true, keep: 4, frames: [gap], expectations: [], result: 'NONE' }), 'has index 9');
+  const noTrace = JSON.parse(JSON.stringify(extra)); noTrace.trace = null;
+  throws('applyDelta: refuses a traced frame without a trace', () => C.applyDelta(r, { ok: true, keep: 4, frames: [noTrace], expectations: [], result: 'NONE' }), 'no schema-1 trace');
+  throws('applyDelta: refuses missing expectations', () => C.applyDelta(r, { ok: true, keep: 4, frames: [] }), 'not a valid delta');
+}
+// ---- live mode: keyboard and script ---------------------------------------------------------------------------------------
+{
+  const RL = C.PRESETS.rocket_league.bindings;
+  const h = (b, ...codes) => C.actionFromHeld(b, new Set(codes));
+  const IDLE = [0, 0, 0, 0, 0, 0, 0, 0];
+  check('controls: nothing held is the idle action', eq(h(RL), IDLE));
+  check('controls RL: W is throttle forward AND pitch nose down (ground and air share the key)', eq(h(RL, 'KeyW'), [1, 0, -1, 0, 0, 0, 0, 0]));
+  check('controls RL: S is reverse AND pitch nose up', eq(h(RL, 'KeyS'), [-1, 0, 1, 0, 0, 0, 0, 0]));
+  check('controls RL: D is steer right AND yaw right, A the opposite', eq(h(RL, 'KeyD'), [0, 1, 0, 1, 0, 0, 0, 0]) && eq(h(RL, 'KeyA'), [0, -1, 0, -1, 0, 0, 0, 0]));
+  check('controls RL: opposite keys cancel', eq(h(RL, 'KeyW', 'KeyS'), IDLE) && eq(h(RL, 'KeyA', 'KeyD'), IDLE));
+  check('controls RL: Q / E are air roll left / right', h(RL, 'KeyQ')[4] === -1 && h(RL, 'KeyE')[4] === 1);
+  check('controls RL: left mouse boosts, right mouse jumps, left shift powerslides', h(RL, 'Mouse0')[6] === 1 && h(RL, 'Mouse2')[5] === 1 && h(RL, 'ShiftLeft')[7] === 1);
+  check('controls: unbound codes do nothing (Space, arrows, X, the step key)', eq(h(RL, 'Space', 'ArrowLeft', 'KeyX', 'Enter', 'Mouse1'), IDLE));
+  check('controls: buttons are 0 or 1 even if two keys drive one', eq(h({ jump: ['KeyJ', 'KeyK'] }, 'KeyJ', 'KeyK').slice(5), [1, 0, 0]));
+  check('controls: an action with no keys never fires', eq(h({}, 'KeyW'), IDLE) && eq(h({ throttle_fwd: [] }, 'KeyW'), IDLE));
+  check('controls: two keys on one axis direction do not add up past 1', h({ throttle_fwd: ['KeyW', 'KeyT'] }, 'KeyW', 'KeyT')[0] === 1);
+  check('controls: the separate-air preset has its own pitch keys', eq(h(C.PRESETS.lab_separate.bindings, 'ArrowDown'), [0, 0, 1, 0, 0, 0, 0, 0]) && eq(h(C.PRESETS.lab_separate.bindings, 'KeyW'), [1, 0, 0, 0, 0, 0, 0, 0]));
+  check('controls: 8 slots, every input points at a slot in 0..7 (or is the step key)', C.ACTION_NAMES.length === 8 && C.ACTIONS.every(a => a.slot === null || (a.slot >= 0 && a.slot < 8)) && C.ACTIONS.filter(a => a.slot === null).map(a => a.id).join() === 'step');
+  check('controls: every axis slot has both directions, every button slot one', [0, 1, 2, 3, 4].every(s => C.ACTIONS.filter(a => a.slot === s).map(a => a.value).sort().join() === '-1,1') && [5, 6, 7].every(s => C.ACTIONS.filter(a => a.slot === s).length === 1));
+  check('presets: every preset is valid and covers every input', Object.values(C.PRESETS).every(p => C.validateBindings(p.bindings).length === 0 && C.ACTIONS.every(a => (p.bindings[a.id] || []).length > 0)) && !!C.PRESETS[C.DEFAULT_PRESET]);
+  check('presets: the default is the Rocket League layout', C.DEFAULT_PRESET === 'rocket_league');
+  const cp = C.copyBindings(RL); cp.jump.push('Space');
+  check('copyBindings: a copy does not alias the preset', RL.jump.length === 1 && cp.jump.length === 2 && Object.keys(C.copyBindings({})).length === C.ACTIONS.length);
+  check('validate: accepts keys and mouse buttons', C.validateBindings({ jump: ['Space', 'Mouse2', 'KeyJ', 'ShiftLeft', 'Digit1'] }).length === 0);
+  check('validate: refuses an unknown input', C.validateBindings({ jumpp: ['KeyJ'] })[0].includes('unknown input'));
+  check('validate: refuses a non-list and a non-string code', C.validateBindings({ jump: 'KeyJ' })[0].includes('list') && C.validateBindings({ jump: [5] })[0].includes('not a key code'));
+  check('validate: refuses junk codes', C.validateBindings({ jump: ['Mouse9'] }).length === 1 && C.validateBindings({ jump: [''] }).length === 1 && C.validateBindings({ jump: ['a b'] }).length === 1);
+  check('validate: refuses a non-object', C.validateBindings(null).length === 1 && C.validateBindings([]).length === 1);
+  check('inputsForCode: W is two inputs in the RL layout', eq(C.inputsForCode(RL, 'KeyW').sort(), ['pitch_down', 'throttle_fwd']) && eq(C.inputsForCode(RL, 'KeyX'), []));
+  check('warnings: the Rocket League layout has none', eq(C.bindingWarnings(RL), []));
+  check('warnings: a key on both directions of one slot', C.bindingWarnings({ throttle_fwd: ['KeyW'], throttle_back: ['KeyW'] }).some(m => m.includes('cancels itself')));
+  check('warnings: the step key doing double duty', C.bindingWarnings({ step: ['KeyJ'], jump: ['KeyJ'] }).some(m => m.includes('steps every time')));
+  check('warnings: a playback key is taken over', C.bindingWarnings({ jump: ['Space'] }).some(m => m.includes('playback')) && C.PLAYBACK_CODES.includes('Space'));
+  check('warnings: W on throttle and pitch is NOT a conflict (different slots)', eq(C.bindingWarnings({ throttle_fwd: ['KeyW'], pitch_down: ['KeyW'] }), []));
+  check('codeLabel: readable names', C.codeLabel('KeyW') === 'W' && C.codeLabel('Mouse0') === 'Left mouse' && C.codeLabel('Mouse2') === 'Right mouse' && C.codeLabel('ShiftLeft') === 'Left Shift' && C.codeLabel('Digit3') === '3' && C.codeLabel('ArrowUp') === 'Up' && C.codeLabel('F5') === 'F5');
+  const sc = { actions: [{ car: 0, from: 0, action: { throttle: 1, boost: 1 } }, { car: 0, from: 5, action: { jump: 1 } }, { car: 1, from: 3, action: { steer: -1 } }] };
+  check('script: before the first entry a car idles', eq(C.scriptedAction(sc, 1, 2), [0, 0, 0, 0, 0, 0, 0, 0]));
+  check('script: an entry holds until the next', eq(C.scriptedAction(sc, 0, 4), [1, 0, 0, 0, 0, 0, 1, 0]));
+  check('script: the next entry replaces the whole action', eq(C.scriptedAction(sc, 0, 5), [0, 0, 0, 0, 0, 1, 0, 0]));
+  check('script: entries of another car are ignored', eq(C.scriptedAction(sc, 1, 9), [0, -1, 0, 0, 0, 0, 0, 0]));
+  check('script: a scenario with no actions idles', eq(C.scriptedAction({}, 0, 3), [0, 0, 0, 0, 0, 0, 0, 0]));
+}
 check('every role has a colour, a label, and a dash entry', Object.keys(C.ROLES).length === 7 && Object.values(C.ROLES).every(s => /^#[0-9a-f]{6}$/.test(s.color) && s.label && Array.isArray(s.dash)));
 check('roles are told apart by more than colour', new Set(Object.values(C.ROLES).map(s => JSON.stringify(s.dash))).size >= 5);
 check('unknown role falls back to info', C.roleStyle('mystery') === C.ROLES.info);
@@ -117,7 +183,7 @@ for (const file of process.argv.slice(2)) {
   const bad = C.consistency(run);
   check(file + ': internally consistent', bad.length === 0, bad[0]);
   check(file + ': has frames and a verdict', run.frames.length > 1 && ['PASS', 'FAIL', 'NONE'].includes(run.result));
-  check(file + ': no unresolved markers', !html.includes('<!--INLINE:') && !html.includes('<!--LAB_RUN_JSON-->'));
+  check(file + ': no unresolved markers', !html.includes('<!--INLINE:') && !html.includes('<!--LAB_RUN_JSON-->') && !html.includes('<!--LAB_LIVE-->'));
 }
 
 console.log((fail ? 'FAILED' : 'PASSED') + ': ' + pass + ' checks passed' + (fail ? ', ' + fail + ' failed' : ''));
