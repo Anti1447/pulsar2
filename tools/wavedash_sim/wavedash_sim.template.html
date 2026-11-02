@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wavedash Sim 2D</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #5d6879; --line: #d7dce4; --accent: #2563eb;
+    --ground: #8b95a5; --car: #e9edf4; --car-edge: #1c2330; --ghost: #9aa4b5; --trail: #2563eb;
+    --good: #2e9e5b; --hop: #3b82c4; --crash: #d1453b; --warn: #d9962b; --none: #98a2b3; --sky: #fbfcfe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11151c; --panel: #1a202b; --ink: #e8ecf3; --muted: #9aa5b7; --line: #2c3544; --accent: #6ea0ff;
+      --ground: #6f7a8c; --car: #2a3345; --car-edge: #e8ecf3; --ghost: #5b6678; --trail: #6ea0ff; --sky: #151b25; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 14px 16px 6px; max-width: 1280px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  header p { margin: 0; color: var(--muted); max-width: 95ch; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; padding: 10px 16px 24px; max-width: 1280px; margin: 0 auto; }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 8px; background: var(--sky); border: 1px solid var(--line); touch-action: manipulation; }
+  #cv { aspect-ratio: 16 / 8.5; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.preset { text-align: left; width: 100%; margin-bottom: 5px; }
+  button.preset small { display: block; color: var(--muted); font-size: 12px; }
+  button.preset.on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  input[type=range] { width: 100%; }
+  label { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  label b { color: var(--ink); font-weight: 600; }
+  select { font: inherit; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; width: 100%; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 4px; }
+  h2:first-child { margin-top: 0; }
+  #scrub { flex: 1 1 200px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; color: #fff; font-weight: 700; letter-spacing: .02em; }
+  #checks { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12.5px; }
+  #checks li { padding: 2px 0 2px 20px; position: relative; color: var(--muted); }
+  #checks li::before { content: "\2717"; position: absolute; left: 2px; color: var(--crash); font-weight: 700; }
+  #checks li.ok { color: var(--ink); }
+  #checks li.ok::before { content: "\2713"; color: var(--good); }
+  table.t { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  table.t td, table.t th { padding: 2px 4px; border-bottom: 1px solid var(--line); text-align: left; }
+  table.t th { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+  table.t td:first-child { color: var(--muted); }
+  table.t.sum td:last-child { text-align: right; }
+  #scan { display: flex; gap: 2px; margin-top: 6px; }
+  #scan div { flex: 1; height: 26px; border-radius: 3px; cursor: pointer; position: relative; min-width: 6px; }
+  #scan div.sel { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 1; }
+  #scan div.grid::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--ink); }
+  #scanAxis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 8px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .phases { display: flex; gap: 3px; flex-wrap: wrap; }
+  .phases div { width: 22px; height: 22px; border-radius: 4px; font-size: 11px; color: #fff; text-align: center; line-height: 22px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .warn { border-left: 3px solid var(--warn); padding-left: 8px; }
+  kbd { background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 12px; }
+  #cmp { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
+  @media (max-width: 720px) { #cmp { grid-template-columns: 1fr; } }
+  #cmp canvas { aspect-ratio: 16 / 9; }
+  .cmpHead { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; margin: 0 0 4px; }
+  .cmpHead b { font-weight: 700; }
+  .cmpFoot { font-size: 12px; color: var(--muted); margin-top: 4px; min-height: 2.6em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Wavedash Sim &mdash; 2D side view, pitch only</h1>
+  <p>A toy rigid-body car (two wheels, hitbox corners) driven by constants measured in RocketSim v3: flip impulse, flip rotation, dodge vertical damping,
+  pitch control, flip availability. The contact model is a toy. Roll and yaw are assumed level. Choose a <b>tick skip</b> to see what a bot that acts every 8, 4, 2 or 1 ticks
+  can do; the three small views below run the same scenario at 8, 4 and 1. Press <kbd>Space</kbd> or click the canvas during playback to flip at that instant.</p>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <canvas id="cv" width="1280" height="680"></canvas>
+      <div class="row">
+        <button id="play" class="primary">Play</button>
+        <button id="stepB1" title="back one tick">&minus;1</button><button id="stepF1" title="forward one tick">+1</button>
+        <button id="stepBG" title="back one decision">&minus;G</button><button id="stepFG" title="forward one decision">+G</button>
+        <select id="speed" style="width:auto"><option value="0.05">0.05x</option><option value="0.125">0.125x</option><option value="0.25" selected>0.25x</option><option value="1">1x (120 Hz)</option></select>
+        <input id="scrub" type="range" min="0" max="0" value="0">
+        <span id="clock" style="font-variant-numeric:tabular-nums;color:var(--muted)">tick 0</span>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <label style="margin:0"><input type="checkbox" id="showGhost" checked> no-flip ghost</label>
+        <label style="margin:0"><input type="checkbox" id="showTrail" checked> path</label>
+        <label style="margin:0"><input type="checkbox" id="loop" checked> loop</label>
+        <button id="copyLink">Copy link to this scenario</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>Same scenario at tick skip 8, 4 and 1</h2>
+      <div class="note" style="margin-top:0">Each view uses the scenario on the right, except the flip: the bot presses on the <b>last decision boundary at or before first contact</b> (inputs held for the whole decision).
+      Grid phase is shared (phase mod skip). Playback is synchronized by tick.</div>
+      <div id="cmp"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>Press-timing scan</h2>
+      <div class="note" style="margin-top:0">Same scenario at the selected tick skip, flip pressed <b>j</b> ticks before the first contact of the no-flip run. Click a cell to run it. Dots: ticks the decision grid can reach at the chosen phase.</div>
+      <div id="scan"></div>
+      <div id="scanAxis"><span>j=30 (early)</span><span>20</span><span>10</span><span>0</span><span>&minus;3 (late)</span></div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>How often does the grid hit the window?</h2>
+      <div class="note" style="margin-top:0">For each tick skip: with the flip on the <b>last boundary at or before first contact</b>, how many of the grid's phases give a wavedash (this scenario). Chance of landing in a window <i>w</i> ticks wide with a random phase is <i>w</i>/skip.</div>
+      <table class="t" id="align"></table>
+      <div class="note" id="alignNote"></div>
+      <div class="note warn" style="margin-top:8px"><b>Measured offline in the real engine</b> (<code>wd_phase.cpp</code>; timing alignment only, nose-up fall with a flip available, boost on/off per decision, a perfect planner; an upper bound):
+      no shaping &rarr; 25% at skip 8, 50% at skip 4 (= window 2 ticks / skip). With boost shaping over the last 24 ticks: <b>88%</b> at skip 8 (94% with 48 ticks of lookahead) and
+      <b>100%</b> at skip 4 (81% with only 12 ticks). Boost moves the contact tick by about 10 ticks over 24 ticks of lookahead.</div>
+    </div>
+  </section>
+  <aside>
+    <div class="card">
+      <h2>Scenarios</h2>
+      <div id="presets"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Outcome (main view)</h2>
+      <div><span id="cls" class="badge" style="background:var(--none)">&mdash;</span></div>
+      <div class="note" id="clsNote"></div>
+      <ul id="checks"></ul>
+      <table class="t sum" id="sum"></table>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Telemetry (current tick)</h2>
+      <table class="t sum" id="tel"></table>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Parameters</h2>
+      <label>Tick skip (decision spacing)
+        <select id="skip"><option value="8">8 ticks &mdash; 15 Hz (training config)</option><option value="4">4 ticks &mdash; 30 Hz</option><option value="2">2 ticks &mdash; 60 Hz</option><option value="1">1 tick &mdash; 120 Hz (every tick)</option></select></label>
+      <label>Grid phase <b id="v_phase"></b> (which tick of the grid a decision falls on)<input type="range" id="phase" min="0" max="7" step="1"></label>
+      <label>Speed along travel <b id="v_v0"></b> uu/s<input type="range" id="v0" min="0" max="2200" step="50"></label>
+      <label>Start height of car centre <b id="v_z0"></b> uu (rest = 17)<input type="range" id="z0" min="20" max="2030" step="1"></label>
+      <label>Start vertical speed <b id="v_vz0"></b> uu/s<input type="range" id="vz0" min="-800" max="800" step="10"></label>
+      <label>Start pitch <b id="v_th0"></b>&deg; (+ nose up, 180 = upside down)<input type="range" id="th0" min="-180" max="180" step="1"></label>
+      <label>Pitch control
+        <select id="ctrl"><option value="hold">hold a target angle (PD)</option><option value="free">no pitch input</option></select></label>
+      <label>Target pitch <b id="v_target"></b>&deg;<input type="range" id="target" min="-90" max="90" step="1"></label>
+      <label>After the flip ends
+        <select id="afterFlip"><option value="same">keep the target</option><option value="level">level out (0&deg;)</option></select></label>
+      <label>Flip availability
+        <select id="avail"><option value="nojump">available, no jump used (fell / drove off a surface)</option><option value="jump">after a jump (1.25 s window)</option><option value="none">not available</option></select></label>
+      <label>Time since the jump at the start <b id="v_air"></b> s (jump source only)<input type="range" id="air" min="0" max="2" step="0.05"></label>
+      <label>Flip direction
+        <select id="dir"><option value="front">front flip (pitch &minus;1)</option><option value="back">back flip (pitch +1)</option></select></label>
+      <label>Flip timing (main view)
+        <select id="fmode"><option value="j">j ticks before the no-flip first contact</option><option value="tick">at absolute tick N</option><option value="none">no flip</option></select></label>
+      <label>j <b id="v_j"></b> ticks<input type="range" id="j" min="-3" max="30" step="1"></label>
+      <label>N <b id="v_tickN"></b><input type="range" id="tickN" min="0" max="400" step="1"></label>
+      <div class="note">With tick skip &gt; 1 the pitch input and the flip are held for the whole decision, and the flip happens on the first boundary at or after the requested tick.</div>
+    </div>
+    <div class="card warn" style="margin-top:14px">
+      <b>What is and is not measured.</b>
+      <div class="note">Measured in RocketSim v3 (one geometry, front flip, 1000 uu/s): flip impulse 500 uu/s up to the 2300 cap, back flip &minus;(533+0.35v); flip rotation 7.4 rad/s for 79 ticks;
+      vertical damping &times;0.65 per tick from tick 18 of the flip; pitch control 12.5 rad/s&sup2;, max 5.6 rad/s, damping 2.8/s; flip availability (no timer without a jump, 1.25 s after one);
+      press window 1&ndash;2 ticks before first wheel contact; nose-down never cancels.
+      The toy does <i>not</i> reproduce the engine for flips pressed 3&ndash;8 ticks early (engine: airborne after 90 ticks; toy: nose/body strike), and body-strike speed loss is a toy friction model.
+      The toy window is 0&ndash;1 ticks before the contact (engine 1&ndash;2).</div>
+    </div>
+  </aside>
+</main>
+<script>
+/*__CORE__*/
+</script>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const DEG = WD.DEG;
+  const COLORS = { 'WAVEDASH': 'var(--good)', 'FLIP HOP': 'var(--hop)', 'NOSE/BODY CRASH': 'var(--crash)', 'TUMBLING': 'var(--warn)', 'OTHER': 'var(--warn)', 'FLIP UNAVAILABLE': 'var(--none)', 'NO FLIP PRESSED': 'var(--none)' };
+  const SHORT = { 'WAVEDASH': 'wavedash', 'FLIP HOP': 'flip hop', 'NOSE/BODY CRASH': 'nose/body crash', 'TUMBLING': 'tumbling', 'OTHER': 'other', 'FLIP UNAVAILABLE': 'flip unavailable', 'NO FLIP PRESSED': 'no flip' };
+  const HZ = { 8: '15 Hz', 4: '30 Hz', 2: '60 Hz', 1: '120 Hz' };
+
+  const BASE = { skip: 1, phase: 0, v0: 1000, z0: 70, vz0: 0, th0: 25, ctrl: 'hold', target: 25, afterFlip: 'same', avail: 'nojump', air: 0, dir: 'front', fmode: 'j', j: 1, tickN: 20 };
+  const PRESETS = [
+    { id: 'wd', name: 'Successful front wavedash', sub: 'nose up 25°, flip 1 tick before the rear wheels touch', p: { ...BASE } },
+    { id: 'flip', name: 'Normal front flip', sub: 'high, level car; flip completes in the air, lands on wheels', p: { ...BASE, z0: 600, th0: 0, target: 0, afterFlip: 'level', avail: 'jump', air: 0.2, fmode: 'tick', tickN: 20 } },
+    { id: 'crash', name: 'Nose crash front flip', sub: 'nose down 25°: front wheels touch first, flip keeps rotating', p: { ...BASE, th0: -25, target: -25 } },
+    { id: 'ceiling', name: 'Ceiling fall, no jump → wavedash', sub: 'upside down on the ceiling, falls, PD to nose up 25°, flip available without a jump', p: { ...BASE, z0: 2027, th0: 180, target: 25 } },
+    { id: 'expired', name: 'No flip available', sub: 'jumped 1.3 s ago: the dodge window is gone, the press does nothing', p: { ...BASE, avail: 'jump', air: 1.3 } },
+    { id: 'early', name: 'Flip pressed too early', sub: 'wavedash geometry, flip 12 ticks before contact', p: { ...BASE, j: 12 } },
+    { id: 'ts8hit', name: '15 Hz grid, lucky phase', sub: 'tick skip 8, phase 1: a decision boundary falls in the 2-tick window', p: { ...BASE, skip: 8, phase: 1, fmode: 'j', j: 1 } },
+    { id: 'ts8miss', name: '15 Hz grid, unlucky phase', sub: 'tick skip 8, phase 0: the next boundary after the target tick comes 6 ticks late (flip after touchdown), so it crashes', p: { ...BASE, skip: 8, phase: 0, fmode: 'j', j: 1 } },
+  ];
+
+  let P = { ...BASE }, T1 = null, ghost = null, R = null, CLS = null, frames = [], zoomArr = [], idx = 0, playing = false, acc = 0, lastTs = 0;
+  let currentPreset = 'wd', mainView = null, cmpViews = [];
+
+  // ---------- params <-> DOM
+  const FIELDS = ['skip', 'phase', 'v0', 'z0', 'vz0', 'th0', 'ctrl', 'target', 'afterFlip', 'avail', 'air', 'dir', 'fmode', 'j', 'tickN'];
+  function readP() {
+    const o = {};
+    for (const f of FIELDS) { const el = $(f); o[f] = el.tagName === 'SELECT' && !/^(skip)$/.test(f) ? el.value : parseFloat(el.value); if (el.tagName === 'SELECT' && /^(ctrl|afterFlip|avail|dir|fmode)$/.test(f)) o[f] = el.value; }
+    return o;
+  }
+  function writeP(o) { for (const f of FIELDS) { const el = $(f); if (o[f] !== undefined) el.value = o[f]; } labels(); }
+  function labels() {
+    const set = (id, v) => { const e = $('v_' + id); if (e) e.textContent = v; };
+    const G = parseInt($('skip').value, 10);
+    $('phase').max = Math.max(0, G - 1); if (parseInt($('phase').value, 10) > G - 1) $('phase').value = G - 1;
+    set('v0', $('v0').value); set('z0', $('z0').value); set('vz0', $('vz0').value); set('th0', $('th0').value); set('target', $('target').value);
+    set('air', parseFloat($('air').value).toFixed(2)); set('j', $('j').value); set('tickN', $('tickN').value); set('phase', $('phase').value + ' of ' + G);
+    $('air').disabled = $('avail').value !== 'jump';
+    $('j').disabled = $('fmode').value !== 'j'; $('tickN').disabled = $('fmode').value !== 'tick';
+    $('phase').disabled = G === 1;
+    $('target').disabled = $('ctrl').value !== 'hold'; $('afterFlip').disabled = $('ctrl').value !== 'hold';
+    $('stepBG').textContent = '−' + G; $('stepFG').textContent = '+' + G;
+  }
+  function simParams(o, over) {
+    const G = over && over.G ? over.G : o.skip;
+    const q = { v0: o.v0, z0: o.z0, vz0: o.vz0, th0: o.th0, ctrl: o.ctrl, targetDeg: o.target, avail: o.avail, airSinceJump0: o.air, G, quantize: G > 1,
+      phase: Math.min(o.phase, G - 1), afterFlipTarget: o.afterFlip, maxTicks: 900 };
+    return Object.assign(q, over || {});
+  }
+  function pressFor(o, t1) {
+    if (o.fmode === 'none') return null;
+    const front = o.dir === 'front';
+    if (o.fmode === 'tick') return { tick: Math.max(1, o.tickN), front };
+    if (t1 === undefined || t1 === null) return null;
+    return { tick: Math.max(1, t1 - o.j), front };
+  }
+  // the press a bot makes "on the last decision boundary at or before the no-flip first contact". The toy's wavedash window is 0-1 ticks before
+  // contact (2 ticks wide, like the engine's 1-2), so this rule hits it with probability 2/skip over the grid phases.
+  function lastBoundaryPress(sp, t1, front) {
+    if (t1 === undefined || t1 === null) return null;
+    const G = sp.G, c = t1;
+    const p = c - ((((c - sp.phase) % G) + G) % G);
+    return { tick: Math.max(1, p), front };
+  }
+
+  // ---------- views
+  function zoomFor(f, H) { const top = Math.max(150, f.z * 1.15 + 80); return Math.min(3.6, (H - 110) / (top + 30)); }
+  function makeView(canvas, sp, press, ghostRun) {
+    const run = WD.run(sp, press), cls = WD.classify(run);
+    const zs = []; let z = null;
+    for (const f of run.frames) { const tgt = zoomFor(f, canvas.height); z = z === null ? tgt : z + (tgt - z) * 0.12; zs.push(z); }
+    return { canvas, ctx: canvas.getContext('2d'), sp, run, cls, frames: run.frames, zoomArr: zs, ghost: ghostRun };
+  }
+
+  function recompute(keepIdx) {
+    P = readP(); labels();
+    const sp = simParams(P);
+    const g = WD.ghost(sp); ghost = g.run; T1 = g.tick;
+    mainView = makeView($('cv'), sp, pressFor(P, T1), ghost);
+    R = mainView.run; CLS = mainView.cls; frames = mainView.frames; zoomArr = mainView.zoomArr;
+    // comparison: skips 8, 4, 1 on the same scenario, flip on the last boundary before first contact
+    cmpViews = [8, 4, 1].map((G, i) => {
+      const spg = simParams(P, { G, quantize: G > 1, phase: Math.min(P.phase, G - 1) });
+      const gg = WD.ghost(spg);
+      const v = makeView($('cmp' + G), spg, P.fmode === 'none' ? null : lastBoundaryPress(spg, gg.tick, P.dir === 'front'), gg.run);
+      v.G = G; v.t1 = gg.tick; return v;
+    });
+    $('scrub').max = Math.max(...[frames.length, ...cmpViews.map(v => v.frames.length)]) - 1;
+    idx = keepIdx ? Math.min(idx, +$('scrub').max) : 0;
+    $('scrub').value = idx;
+    buildScan(sp); buildAlign(); renderOutcome(); drawAll();
+  }
+
+  function buildScan(sp) {
+    const el = $('scan'); el.innerHTML = '';
+    if (T1 === undefined || T1 === null) { el.textContent = 'no ground contact in the no-flip run'; return; }
+    for (let j = 30; j >= -3; j--) {
+      const r = WD.run(sp, { tick: Math.max(1, T1 - j), front: P.dir === 'front' });
+      const c = WD.classify(r);
+      const d = document.createElement('div'); d.style.background = COLORS[c.cls] || 'var(--none)';
+      d.title = 'j=' + j + ' (press at tick ' + (T1 - j) + '): ' + c.cls;
+      if (P.fmode === 'j' && j === P.j) d.classList.add('sel');
+      if (sp.quantize && ((((T1 - j - sp.phase) % sp.G) + sp.G) % sp.G) === 0) d.classList.add('grid');
+      d.addEventListener('click', () => { $('fmode').value = 'j'; $('j').value = j; recompute(false); play(true); });
+      el.appendChild(d);
+    }
+    const leg = $('legend'); leg.innerHTML = '';
+    for (const k of Object.keys(COLORS)) { const s = document.createElement('span'); s.innerHTML = '<i style="background:' + COLORS[k] + '"></i>' + SHORT[k]; leg.appendChild(s); }
+  }
+
+  function phaseResults(G) {
+    const out = [];
+    for (let ph = 0; ph < G; ph++) {
+      const sp = simParams(P, { G, quantize: G > 1, phase: ph });
+      const g = WD.ghost(sp);
+      if (g.tick === undefined) { out.push({ ph, cls: 'NO FLIP PRESSED', p: null }); continue; }
+      const pr = lastBoundaryPress(sp, g.tick, P.dir === 'front');
+      const c = WD.classify(WD.run(sp, pr));
+      out.push({ ph, cls: c.cls, p: pr.tick, t1: g.tick });
+    }
+    return out;
+  }
+  function buildAlign() {
+    const rows = ['<tr><th>skip</th><th>rate</th><th>phases that wavedash</th><th>share</th><th>chance, 2-tick window</th></tr>'];
+    for (const G of [8, 4, 2, 1]) {
+      const res = phaseResults(G), n = res.filter(r => r.cls === 'WAVEDASH').length;
+      const cells = res.map(r => '<div style="background:' + (COLORS[r.cls] || 'var(--none)') + '" title="phase ' + r.ph + ': press at tick ' + r.p + ' → ' + r.cls + '">' + r.ph + '</div>').join('');
+      rows.push('<tr><td>' + G + '</td><td>' + HZ[G] + '</td><td><div class="phases">' + cells + '</div></td><td>' + n + ' / ' + G + '</td><td>' + (200 / G).toFixed(0) + '%</td></tr>');
+    }
+    $('align').innerHTML = rows.join('');
+    $('alignNote').textContent = 'The toy window is 2 ticks wide (0-1 ticks before contact; in the engine it is 1-2), so expect 2 of 8 phases at skip 8, 2 of 4 at skip 4, and every phase at skip 2 or 1. "Chance" assumes a random phase; a bot that plans its approach can do better (see the engine measurement above).';
+  }
+
+  // ---------- outcome panel
+  function renderOutcome() {
+    const b = $('cls'); b.textContent = CLS.cls; b.style.background = COLORS[CLS.cls] || 'var(--none)';
+    $('clsNote').textContent = CLS.note || '';
+    const ul = $('checks'); ul.innerHTML = '';
+    for (const [txt, ok] of (CLS.evidence || [])) { const li = document.createElement('li'); li.textContent = txt; if (ok) li.className = 'ok'; ul.appendChild(li); }
+    const ev = R.ev, rows = [];
+    const add = (k, v) => rows.push('<tr><td>' + k + '</td><td>' + v + '</td></tr>');
+    add('tick skip', P.skip + ' (' + HZ[P.skip] + '), phase ' + Math.min(P.phase, P.skip - 1));
+    add('press tick', ev.pressTick ?? (ev.rejected ? 'rejected: ' + ev.rejected : '—'));
+    add('no-flip first contact', T1 ?? '—');
+    add('first contact (this run)', ev.firstContactTick !== undefined ? ev.firstContactTick + ' [' + ev.firstContactSet.join(', ') + ']' : '—');
+    add('flip cancelled at', ev.cancelTick ?? '—');
+    add('on wheels (ground mode) at', ev.groundTick ?? '—');
+    add('body (hitbox) hit at', ev.bodyHitTick ?? '—');
+    add('speed start → end', Math.round(CLS.vx0) + ' → ' + Math.round(CLS.vxEnd) + ' uu/s');
+    $('sum').innerHTML = rows.join('');
+  }
+  function renderTel() {
+    const f = frames[Math.min(idx, frames.length - 1)];
+    const G = P.skip, boundary = ((f.tick + 1 - Math.min(P.phase, G - 1)) % G + G) % G === 0;
+    const rows = [['tick / time', f.tick + ' / ' + (f.tick / 120).toFixed(3) + ' s'], ['decision boundary now', G === 1 ? 'every tick' : (boundary ? 'yes' : 'no')], ['x, z (centre)', f.x.toFixed(0) + ', ' + f.z.toFixed(1)], ['vx, vz', f.vx.toFixed(0) + ', ' + f.vz.toFixed(0)],
+      ['pitch', (f.th / DEG).toFixed(1) + '°'], ['pitch rate', f.w.toFixed(2) + ' rad/s'], ['wheels in contact', (f.wheels[0] ? 'front ' : '') + (f.wheels[1] ? 'rear' : '') || 'none'],
+      ['isFlipping / can flip', (f.flipping ? 'flipping' : 'no') + ' / ' + (f.hasFlip ? 'yes' : 'no')], ['on ground (both wheels)', f.ground ? 'yes' : 'no']];
+    $('tel').innerHTML = rows.map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>').join('');
+    $('clock').textContent = 'tick ' + f.tick + ' (' + (f.tick / 120).toFixed(2) + ' s)';
+  }
+
+  // ---------- drawing (parameterized by view; k scales sizes for the small canvases)
+  function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function carPoly(f) { const C = WD.C; return [C.corners[2], C.corners[0], C.corners[1], C.corners[3]].map(c => WD.worldPt({ x: f.x, z: f.z, th: f.th }, c.x, c.z)); }
+  function drawView(v, i, o) {
+    const cv = v.canvas, ctx = v.ctx, W = cv.width, H = cv.height, k = W / 1280;
+    const fi = Math.min(i, v.frames.length - 1), f = v.frames[fi], zoom = v.zoomArr[fi];
+    const gy = H - 55 * k, sx = x => W / 2 + (x - f.x) * zoom, sy = z => gy - z * zoom;
+    ctx.clearRect(0, 0, W, H);
+    if (sy(WD.C.CEIL) > -20) { ctx.fillStyle = css('--ground'); ctx.fillRect(0, sy(WD.C.CEIL) - 14 * k, W, 14 * k); }
+    ctx.fillStyle = css('--ground'); ctx.fillRect(0, gy, W, H - gy);
+    ctx.strokeStyle = css('--sky'); ctx.lineWidth = 2 * k; ctx.fillStyle = css('--sky'); ctx.font = (22 * k) + 'px system-ui'; ctx.textAlign = 'left';
+    const step = zoom > 1.5 ? 100 : zoom > 0.6 ? 250 : 500;
+    for (let x = Math.floor((f.x - W / 2 / zoom) / step) * step; x < f.x + W / 2 / zoom; x += step) { const X = sx(x); ctx.beginPath(); ctx.moveTo(X, gy); ctx.lineTo(X, gy + 12 * k); ctx.stroke(); if (!o.small && Math.round(x / step) % 2 === 0) ctx.fillText(x, X + 4, gy + 34 * k); }
+    if ($('showTrail').checked) { ctx.strokeStyle = css('--trail'); ctx.globalAlpha = 0.55; ctx.lineWidth = 3 * k; ctx.beginPath(); for (let t = 0; t <= fi; t++) { const g = v.frames[t]; const X = sx(g.x), Y = sy(g.z); t ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); } ctx.stroke(); ctx.globalAlpha = 1; }
+    if ($('showGhost').checked && v.ghost) drawCar(v, v.ghost.frames[Math.min(fi, v.ghost.frames.length - 1)], sx, sy, zoom, true, k);
+    drawCar(v, f, sx, sy, zoom, false, k);
+    const G = v.sp.G, boundary = G === 1 || (((f.tick + 1 - v.sp.phase) % G) + G) % G === 0;
+    ctx.fillStyle = css('--ink'); ctx.font = '600 ' + (24 * k) + 'px system-ui'; ctx.textAlign = 'left';
+    ctx.fillText('tick ' + f.tick + (f.flipping ? '  FLIPPING' : '') + (f.ground ? '  ON GROUND' : ''), 16 * k, 34 * k);
+    ctx.font = (20 * k) + 'px system-ui'; ctx.fillStyle = css('--muted');
+    if (!o.small) ctx.fillText('vx ' + f.vx.toFixed(0) + '  vz ' + f.vz.toFixed(0) + '  pitch ' + (f.th / DEG).toFixed(0) + '°   can flip: ' + (f.hasFlip ? 'yes' : 'no'), 16 * k, 62 * k);
+    if (v.run.ev.pressTick !== undefined && f.tick >= v.run.ev.pressTick) { ctx.fillStyle = css('--accent'); ctx.fillText('▶ flip at tick ' + v.run.ev.pressTick, 16 * k, (o.small ? 60 : 88) * k); }
+    // decision-boundary indicator (top right)
+    if (G > 1) { ctx.beginPath(); ctx.arc(W - 26 * k, 28 * k, 11 * k, 0, 6.2832); ctx.fillStyle = boundary ? css('--accent') : 'transparent'; ctx.fill(); ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2 * k; ctx.stroke(); }
+  }
+  function drawCar(v, f, sx, sy, zoom, isGhost, k) {
+    const ctx = v.ctx, poly = carPoly(f);
+    ctx.lineWidth = (isGhost ? 2 : 3) * k; ctx.setLineDash(isGhost ? [8 * k, 6 * k] : []);
+    ctx.strokeStyle = isGhost ? css('--ghost') : css('--car-edge'); ctx.fillStyle = isGhost ? 'transparent' : css('--car');
+    ctx.beginPath(); poly.forEach((p, i) => i ? ctx.lineTo(sx(p.x), sy(p.z)) : ctx.moveTo(sx(p.x), sy(p.z))); ctx.closePath();
+    if (!isGhost) ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+    WD.C.wheels.forEach((wh, i) => {
+      const c = WD.worldPt({ x: f.x, z: f.z, th: f.th }, wh.x, wh.z);
+      ctx.beginPath(); ctx.arc(sx(c.x), sy(c.z), wh.r * zoom, 0, 6.2832);
+      ctx.fillStyle = isGhost ? 'transparent' : (f.wheels[i] ? css('--good') : css('--panel')); if (!isGhost) ctx.fill();
+      ctx.strokeStyle = isGhost ? css('--ghost') : css('--car-edge'); ctx.lineWidth = 2 * k; ctx.stroke();
+    });
+    if (isGhost) return;
+    const nose = WD.worldPt({ x: f.x, z: f.z, th: f.th }, 72.9, 20);
+    ctx.fillStyle = css('--accent'); ctx.beginPath(); ctx.arc(sx(nose.x), sy(nose.z), Math.max(3 * k, 5 * zoom), 0, 6.2832); ctx.fill();
+    ctx.fillStyle = css('--car-edge'); ctx.beginPath(); ctx.arc(sx(f.x), sy(f.z), 3 * k, 0, 6.2832); ctx.fill();
+    const ev = v.run.ev;
+    if (ev.bodyHitTick !== undefined && f.tick >= ev.bodyHitTick && f.tick < ev.bodyHitTick + 12) { ctx.strokeStyle = css('--crash'); ctx.lineWidth = 4 * k; ctx.beginPath(); ctx.arc(sx(f.x), sy(f.z), 60 * zoom + 14 * k, 0, 6.2832); ctx.stroke(); }
+  }
+  function drawAll() {
+    drawView(mainView, idx, { small: false }); renderTel();
+    for (const v of cmpViews) {
+      drawView(v, idx, { small: true });
+      const c = v.cls, foot = $('cmpFoot' + v.G), badge = $('cmpBadge' + v.G);
+      badge.textContent = c.cls; badge.style.background = COLORS[c.cls] || 'var(--none)';
+      const ev = v.run.ev;
+      foot.textContent = (ev.pressTick !== undefined ? 'press @' + ev.pressTick + ' (' + (v.t1 - ev.pressTick) + ' before contact)' : 'no press') + ' · speed ' + Math.round(c.vx0) + '→' + Math.round(c.vxEnd);
+    }
+  }
+
+  // ---------- comparison canvases
+  const cmp = $('cmp');
+  for (const G of [8, 4, 1]) {
+    const box = document.createElement('div');
+    box.innerHTML = '<div class="cmpHead"><span><b>skip ' + G + '</b> (' + HZ[G] + ')</span><span id="cmpBadge' + G + '" class="badge" style="font-size:11px;padding:1px 8px">—</span></div><canvas id="cmp' + G + '" width="640" height="360"></canvas><div class="cmpFoot" id="cmpFoot' + G + '"></div>';
+    cmp.appendChild(box);
+  }
+
+  // ---------- transport
+  function maxIdx() { return +$('scrub').max; }
+  function play(on) { playing = on; $('play').textContent = playing ? 'Pause' : 'Play'; lastTs = 0; if (on) requestAnimationFrame(loop); }
+  function loop(ts) {
+    if (!playing) return;
+    if (!lastTs) lastTs = ts;
+    acc += (ts - lastTs) / 1000 * 120 * parseFloat($('speed').value); lastTs = ts;
+    const n = Math.floor(acc); acc -= n;
+    if (n > 0) { idx += n; if (idx >= maxIdx()) { idx = maxIdx(); if ($('loop').checked) idx = 0; else play(false); } $('scrub').value = idx; drawAll(); }
+    requestAnimationFrame(loop);
+  }
+  function seek(i) { idx = Math.max(0, Math.min(maxIdx(), i)); $('scrub').value = idx; drawAll(); }
+  $('play').onclick = () => { if (!playing && idx >= maxIdx()) idx = 0; play(!playing); };
+  $('stepB1').onclick = () => { play(false); seek(idx - 1); }; $('stepF1').onclick = () => { play(false); seek(idx + 1); };
+  $('stepBG').onclick = () => { play(false); seek(idx - P.skip); }; $('stepFG').onclick = () => { play(false); seek(idx + P.skip); };
+  $('scrub').oninput = e => { play(false); seek(parseInt(e.target.value, 10)); };
+  for (const id of ['showGhost', 'showTrail']) $(id).onchange = drawAll;
+
+  function flipNow() {
+    $('fmode').value = 'tick'; $('tickN').max = Math.max(400, frames.length); $('tickN').value = Math.max(1, frames[Math.min(idx, frames.length - 1)].tick + 1);
+    const was = playing; recompute(true); play(was);
+  }
+  window.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); flipNow(); } });
+  $('cv').addEventListener('click', flipNow);
+
+  // ---------- presets / wiring
+  const pe = $('presets');
+  PRESETS.forEach(pr => {
+    const b = document.createElement('button'); b.className = 'preset'; b.id = 'preset_' + pr.id; b.innerHTML = pr.name + '<small>' + pr.sub + '</small>';
+    b.onclick = () => { currentPreset = pr.id; writeP(pr.p); markPreset(); recompute(false); play(true); };
+    pe.appendChild(b);
+  });
+  function markPreset() { document.querySelectorAll('.preset').forEach(b => b.classList.toggle('on', b.id === 'preset_' + currentPreset)); }
+  for (const f of FIELDS) $(f).addEventListener('input', () => { currentPreset = ''; markPreset(); recompute(false); });
+  $('copyLink').onclick = () => { const h = '#' + btoa(JSON.stringify(readP())); history.replaceState(null, '', h); navigator.clipboard && navigator.clipboard.writeText(location.href); $('copyLink').textContent = 'Link copied'; setTimeout(() => $('copyLink').textContent = 'Copy link to this scenario', 1500); };
+
+  window.__wd = { recompute, writeP, readP, get cls() { return CLS; }, get run() { return R; }, get cmp() { return cmpViews; }, presets: PRESETS, phaseResults };
+
+  try { if (location.hash.length > 1) writeP(Object.assign({}, BASE, JSON.parse(atob(location.hash.slice(1))))); else writeP(PRESETS[0].p); } catch (e) { writeP(PRESETS[0].p); }
+  markPreset(); recompute(false); play(true);
+})();
+</script>
+</body>
+</html>
