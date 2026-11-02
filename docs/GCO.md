@@ -11,8 +11,8 @@ self-play plus everything main plays against.
 | Reward | shaped stack | `GoalReward` only (+1 scored, −1 conceded) | `GoalReward`, plus −0.5 to every car on a no-touch timeout |
 | Resets | mixed drills | kickoffs only | main's mixed drills (kickoffs only until 12.81B) |
 | 20s no-touch timeout | truncation | truncation | a real ending (no bootstrap) |
-| Fleet | phase marker | always PHASE B (1/3 each 1v1/2v2/3v3) | 6/12 1v1, 4/12 2v2, 2/12 3v3 (1/3 each until 14.31B) |
-| Skill tracker | 16 games | – | 32 games in the fleet's split (16 / 11 / 5) |
+| Fleet | phase marker | always PHASE B (1/3 each 1v1/2v2/3v3) | 1/3 each (6/12, 4/12, 2/12 from 14.76B to 14.8B) |
+| Skill tracker | 16 games | – | 32 games in the fleet's split (10 / 11 / 11) |
 | Best-rated archives | top 2 per mode | – | top 2 per mode (`best_r`, `best2v2_r`, `best3v3_r`) |
 | Entropy | `cfg.ppo.entropyScale` (0.035) | 0.4× main's (0.014) | 0.4× main's (0.014) |
 | Policy LR | full | 10% until critic EV ≥ 0.5, then ramps to 100% over 100M | 10%, then **gated steps** of 4.5% (see below) |
