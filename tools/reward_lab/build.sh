@@ -23,6 +23,6 @@ echo "built $O/reward_lab_host"
 g++ -std=gnu++20 -O2 -DRG_ROCKETSIM_V3 $INC tools/reward_lab/reward_lab_pack.cpp -o "$O/reward_lab_pack" $LIBS
 echo "built $O/reward_lab_pack"
 if [ "$1" = "--tests" ]; then
-  g++ -std=gnu++20 -O1 -DRG_ROCKETSIM_V3 -Itests $INC tests/TestMain.cpp tests/test_reward_lab.cpp tests/test_reward_lab_export.cpp tests/test_reward_lab_macro.cpp tests/test_reward_lab_host.cpp tests/test_reward_lab_pack.cpp -o "$O/lab_tests" $LIBS
+  g++ -std=gnu++20 -O1 -DRG_ROCKETSIM_V3 -Itests $INC tests/TestMain.cpp tests/test_reward_lab.cpp tests/test_reward_lab_export.cpp tests/test_reward_lab_macro.cpp tests/test_reward_lab_host.cpp tests/test_reward_lab_pack.cpp tests/test_reward_lab_capture.cpp -o "$O/lab_tests" $LIBS
   echo "built $O/lab_tests (run from the repo root)"
 fi

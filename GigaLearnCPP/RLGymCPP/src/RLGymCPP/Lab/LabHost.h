@@ -18,6 +18,8 @@
 //   reset       {}                                      seek 0
 //   macro_record {}                                     -> {macro}   the action log as a tick-resolution macro (needs >= 1 step)
 //   macro_play  {macro:{...}, skip?:n, phase?:p}        replace the session by the macro projected onto the grid -> {run}
+//   capture     {mode:"replay"|"state", frame?:k, name?:"..", steps?:n}   -> {scenario, warnings, mode, name}   a frame of this session as a scenario file
+//               replay = exact (start state + the first k actions, k >= 1); state = approximate snapshot AT frame k (see Capture.h). Never writes expectations.
 //   page        {template:path}                         -> {html}    the viewer page with the current run embedded and live mode on
 //
 // delta = {ok, keep, frames:[FrameToJson...], expectations, result, finished, max_steps}
@@ -25,6 +27,7 @@
 // ============================================================================
 #include "LabExport.h"
 #include "Macro.h"
+#include "Capture.h"
 #include <memory>
 
 namespace RLGC {
@@ -45,6 +48,7 @@ namespace Lab {
 				if (c == "reset") return session ? Move(0) : Fail("nothing loaded");
 				if (c == "macro_record") return MacroRecord();
 				if (c == "macro_play") return MacroPlay(cmd);
+				if (c == "capture") return Capture(cmd);
 				if (c == "page") return Page(cmd);
 				return Fail("unknown command \"" + c + "\"");
 			} catch (const std::exception& e) {
@@ -188,6 +192,22 @@ namespace Lab {
 			if (!r["ok"].get<bool>()) return r;
 			for (auto& a : steps) if (!session->StepOnce(a)) break;
 			return RunReply();
+		}
+
+		nlohmann::json Capture(const nlohmann::json& cmd) {
+			if (!session) return Fail("nothing loaded");
+			if (!cmd.contains("mode") || !cmd["mode"].is_string() || (cmd["mode"] != "replay" && cmd["mode"] != "state")) return Fail("capture needs \"mode\": \"replay\" (exact) or \"state\" (approximate)");
+			const std::string mode = cmd["mode"];
+			long long frame = session->Steps();
+			if (cmd.contains("frame")) { if (!cmd["frame"].is_number_integer()) return Fail("frame: expected an integer"); frame = cmd["frame"].get<long long>(); }
+			if (frame < 0 || frame > session->Steps()) return Fail("frame " + std::to_string(frame) + " is outside 0.." + std::to_string(session->Steps()));
+			std::string name = DefaultCaptureName(session->GetScenario().name, (int)frame, mode);
+			if (cmd.contains("name")) { if (!cmd["name"].is_string()) return Fail("name: expected a string"); name = cmd["name"]; }
+			int steps = 0;
+			if (cmd.contains("steps")) { if (!cmd["steps"].is_number_integer()) return Fail("steps: expected an integer"); long long v = cmd["steps"].get<long long>(); if (v < 0 || v > 100000) return Fail("steps must be 0 (the original's remaining steps) or 1..100000"); steps = (int)v; }
+			CaptureResult r; std::string err;
+			if (!(mode == "replay" ? CaptureReplay(*session, (int)frame, name, r, err) : CaptureState(*session, (int)frame, name, steps, r, err))) return Fail(err);
+			return { { "ok", true }, { "mode", r.mode }, { "name", name }, { "scenario", ToJson(r.scenario) }, { "warnings", r.warnings } };
 		}
 
 		nlohmann::json Page(const nlohmann::json& cmd) {

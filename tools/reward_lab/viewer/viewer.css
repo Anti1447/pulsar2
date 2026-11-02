@@ -62,3 +62,4 @@ input[type=number], input[type=file] { background: var(--panel); color: var(--te
 .chip button { border: 0; background: transparent; padding: 0 4px; color: var(--muted); }
 .chip button:hover { color: var(--fail); }
 #keytable button.listening { border-color: var(--accent); color: var(--accent); }
+input[type=text] { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 2px 5px; font: inherit; }

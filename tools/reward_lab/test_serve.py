@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -124,15 +125,44 @@ class ServeTest(unittest.TestCase):
         for addr in locals_:
             self.assertEqual(addr, "127.0.0.1:%d" % self.port)
 
-    def test_06_host_crash_is_recovered_and_reported(self):
-        self.api({"cmd": "load_named", "name": "passing_setup_straight_hit"})
+    def test_05c_capture_through_the_browser_api(self):
+        _, r = self.api({"cmd": "load_named", "name": "passing_setup_straight_hit", "steps": 60})
+        n = len(r["run"]["scenario"]["cars"])
+        self.api({"cmd": "step", "actions": self.acts(n), "repeat": 6})
+        _, c = self.api({"cmd": "capture", "mode": "replay"})
+        self.assertTrue(c["ok"])
+        self.assertEqual(c["scenario"]["steps"], 6)
+        self.assertEqual(c["scenario"]["expect"], [])            # a capture never carries expectations
+        self.assertEqual(c["name"], "captured_passing_setup_straight_hit_f6_replay")
+        _, s = self.api({"cmd": "capture", "mode": "state", "frame": 3, "name": "my_snapshot"})
+        self.assertTrue(s["ok"])
+        self.assertEqual(s["name"], "my_snapshot")
+        self.assertEqual(s["scenario"]["actions"], [])
+        # the name becomes a file name in the browser: nothing but a plain name is accepted
+        for bad in ("../evil", "a/b", "Upper", ""):
+            status, e = self.api({"cmd": "capture", "mode": "state", "name": bad})
+            self.assertEqual(status, 200)
+            self.assertFalse(e["ok"], bad)
+            self.assertIn("name must be", e["error"])
+        # the host's session is not changed by capturing
+        _, st = self.api({"cmd": "state"})
+        self.assertEqual(len(st["run"]["frames"]), 7)
+
+    def kill_host(self):
         subprocess.run(["pkill", "-P", str(self.proc.pid), "-f", "reward_lab_host"])
-        status, r = self.api({"cmd": "state"})
-        self.assertEqual(status, 200)
-        self.assertFalse(r["ok"])
-        self.assertIn("nothing loaded", r["error"])        # a fresh host, not a hang or a 500
-        status, r = self.api({"cmd": "load_named", "name": "passing_setup_straight_hit"})
-        self.assertTrue(r["ok"])
+
+    def test_06_host_crash_is_recovered_and_reported(self):
+        # Two timings: the very next request races the dying process (the server may only learn on its read), and a request after it is gone.
+        for settle in (0.0, 0.5):
+            self.api({"cmd": "load_named", "name": "passing_setup_straight_hit"})
+            self.kill_host()
+            time.sleep(settle)
+            status, r = self.api({"cmd": "state"})
+            self.assertEqual(status, 200)
+            self.assertFalse(r["ok"])
+            self.assertIn("nothing loaded", r["error"])        # a fresh host, not a hang, a 500 or "could not be restarted"
+            status, r = self.api({"cmd": "load_named", "name": "passing_setup_straight_hit"})
+            self.assertTrue(r["ok"])
 
 
 if __name__ == "__main__":

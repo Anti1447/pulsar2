@@ -379,6 +379,19 @@
       const r = await hostCall({ cmd: 'macro_play', macro, skip, phase });
       if (r && adopt(r, 1)) setStatus('played the macro at skip ' + skip + ', phase ' + phase + ' (' + (run.frames.length - 1) + ' steps)', false);
     };
+    // Capture: save the frame being shown as a scenario file. The host does the work (Lab/Capture.h); a capture never carries expectations.
+    async function capture(mode) {
+      const name = $('capname').value.trim();
+      if (mode === 'replay' && st.frame < 1) { setStatus('frame 0 has no actions to replay: use "Save state" for it, or step first', true); return; }
+      const cmd = { cmd: 'capture', mode, frame: st.frame }; if (name) cmd.name = name;
+      const r = await hostCall(cmd); if (!r) return;
+      download(r.name + '.scenario.json', JSON.stringify(r.scenario, null, 1) + '\n');
+      $('capwarn').textContent = r.warnings.length ? 'Lost in this capture: ' + r.warnings.join('; ') + '.' : '';
+      setStatus('saved ' + r.name + '.scenario.json (' + (mode === 'replay' ? 'exact replay of frames 0..' + st.frame : 'approximate state at frame ' + st.frame) + '). It has no expectations: add them with an intent line.', false);
+    }
+    $('capreplay').onclick = () => capture('replay');
+    $('capstate').onclick = () => capture('state');
+
     // ---- controls: configurable bindings (defaults: Rocket League keyboard + mouse), saved in this browser ----------------------------
     const STORE = 'rewardlab.controls.v1';
     function presetOf(b) {

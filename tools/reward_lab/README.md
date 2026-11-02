@@ -107,6 +107,18 @@ The verdict names what changed ("reward OffsidePenalty changed after sign-off: R
 a warning, not a stale. Limits: the probe shows two engines agree on that probe, not that they are identical; a reward in `CommonRewards.h` goes stale when any reward in that
 file changes. `sign` refuses a failing pack, a scenario with no expectations, and a missing reviewer; it is never run by tooling on its own. The core pack ships unsigned.
 
+## Capture a frame as a scenario (P4-2)
+
+In the Live card, scrub to a frame, type a name (optional), then:
+- **Save exact (replay)**: the run's start state plus the actions up to that frame, as a scenario. Running it reproduces frames 0..k bit for bit. It starts where the run started, not at frame k.
+- **Save state (approx)**: a scenario that STARTS at that frame (poses, velocities, spin, boost, jump/flip flags, ball). The hidden engine state restarts at defaults (suspension and contact history,
+  jump/flip timers, boost-pad cooldowns, demo timers, actions in flight under `action_delay`); what applies to your capture is listed under the buttons and written into the file's description.
+  Measured drift when the snapshot and the original get the same actions for 10 steps: about 0.1 uu on the ground before any contact, 0 in the air, but **up to 18 uu** when a jump or a ball touch
+  happens right after the capture. Treat it as a starting point for a situation, not as the original continued.
+
+A capture has **no expectations** on purpose: an expectation is what a person says should happen, with the reason. Add them (with an `intent` line) before it counts as a test; the runner says
+"no expectations" until you do and `reward_lab_pack sign` refuses it. The same thing from code: host command `capture` (`Lab/Capture.h`).
+
 Adding a reward: one line in `Lab/RewardRegistry.h`. Adding a scenario: copy one from `packs/core/`, derive the expected values by hand first and
 write the derivation in `description`, keep cars off the boost-pad grid.
 

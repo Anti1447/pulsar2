@@ -98,6 +98,8 @@ namespace Lab {
 			return true;
 		}
 
+		// The EnvSet's live state for the frame the session is at (what Capture reads for an exact state snapshot). Null if no environment.
+		const GameState* LiveState() const { return lab ? &lab->env->state.gameStates[0] : nullptr; }
 		const std::vector<Frame>& Frames() const { return frames; }
 		const std::vector<std::vector<Action>>& ActionLog() const { return log; }
 		std::vector<ExpectResult> EvaluateExpectations() const { return EvaluateAll(scenario, frames); }

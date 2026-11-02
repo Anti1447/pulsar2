@@ -22,7 +22,7 @@ import threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TEMPLATE = "tools/reward_lab/viewer/viewer.template.html"
-BROWSER_COMMANDS = {"load_named", "load", "state", "step", "step_scripted", "seek", "reset", "macro_record", "macro_play"}
+BROWSER_COMMANDS = {"load_named", "load", "state", "step", "step_scripted", "seek", "reset", "macro_record", "macro_play", "capture"}
 MAX_BODY = 4 * 1024 * 1024
 
 
@@ -39,12 +39,13 @@ class Host:
 
     def call(self, cmd):
         with self.lock:
-            for attempt in (0, 1):
+            started = False        # at most one fresh process per call; a host that dies right after starting is reported, not looped on
+            for _ in (0, 1):
                 if self.proc is None or self.proc.poll() is not None:
-                    if attempt == 1:
+                    if started:
                         break
                     self._start()
-                    self.restarted = True
+                    started = True
                 try:
                     self.proc.stdin.write(json.dumps(cmd, separators=(",", ":")) + "\n")
                     self.proc.stdin.flush()

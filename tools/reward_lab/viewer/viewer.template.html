@@ -60,6 +60,12 @@
       </div>
       <div id="livestatus" class="muted" aria-live="polite">Hold keys to set the inputs (see Controls below); the Step key takes one decision step. Stepping while viewing an earlier frame branches from it.</div>
       <div class="muted">One decision step holds the inputs for tick_skip engine ticks. Mouse buttons count only over the two field views.</div>
+      <div class="row" style="margin-top:8px">
+        <label>capture the frame shown as <input id="capname" type="text" placeholder="(default name)" style="width:13em" maxlength="64" spellcheck="false"></label>
+        <button id="capreplay" title="Exact: this run's start state plus the actions up to the frame shown, as a scenario file. Reproduces the frames bit for bit.">Save exact (replay)</button>
+        <button id="capstate" title="Approximate: a scenario that STARTS at the frame shown (poses, velocities, boost, flags). Hidden engine state restarts at defaults.">Save state (approx)</button>
+      </div>
+      <div id="capwarn" class="warn"></div>
       <details id="livekeys" style="margin-top:8px">
         <summary>Controls</summary>
         <div class="row" style="margin-top:6px">
