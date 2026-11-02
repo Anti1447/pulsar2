@@ -5,6 +5,9 @@
 #include <RLGymCPP/Gamestates/GameState.h>
 #include <RLGymCPP/Gamestates/StateUtil.h>
 
+#include <cmath>
+#include <filesystem>
+
 using namespace RLGC;
 
 // Layout constants under test. HEADER must stay in sync with AdvancedObs's header
@@ -265,4 +268,133 @@ TEST(test_padded_unshuffled_slots_are_deterministic) {
 	CHECK_EQ(first[flags + 2], 1.f);
 	CHECK_EQ(first[flags + 3], 1.f);
 	CHECK_EQ(first[flags + 4], 0.f);
+}
+
+// ===== Ball-prediction slices (6.0 lineage) =====
+
+static const int PADDED_SIZE = HEADER + 6 * PLAYER_ELEMS + 5;
+static const int PRED_SLICES = 8;
+
+static void EnsureRocketSimObs() {
+	static bool inited = false;
+	if (inited)
+		return;
+	for (const char* path : { "collision_meshes", "../collision_meshes", "build/collision_meshes" }) {
+		if (std::filesystem::exists(std::filesystem::path(path) / "soccar")) {
+			RocketSim::Init(path);
+			break;
+		}
+	}
+	inited = true; // Already initialized by another test file otherwise
+}
+
+// A 1v1 arena with the ball flying high over midfield and both cars parked far from it, so
+// nothing touches the ball for the next second
+static Arena* MakeFlyingBallArena() {
+	EnsureRocketSimObs();
+	Arena* arena = Arena::Create(GameMode::SOCCAR);
+	arena->AddCar(Team::BLUE);
+	arena->AddCar(Team::ORANGE);
+	arena->ResetToRandomKickoff(0);
+	BallState ball = {};
+	ball.pos = Vec(800, -600, 900);
+	ball.vel = Vec(-400, 900, 600);
+	ball.angVel = Vec(1, -2, 0.5f);
+	arena->ball->SetState(ball);
+	return arena;
+}
+
+TEST(test_ballpred_obs_appends_slices_from_the_arena) {
+	Arena* arena = MakeFlyingBallArena();
+	GameState gs = GameState(arena);
+	AdvancedObsPadded padded(3, true, PRED_SLICES);
+
+	// The same prediction made independently
+	BallPredictor expected(GameMode::SOCCAR, PRED_SLICES * AdvancedObsPadded::BALL_PRED_SLICE_TICKS + 1);
+	expected.Update(gs.ball, gs.lastTickCount);
+
+	for (auto& player : gs.players) {
+		bool inv = player.team == Team::ORANGE;
+		FList obs = padded.BuildObs(player, gs);
+		CHECK_EQ((int)obs.size(), PADDED_SIZE + PRED_SLICES * 6);
+		for (int s = 0; s < PRED_SLICES; s++) {
+			auto ball = InvertPhys(expected.pred[(s + 1) * AdvancedObsPadded::BALL_PRED_SLICE_TICKS], inv);
+			int at = PADDED_SIZE + s * 6;
+			CHECK_NEAR(obs[at + 0], ball.pos.x * AdvancedObs::POS_COEF, 1e-6f);
+			CHECK_NEAR(obs[at + 1], ball.pos.y * AdvancedObs::POS_COEF, 1e-6f);
+			CHECK_NEAR(obs[at + 2], ball.pos.z * AdvancedObs::POS_COEF, 1e-6f);
+			CHECK_NEAR(obs[at + 3], ball.vel.x * AdvancedObs::VEL_COEF, 1e-6f);
+			CHECK_NEAR(obs[at + 5], ball.vel.z * AdvancedObs::VEL_COEF, 1e-6f);
+		}
+	}
+
+	// The ball really moves: the 2s slice is far from the 0.25s one
+	FList obs = padded.BuildObs(gs.players[0], gs);
+	CHECK(fabsf(obs[PADDED_SIZE + 7 * 6 + 1] - obs[PADDED_SIZE + 1]) > 0.1f);
+	delete arena;
+}
+
+TEST(test_ballpred_reuses_the_prediction_while_nothing_touches_the_ball) {
+	Arena* arena = MakeFlyingBallArena();
+	GameState gs = GameState(arena);
+	AdvancedObsPadded padded(3, true, PRED_SLICES);
+	padded.BuildObs(gs.players[0], gs);
+	padded.BuildObs(gs.players[1], gs); // Same tick: no update
+
+	for (int step = 0; step < 6; step++) {
+		arena->Step(8);
+		gs.UpdateFromArena(arena, std::vector<Action>(2), NULL);
+		FList shifted = padded.BuildObs(gs.players[0], gs);
+
+		// A fresh full prediction from the same ball must agree with the shifted one
+		AdvancedObsPadded fresh(3, true, PRED_SLICES);
+		FList full = fresh.BuildObs(gs.players[0], gs);
+		for (int i = PADDED_SIZE; i < (int)full.size(); i++)
+			CHECK_NEAR(shifted[i], full[i], 1e-3f);
+	}
+
+	const BallPredictor* pred = padded.GetBallPredictor();
+	CHECK(pred != nullptr);
+	CHECK_EQ(pred->fullPredictions, (uint64_t)1);
+	CHECK_EQ(pred->reusedPredictions, (uint64_t)6);
+	delete arena;
+}
+
+TEST(test_ballpred_external_slices_and_missing_slices) {
+	auto gs = MakeStateNvN(1);  // No arena, like the RLBot client
+	AdvancedObsPadded padded(3, true, PRED_SLICES);
+
+	bool threw = false;
+	try {
+		padded.BuildObs(gs.players[0], gs);
+	} catch (std::exception&) {
+		threw = true;
+	}
+	CHECK(threw);
+
+	std::vector<PhysState> slices(PRED_SLICES);
+	for (int s = 0; s < PRED_SLICES; s++) {
+		slices[s].pos = Vec(100.f * s, -200.f * s, 300);
+		slices[s].vel = Vec(10.f * s, 0, -5.f * s);
+	}
+	padded.SetExternalBallPred(slices);
+	FList blue = padded.BuildObs(gs.players[0], gs);
+	FList orange = padded.BuildObs(gs.players[1], gs);
+	CHECK_EQ((int)blue.size(), PADDED_SIZE + PRED_SLICES * 6);
+	for (int s = 0; s < PRED_SLICES; s++) {
+		int at = PADDED_SIZE + s * 6;
+		CHECK_NEAR(blue[at + 0], slices[s].pos.x * AdvancedObs::POS_COEF, 1e-6f);
+		CHECK_NEAR(blue[at + 1], slices[s].pos.y * AdvancedObs::POS_COEF, 1e-6f);
+		CHECK_NEAR(orange[at + 0], -slices[s].pos.x * AdvancedObs::POS_COEF, 1e-6f);
+		CHECK_NEAR(orange[at + 1], -slices[s].pos.y * AdvancedObs::POS_COEF, 1e-6f);
+		CHECK_NEAR(orange[at + 2], slices[s].pos.z * AdvancedObs::POS_COEF, 1e-6f);
+	}
+
+	// Everything before the slices is the plain padded obs
+	AdvancedObsPadded plain(3, false);
+	AdvancedObsPadded predNoShuffle(3, false, PRED_SLICES);
+	predNoShuffle.SetExternalBallPred(slices);
+	FList a = plain.BuildObs(gs.players[0], gs), b = predNoShuffle.BuildObs(gs.players[0], gs);
+	for (int i = 0; i < PADDED_SIZE; i++)
+		CHECK_EQ(a[i], b[i]);
 }

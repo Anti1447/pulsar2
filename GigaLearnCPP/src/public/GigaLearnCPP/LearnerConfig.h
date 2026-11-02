@@ -47,18 +47,24 @@ namespace GGL {
 		int trainRows = 98304;
 	};
 
-	// External fixed opponent (Nexto; NextoOpponent.h has the full rationale):
-	// on serveFrac of collection iterations, the non-self team across the whole
-	// fleet is played by a frozen external TorchScript bot instead of self/pool/
-	// league. Forces contact with its style (aerial play, the point) and gives a
-	// FIXED yardstick (Nexto/Goals For/Against) immune to pool inflation. Rows
-	// are excluded from training exactly like old-version opponents; eval paths
-	// never see it (Rating semantics unchanged). Latch-covered like every other
-	// data-distribution intervention.
+	// External fixed opponents (ExternalOpponent.h; NextoOpponent.h and GGLBotOpponent.h have the
+	// rationale): on serveFrac of collection iterations, the non-self team across the whole fleet
+	// is played by one frozen external bot, picked uniformly from `bots`, instead of self or an old
+	// version. Forces contact with its style and gives a FIXED yardstick (<Name>/Goals For/Against)
+	// immune to pool inflation. Rows are excluded from training exactly like old-version opponents;
+	// eval paths never see them (Rating semantics unchanged). An empty list turns this off.
+	enum class ExternalBotKind {
+		NEXTO,        // path = TorchScript module (rlbot-run/nexto/nexto-model.pt)
+		GALACTUS_V2,  // path = folder with SHARED_HEAD.lt + POLICY.lt
+		CHRONOS_V2,   // path = folder with SHARED_HEAD.lt + POLICY.lt
+	};
+	struct ExternalBotSpec {
+		ExternalBotKind kind;
+		std::string path;
+	};
 	struct ExternalOpponentConfig {
-		bool enabled = false;
-		std::string modelPath = {};  // TorchScript module (Nexto's nexto-model.pt)
-		float serveFrac = 0.15f;     // per-iteration serve probability
+		std::vector<ExternalBotSpec> bots = {};
+		float serveFrac = 0.15f;     // per-iteration serve probability, shared by all bots
 	};
 
 	// EXPLOITER RUN (ported from RLGymBot_v3, docs/EXPLOITERS.md): this process trains only against frozen opponents

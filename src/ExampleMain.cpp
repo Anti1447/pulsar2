@@ -316,6 +316,20 @@ static constexpr float GCO_TIMEOUT_PENALTY = 0.5f;
 // 6/12, 4/12, 2/12 (30% / 40% / 30% of rows); 6/11, 3/11, 2/11 would give even rows.
 static constexpr float GCO_FRAC_2V2 = 1.f / 3;
 static constexpr float GCO_FRAC_3V3 = 1.f / 3;
+// The main lineage GCO was seeded from (checkpoints_6.0 can't seed it: different obs)
+static const char* GCO_SOURCE_FOLDER = "checkpoints_5.3";
+
+// BALL-PREDICTION OBS (6.0 lineage, 2026-11-01, user-directed): the padded obs gains the ball's predicted pos + vel
+// every 0.25s out to 2s (8 slices, 48 floats, appended after the presence flags; AdvancedObsPadded.h). The common
+// format among the RLBot botpack's GigaLearn bots (GalactusV2 samples 0.25/0.5/1/1.5/2s). Shape-breaking, so it is
+// its own lineage from step 0: main (checkpoints_6.0) and its exploiters use it; GCO keeps the 5.3 obs so its
+// checkpoints still load. Set in main() before the Learner (and so every env) is built.
+static bool g_BallPredObs = false;
+static constexpr int BALL_PRED_SLICES = 8;
+// Exploiters are lineage-scoped: an exploiter's net has its lineage's obs width, so main 6.0 can't import the 5.3/GCO
+// lineage's finished exploiters (or restart from them). The GCO lineage keeps the original folder.
+static const char* MAIN_EXPLOITERS_FOLDER = "exploiters_6.0";
+static const char* GCO_EXPLOITERS_FOLDER = "exploiters";
 
 
 // Render mode only (GGL_RENDER_TEAM_SIZE, set in main()): the viewer's single arena plays
@@ -367,7 +381,9 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 	// the same game state yields a different obs (and can yield a different action) every
 	// build — which makes the control panel's rewind unable to replay a play. Training
 	// keeps it on; the policy is trained slot-invariant, so the viewer loses nothing.
-	result.obsBuilder = new AdvancedObsPadded(MAX_PLAYERS_PER_TEAM, /*shuffleSlots=*/g_RenderTeamSize == 0);
+	// 6.0: + 8 ball-prediction slices (g_BallPredObs), 230 -> 278.
+	result.obsBuilder = new AdvancedObsPadded(MAX_PLAYERS_PER_TEAM, /*shuffleSlots=*/g_RenderTeamSize == 0,
+		g_BallPredObs ? BALL_PRED_SLICES : 0);
 	// The proven cf993b7 reset mix - effective near-ball share 0.55 (0.35 ground + 0.20 aerial
 	// drill), no drill-replay slice (that came with the drill bank in the regression).
 	// Aerial drill, REVERSE CURRICULUM: classically the car spawns ALREADY AIRBORNE and
@@ -520,7 +536,8 @@ static void ConfigureExploiterSettings(LearnerConfig& cfg) {
 	// Main run's exploiter pool (unused by exploiter runs). Every finished exploiter joins; every 3rd is held out as
 	// an honest exploitability check; ones main beats >= 60% get 1/4 weight and rare (2B) forgetting checks.
 	cfg.exploiterPool.enabled = true;
-	cfg.exploiterPool.exploitersFolder = cfg.checkpointFolder.parent_path() / "exploiters";
+	cfg.exploiterPool.exploitersFolder = cfg.checkpointFolder.parent_path()
+		/ (g_BallPredObs ? MAIN_EXPLOITERS_FOLDER : GCO_EXPLOITERS_FOLDER);
 	cfg.exploiterPool.trainShare = 0.15f;       // Of ALL iterations, taken from the old-version share (CONTROL.json overrides live)
 	cfg.exploiterPool.admitMinWinRate = 0.0f;
 	cfg.exploiterPool.retireConsecutive = 0;    // Never retired: loss-weighted sampling plays the ones main beats less often
@@ -557,8 +574,8 @@ static void ConfigureExploiterSettings(LearnerConfig& cfg) {
 // main-run setting is in place, so the scalings below are relative to main's live values.
 static void ConfigureExploiter(LearnerConfig& cfg, const std::filesystem::path& snapshotFolder, const std::string& name,
 	const std::string& role) {
-	// Own folder next to the main run's, never the main checkpoint folder
-	cfg.checkpointFolder = cfg.checkpointFolder.parent_path() / "exploiters" / name;
+	// Own folder in the lineage's exploiters folder, never the main checkpoint folder
+	cfg.checkpointFolder = cfg.exploiterPool.exploitersFolder / name;
 
 	cfg.exploiter.enabled = true;
 	cfg.exploiter.role = role;
@@ -577,7 +594,7 @@ static void ConfigureExploiter(LearnerConfig& cfg, const std::filesystem::path& 
 	cfg.trainAgainstOldVersions = false;
 	cfg.savePolicyVersions = false;
 	cfg.skillTracker.enabled = false;
-	cfg.externalOpponent.enabled = false;
+	cfg.externalOpponent.bots.clear();
 	cfg.bestCheckpointsToKeep = 0;
 
 	// SLIMMED for VRAM (three trainers share one 24 GB card; one full Pulsar2 trainer peaks ~9.5-13.5 GB): the
@@ -723,6 +740,8 @@ int main(int argc, char* argv[]) {
 	}
 	bool exploiterRunArg = exploiterAuto || !exploiterSnapshotArg.empty() || !exploiterNameArg.empty() || newExploiter
 		|| exploiterStepsArg > 0 || slotGiven;
+	// Main 6.0 and its exploiters use the ball-prediction obs; the GCO lineage (and exploiters targeting it) keep 5.3's
+	g_BallPredObs = !gcoArg;
 
 	// Initialize RocketSim with collision meshes (run from the repo/build dir;
 	// provision them with tools/get_collision_meshes.sh if missing)
@@ -1153,8 +1172,11 @@ int main(int argc, char* argv[]) {
 	// the HJB field needs to solve before its gap term means anything (Geo/Residual is the gate).
 	// checkpoints_5.2 stays fully intact (2.3 GB, ~175M steps) as the restore point: revert =
 	// put this line back and set cfg.ppo.geoEnabled = false, rebuild, restart.
-	cfg.checkpointFolder = "checkpoints_5.3";
-	cfg.metricsRunName = "5.3-geo";
+	// 6.0 (2026-11-01): the ball-prediction obs (g_BallPredObs; 230 -> 278 wide) is a shape break in every net's
+	// first layer, so a fresh lineage from step 0 on 5.3's config, with GalactusV2 + ChronosV2 in place of Nexto
+	// (below). checkpoints_5.3 stays intact (and still seeds/feeds the GCO lineage, which keeps the 5.3 obs).
+	cfg.checkpointFolder = "checkpoints_6.0";
+	cfg.metricsRunName = "6.0-ballpred";
 
 	// A smoke MUST NOT be able to masquerade as the real run in wandb. Three sandbox smokes on
 	// 2026-07-25 landed in the shared project under this exact display name, indistinguishable
@@ -1348,9 +1370,26 @@ int main(int argc, char* argv[]) {
 		// semantics unchanged). No automatic guard (the latch was removed
 		// 2026-07-25) - watch the Nexto panels. Expect to LOSE heavily at first -
 		// the goal-diff SLOPE is the signal, not the level. Revert = false.
-		cfg.externalOpponent.enabled = std::filesystem::exists("../rlbot-run/nexto/nexto-model.pt"); // Nexto is optional: without the model file this is plain self-play
-		cfg.externalOpponent.modelPath =
-			"../rlbot-run/nexto/nexto-model.pt";
+		// 6.0 (2026-11-01, user-directed): GalactusV2 + ChronosV2 from the RLBot v5 botpack REPLACE Nexto on the
+		// main lineage - stronger bots (the 5.3/GCO lineage was beating Nexto ~10:1), GigaLearn nets loaded verbatim
+		// (GGLBotOpponent.h). The 15% share is split between them by a uniform pick per serve iteration. Their
+		// weights: rlbot-run/galactus_v2 and rlbot-run/chronos_v2, from each repo's rlbot/ folder. GCO keeps Nexto.
+		// All are optional: a missing model file only drops that bot (logged).
+		struct { ExternalBotKind kind; const char* path; } externalBots[] = {
+			{ ExternalBotKind::GALACTUS_V2, "../rlbot-run/galactus_v2" },
+			{ ExternalBotKind::CHRONOS_V2, "../rlbot-run/chronos_v2" },
+			{ ExternalBotKind::NEXTO, "../rlbot-run/nexto/nexto-model.pt" },
+		};
+		for (auto& bot : externalBots) {
+			if ((bot.kind == ExternalBotKind::NEXTO) != gcoArg)
+				continue;
+			std::filesystem::path file = bot.kind == ExternalBotKind::NEXTO ? std::filesystem::path(bot.path)
+				: std::filesystem::path(bot.path) / "POLICY.lt";
+			if (std::filesystem::exists(file))
+				cfg.externalOpponent.bots.push_back({ bot.kind, bot.path });
+			else
+				RG_LOG("WARNING: external opponent " << file << " not found, playing without it");
+		}
 		cfg.externalOpponent.serveFrac = 0.15f;
 		// GGL_SMOKE: serve on most iterations so a short smoke exercises the
 		// adapter (obs port + action map + goal telemetry) deterministically.
@@ -1369,11 +1408,13 @@ int main(int argc, char* argv[]) {
 	// ===== EXPLOITER STACK (ported from RLGymBot_v3; docs/EXPLOITERS.md) =====
 	// After every main-run setting above, so an exploiter run's scalings (entropy, minibatch, compute share) are
 	// relative to main's live values.
-	// --gco: the GCO lineage's folder before the exploiter settings, which take the exploiter source from it (the
-	// shared exploiters/ folder next to it stays the same, so GCO imports main's finished exploiters too)
+	// --gco: the GCO lineage's folder before the exploiter settings, which take the exploiter source from it. Its
+	// exploiters folder is the original exploiters/ (the 5.3 lineage's); main 6.0 has its own.
 	std::filesystem::path mainCheckpointFolder = cfg.checkpointFolder;
-	if (gcoArg)
+	if (gcoArg) {
 		cfg.checkpointFolder = GCO_CHECKPOINT_FOLDER;
+		mainCheckpointFolder = GCO_SOURCE_FOLDER;
+	}
 	ConfigureExploiterSettings(cfg);
 	std::filesystem::path exploitersRoot = cfg.exploiterPool.exploitersFolder;
 	int numSlots = (int)cfg.exploiter.slotRoles.size();

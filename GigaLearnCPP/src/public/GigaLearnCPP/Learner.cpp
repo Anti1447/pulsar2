@@ -21,6 +21,7 @@
 #include <private/GigaLearnCPP/PPO/GAE.h>
 #include <private/GigaLearnCPP/PolicyVersionManager.h>
 #include <private/GigaLearnCPP/NextoOpponent.h>
+#include <private/GigaLearnCPP/GGLBotOpponent.h>
 #include <private/GigaLearnCPP/ExploiterPool.h>
 #include <private/GigaLearnCPP/ExploiterEval.h>
 #include <GigaLearnCPP/ExploiterFiles.h>
@@ -45,6 +46,14 @@ namespace {
 	extern "C" void GGLStopSignalHandler(int) {
 		if (g_stopSignals.fetch_add(1) >= 1)
 			std::_Exit(130);
+	}
+
+	// RUNNING_STATS.json key prefix for an external opponent's counters: "Nexto" -> "nexto", the
+	// names those counters have always been saved under
+	std::string ExternalStatsPrefix(std::string name) {
+		for (char& c : name)
+			c = (char)std::tolower((unsigned char)c);
+		return name;
 	}
 }
 
@@ -310,10 +319,18 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 		vizControl = NULL;
 	}
 
-	// External fixed opponent (Nexto): fail LOUD at boot if the model is missing -
+	// External fixed opponents: fail LOUD at boot if a model is missing -
 	// a mid-run lazy failure would silently turn serve iterations into self-play
-	if (config.externalOpponent.enabled && !config.renderMode)
-		nexto = std::make_shared<NextoOpponent>(config.externalOpponent.modelPath, device);
+	if (!config.renderMode) {
+		for (auto& spec : config.externalOpponent.bots) {
+			if (spec.kind == ExternalBotKind::NEXTO)
+				externalOpps.push_back(std::make_shared<NextoOpponent>(spec.path, device));
+			else
+				externalOpps.push_back(std::make_shared<GGLBotOpponent>(spec.kind == ExternalBotKind::GALACTUS_V2
+					? GGLBotKind::GALACTUS_V2 : GGLBotKind::CHRONOS_V2, spec.path, device));
+		}
+		externalStats = std::vector<ExternalOpponentStats>(externalOpps.size());
+	}
 
 	if (config.skillTracker.enabled || config.trainAgainstOldVersions)
 		config.savePolicyVersions = true;
@@ -467,11 +484,12 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 	}
 
 
-	// Nexto yardstick: cumulative series must survive restarts to stay longitudinal
-	if (nexto) {
-		j["nexto_goals_for"] = (int64_t)nextoGoalsFor;
-		j["nexto_goals_against"] = (int64_t)nextoGoalsAgainst;
-		j["nexto_serve_iters"] = (int64_t)nextoServeIters;
+	// External-opponent yardsticks: cumulative series must survive restarts to stay longitudinal
+	for (size_t i = 0; i < externalOpps.size(); i++) {
+		std::string prefix = ExternalStatsPrefix(externalOpps[i]->name);
+		j[prefix + "_goals_for"] = (int64_t)externalStats[i].goalsFor;
+		j[prefix + "_goals_against"] = (int64_t)externalStats[i].goalsAgainst;
+		j[prefix + "_serve_iters"] = (int64_t)externalStats[i].serveIters;
 	}
 
 	if (versionMgr)
@@ -531,10 +549,14 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 	// Nexto's cumulative goal counters. SaveStats has always written these ("must survive
 	// restarts"), but the matching reads were deleted as collateral inside a steering-removal
 	// hunk in 4f25b1c, so every restart silently zeroed the run's only pool-inflation-proof
-	// yardstick. Restored 2026-07-25.
-	nextoGoalsFor = j.value("nexto_goals_for", (int64_t)0);
-	nextoGoalsAgainst = j.value("nexto_goals_against", (int64_t)0);
-	nextoServeIters = j.value("nexto_serve_iters", (int64_t)0);
+	// yardstick. Restored 2026-07-25. Every external opponent now has the same three keys under its
+	// own prefix; Nexto's prefix keeps the original key names.
+	for (size_t i = 0; i < externalOpps.size(); i++) {
+		std::string prefix = ExternalStatsPrefix(externalOpps[i]->name);
+		externalStats[i].goalsFor = j.value(prefix + "_goals_for", (int64_t)0);
+		externalStats[i].goalsAgainst = j.value(prefix + "_goals_against", (int64_t)0);
+		externalStats[i].serveIters = j.value(prefix + "_serve_iters", (int64_t)0);
+	}
 
 	if (config.exploiter.enabled || config.gcoRun)
 		exploiterRampStartTs = j.value("exploiter_ramp_start_ts", (int64_t)-1);
@@ -1701,11 +1723,11 @@ void GGL::Learner::Start() {
 			// (1 - serveFrac) * trainAgainstOldChance of all iterations, less the imported
 			// exploiters' share while main has any.
 			ModelSet* oppModels = nullptr;
-			// External fixed opponent (Nexto): mutually exclusive with the sources
-			// below, highest-priority roll. Rows are excluded from training via the
-			// same old-player split; inference routes through the adapter instead of
-			// InferActions (Nexto reads GameStates, not our obs).
-			bool oppExternal = false;
+			// External fixed opponent (externalOpps[externalOppIdx], -1 = none): mutually exclusive
+			// with the sources below, highest-priority roll. Rows are excluded from training via the
+			// same old-player split; inference routes through the adapter instead of InferActions
+			// (external bots read GameStates, not our obs).
+			int externalOppIdx = -1;
 			std::vector<bool> oldVersionPlayerMask;
 			std::vector<int> newPlayerIndices = {}, oldPlayerIndices = {};
 			torch::Tensor tNewPlayerIndices, tOldPlayerIndices;
@@ -1734,20 +1756,22 @@ void GGL::Learner::Start() {
 					// stays where it was measured (~0.405) while exploiters are in the pool; with none
 					// loaded the shares are exactly the previous sequential cascade's.
 					float roll = oppRoll(oppRng);
-					float nextoShare = nexto ? config.externalOpponent.serveFrac : 0.f;
+					float externalShare = externalOpps.empty() ? 0.f : config.externalOpponent.serveFrac;
 					float poolShare = exploiterPool ? exploiterPool->EffectiveShare() : 0.f;
 					bool oldAvailable = config.trainAgainstOldVersions && versionMgr && !versionMgr->versions.empty();
 					float oldShare = oldAvailable
-						? RS_MAX(0.f, (1 - nextoShare) * config.trainAgainstOldChance - poolShare) : 0.f;
-					if (roll < nextoShare) {
-						oppExternal = true;
-						nexto->BeginServe(numPlayers);
-						nextoServeIters++;
-					} else if (roll < nextoShare + poolShare) {
+						? RS_MAX(0.f, (1 - externalShare) * config.trainAgainstOldChance - poolShare) : 0.f;
+					if (roll < externalShare) {
+						// One bot for the whole fleet this iteration, uniform over the configured ones
+						std::uniform_int_distribution<size_t> pickBot(0, externalOpps.size() - 1);
+						externalOppIdx = (int)pickBot(oppRng);
+						externalOpps[externalOppIdx]->BeginServe(numPlayers);
+						externalStats[externalOppIdx].serveIters++;
+					} else if (roll < externalShare + poolShare) {
 						poolMemberIdx = exploiterPool->SampleTraining(oppRoll(oppRng));
 						if (poolMemberIdx >= 0)
 							oppModels = &exploiterPool->members[poolMemberIdx].models;
-					} else if (roll < nextoShare + poolShare + oldShare) {
+					} else if (roll < externalShare + poolShare + oldShare) {
 						// Uniform over the version ring. The REFERENCE set is a separate vector and is
 						// never drawn here - it is the measuring stick (Ref/*) and must stay
 						// uncontaminated by being trained against.
@@ -1786,6 +1810,7 @@ void GGL::Learner::Start() {
 				tOldPlayerIndices = torch::tensor(oldPlayerIndices);
 			};
 
+			bool oppExternal = externalOppIdx >= 0;
 			bool oppServed = oppModels || oppExternal;
 			if (oppServed) {
 				oppTeam = Team(RocketSim::Math::RandInt(0, 2));
@@ -2035,12 +2060,12 @@ void GGL::Learner::Start() {
 						newModelsPtr = &renderBlueModels;
 					ppo->InferActions(tdNewStates, tdNewActionMasks, &tNewActions, &tLogProbs, newModelsPtr);
 							if (oppExternal) {
-								// Nexto reads GameStates directly (its own obs builder), and
-								// returns OUR action-table indices via the checked map. The
+								// The bot reads GameStates directly (its own obs builder), and
+								// returns OUR action-table indices via its checked map. The
 								// terminals vector still holds the PREVIOUS step's flags -
-								// exactly the fresh-episode signal its prev-action memory needs.
+								// exactly the fresh-episode signal Nexto's prev-action memory needs.
 								std::vector<int> extActions(numPlayers, 0);
-								nexto->Act(envSet->state.gameStates, oldVersionPlayerMask,
+								externalOpps[externalOppIdx]->Act(envSet->state.gameStates, oldVersionPlayerMask,
 									envSet->state.terminals, extActions);
 								auto tExt = torch::tensor(extActions);
 								tOldActions = tExt.index_select(0, tOldPlayerIndices);
@@ -2189,8 +2214,8 @@ void GGL::Learner::Start() {
 						}
 
 
-						// Nexto yardstick: cumulative goals for/against the external opponent
-						// (RS_TEAM_FROM_Y = the CONCEDING team; conceder == Nexto -> we scored).
+						// External yardstick: cumulative goals for/against the external opponent
+						// (RS_TEAM_FROM_Y = the CONCEDING team; conceder == the bot -> we scored).
 						// SKIP the impossible-control arenas: they spawn certified-unreachable
 						// ballistic intercepts, so whatever the ball does there is a property of
 						// the falsification fixture, not of play against Nexto. This series is the
@@ -2202,9 +2227,9 @@ void GGL::Learner::Start() {
 								auto& gs = envSet->state.gameStates[arenaIdx];
 								if (gs.goalScored) {
 									if (RS_TEAM_FROM_Y(gs.ball.pos.y) == oppTeam)
-										nextoGoalsFor++;
+										externalStats[externalOppIdx].goalsFor++;
 									else
-										nextoGoalsAgainst++;
+										externalStats[externalOppIdx].goalsAgainst++;
 								}
 							}
 						}
@@ -3196,10 +3221,11 @@ void GGL::Learner::Start() {
 
 					// Nexto yardstick panels: cumulative counters (persisted in stats), the
 					// fixed external benchmark immune to version-pool inflation
-					if (nexto) {
-						report["Nexto/Goals For"] = (float)(int64_t)nextoGoalsFor;
-						report["Nexto/Goals Against"] = (float)(int64_t)nextoGoalsAgainst;
-						report["Nexto/Serve Iters"] = (float)(int64_t)nextoServeIters;
+					for (size_t i = 0; i < externalOpps.size(); i++) {
+						const std::string& name = externalOpps[i]->name;
+						report[name + "/Goals For"] = (float)(int64_t)externalStats[i].goalsFor;
+						report[name + "/Goals Against"] = (float)(int64_t)externalStats[i].goalsAgainst;
+						report[name + "/Serve Iters"] = (float)(int64_t)externalStats[i].serveIters;
 					}
 
 					// ===== OPTIMISTIC-CRITIC LADDER (LADDER.md; full build 2026-07-18) =====
@@ -3493,6 +3519,12 @@ void GGL::Learner::Start() {
 						"Nexto/Goals For",
 						"Nexto/Goals Against",
 						"Nexto/Serve Iters",
+						"GalactusV2/Goals For",
+						"GalactusV2/Goals Against",
+						"GalactusV2/Serve Iters",
+						"ChronosV2/Goals For",
+						"ChronosV2/Goals Against",
+						"ChronosV2/Serve Iters",
 						"",
 						// Permanent reference set: the non-inflating skill read. Ref/Oldest Share is
 						// the headline - the oldest reference is never evicted, so that series is

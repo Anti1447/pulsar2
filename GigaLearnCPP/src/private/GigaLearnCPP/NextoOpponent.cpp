@@ -88,6 +88,7 @@ static int RetargetModuleDeviceConstants(torch::jit::Module& mod, torch::Device 
 GGL::NextoOpponent::NextoOpponent(const std::string& modelPath, torch::Device device)
 	: device(torch::kCPU) {
 
+	name = "Nexto";
 	try {
 		model = torch::jit::load(modelPath, torch::kCPU);
 		model.eval();

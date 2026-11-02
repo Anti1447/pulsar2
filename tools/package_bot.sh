@@ -100,6 +100,9 @@ else
 	CKPT="$CKPT_DIR/$CKPT_ARG"; STEP="$CKPT_ARG"
 fi
 CK_NAME="$(basename "$CKPT")"
+# 6.0's nets read the ball-prediction obs (278 wide), which src/RLBotMain.cpp doesn't build yet (it builds 5.3's 230)
+[ "$(basename "$(dirname "$CKPT")")" != checkpoints_6.0 ] \
+	|| die "6.0 checkpoints can't be packaged yet: the RLBot client doesn't build the ball-prediction obs"
 RATING_MODE=1v1
 if [[ "$CK_NAME" =~ ^best(2v2|3v3)?_r(-?[0-9]+)_([0-9]+)$ ]]; then
 	RATING_MODE="${BASH_REMATCH[1]:-1v1}"; RATING="${BASH_REMATCH[2]}"; STEP="${BASH_REMATCH[3]}"

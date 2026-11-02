@@ -7,6 +7,10 @@
 namespace RLGC {
 	class ObsBuilder {
 	public:
+		// Virtual so a builder that owns resources (AdvancedObsPadded's ball-prediction arena) is freed
+		// when deleted through this base
+		virtual ~ObsBuilder() = default;
+
 		virtual void Reset(const GameState& initialState) {}
 
 		// NOTE: May be called once during environment initialization to determine policy neuron size

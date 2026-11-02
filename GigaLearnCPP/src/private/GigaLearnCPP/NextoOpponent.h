@@ -1,7 +1,5 @@
 #pragma once
-#include "FrameworkTorch.h"
-
-#include <RLGymCPP/Gamestates/GameState.h>
+#include "ExternalOpponent.h"
 
 #include <torch/script.h>
 
@@ -25,9 +23,8 @@ namespace GGL {
 	// equality at construction (hard-fails if any row has no match, so table
 	// drift can never silently scramble its controls).
 	//
-	// Threading: owned by the Learner, used ONLY from the collection path (the
-	// pipelined worker) - weights are frozen so there is nothing to snapshot.
-	class NextoOpponent {
+	// Threading: see ExternalOpponent.
+	class NextoOpponent : public ExternalOpponent {
 	public:
 		torch::jit::script::Module model;
 		torch::Device device;
@@ -42,15 +39,12 @@ namespace GGL {
 
 		// Zero all previous-action memory (call once when a serve iteration begins:
 		// Nexto picks up arenas mid-episode, same cold start its RLBot boot has)
-		void BeginServe(int numPlayers);
+		void BeginServe(int numPlayers) override;
 
-		// Fill outActionIdx (OUR action-table indices) for every player marked in
-		// isOld. prevArenaTerminals = envSet->state.terminals at the loop top (the
-		// PREVIOUS step's flags): a nonzero entry means that arena's current obs is
-		// a fresh episode, so its players' previous actions are zeroed first.
+		// A fresh episode (prevArenaTerminals) zeroes that arena's players' previous actions first
 		void Act(const std::vector<RLGC::GameState>& states,
 			const std::vector<bool>& isOld,
 			const std::vector<uint8_t>& prevArenaTerminals,
-			std::vector<int>& outActionIdx);
+			std::vector<int>& outActionIdx) override;
 	};
 }

@@ -90,5 +90,48 @@ RLGC::FList RLGC::AdvancedObsPadded::BuildObs(const Player& player, const GameSt
 	}
 
 	obs += presenceFlags;
+
+	if (ballPredSlices > 0)
+		AddBallPredToObs(obs, state, inv);
 	return obs;
+}
+
+RLGC::AdvancedObsPadded::~AdvancedObsPadded() {
+	delete ballPredictor;
+}
+
+void RLGC::AdvancedObsPadded::SetExternalBallPred(const std::vector<PhysState>& slices) {
+	if ((int)slices.size() != ballPredSlices)
+		RG_ERR_CLOSE("AdvancedObsPadded: got " << slices.size() << " external ball prediction slices, expected " << ballPredSlices);
+	externalBallPred = slices;
+}
+
+void RLGC::AdvancedObsPadded::AddBallPredToObs(FList& obs, const GameState& state, bool inv) {
+	auto fnAddSlice = [&](const PhysState& predBall) {
+		auto ball = InvertPhys(predBall, inv);
+		obs += ball.pos * POS_COEF;
+		obs += ball.vel * VEL_COEF;
+	};
+
+	if (!state.lastArena) {
+		if (externalBallPred.empty())
+			RG_ERR_CLOSE("AdvancedObsPadded: ball prediction is on, but the state has no arena and no external slices were set");
+		for (auto& slice : externalBallPred)
+			fnAddSlice(slice);
+		return;
+	}
+
+	// One predictor per builder, and EnvSet makes one builder per arena. A new arena (the boot
+	// probe, a rebuilt env) gets a new predictor. Every player's build in a step calls Update with
+	// the same tick and ball, which is a no-op after the first.
+	if (ballPredArena != state.lastArena) {
+		delete ballPredictor;
+		ballPredictor = new BallPredictor(state.lastArena->gameMode, ballPredSlices * BALL_PRED_SLICE_TICKS + 1);
+		ballPredArena = state.lastArena;
+	}
+	ballPredictor->Update(state.ball, state.lastTickCount);
+
+	auto& pred = ballPredictor->pred;
+	for (int i = 1; i <= ballPredSlices; i++)
+		fnAddSlice(pred[(size_t)i * BALL_PRED_SLICE_TICKS]);
 }

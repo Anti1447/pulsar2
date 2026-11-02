@@ -103,12 +103,15 @@ namespace GGL {
 		// see the struct in Learner.cpp. Actuation lives with the composition critic.
 		std::shared_ptr<struct GapState> gapSensor;
 
-		// External fixed opponent (config.externalOpponent; opaque - torch types
+		// External fixed opponents (config.externalOpponent; opaque - torch types
 		// stay out of this header). Frozen weights: collection-side only, nothing
-		// to snapshot or checkpoint. Cumulative goal counters = the fixed external
+		// to snapshot or checkpoint. Cumulative goal counters per bot = the fixed external
 		// yardstick (persisted so the series survives restarts).
-		std::shared_ptr<class NextoOpponent> nexto;
-		std::atomic<int64_t> nextoGoalsFor = 0, nextoGoalsAgainst = 0, nextoServeIters = 0;
+		struct ExternalOpponentStats {
+			std::atomic<int64_t> goalsFor = 0, goalsAgainst = 0, serveIters = 0;
+		};
+		std::vector<std::shared_ptr<class ExternalOpponent>> externalOpps;
+		std::vector<ExternalOpponentStats> externalStats; // Parallel to externalOpps
 
 		// Exploiter stack (docs/EXPLOITERS.md; opaque here like the members above). exploiterRun: this process is an
 		// exploiter run (config.exploiter) - its frozen opponents and eval arenas. exploiterPool: this is the main run
