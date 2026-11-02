@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "name": "offside_dead_zone_outside",
+  "description": "Boundary: the blue car is 205 uu upfield, 5 uu past the dead zone. By hand: severity 5/800 = 0.00625 per step, so about -0.0625 over 10 steps. The penalty ramps in smoothly; it does not jump to a large value at the edge.",
+  "tags": ["offside", "boundary"],
+  "steps": 10,
+  "cars": [
+    {"team": "blue",   "pos": [0, 205, 17],  "angle_deg": {"yaw": 90}},
+    {"team": "orange", "pos": [0, 3500, 17], "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [500, 0, 93]},
+  "rewards": [{"name": "OffsidePenalty", "weight": 1.0}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "OffsidePenalty", "car": 0, "steps": [1, 10], "min": -0.066, "max": -0.059,
+     "intent": "5 uu past the dead zone pays about -0.00625 per step: the penalty ramps in smoothly"},
+    {"kind": "gate", "reward": "OffsidePenalty", "car": 0, "gate": "offside", "passed": true,
+     "intent": "the offside gate passes just outside the boundary"}
+  ]
+}

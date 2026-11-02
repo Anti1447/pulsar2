@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "passing_setup_no_touch",
+  "description": "Near miss: the same 2v2 layout, but car 0 idles far from a resting ball, so nobody touches it. The reward pays only on a touch, so nothing is paid.",
+  "tags": ["passing", "near_miss"],
+  "steps": 20,
+  "cars": [
+    {"team": "blue",   "pos": [0, -2200, 17],   "angle_deg": {"yaw": 90}},
+    {"team": "blue",   "pos": [2500, 1500, 17], "angle_deg": {"yaw": 90}},
+    {"team": "orange", "pos": [-3000, 3500, 17], "angle_deg": {"yaw": 270}},
+    {"team": "orange", "pos": [3000, 3500, 17],  "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [0, -1000, 93]},
+  "rewards": [{"name": "PassingSetupReward", "weight": 1.0}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "PassingSetupReward", "car": 0, "steps": [1, 20], "min": 0, "max": 0,
+     "intent": "no touch, no payment"},
+    {"kind": "gate", "reward": "PassingSetupReward", "car": 0, "gate": "touched_ball", "passed": false,
+     "intent": "the touch gate fails on every step"},
+    {"kind": "event", "reward": "PassingSetupReward", "car": 0, "event": "paid", "count": [0, 0],
+     "intent": "nothing is paid"}
+  ]
+}

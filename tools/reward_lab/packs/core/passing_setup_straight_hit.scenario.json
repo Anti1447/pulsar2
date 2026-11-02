@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "name": "passing_setup_straight_hit",
+  "description": "2v2. Blue car 0 drives at 1400 uu/s into a resting ball and hits it up-field toward open space; the blue mate and both orange cars idle. One touch, so one payment, then the 0.5 s cooldown. The reward's tiers cap a payment at 2.0 (primary) + 1.5 (clean lob) + about 0.6 (zone) = about 4.1.",
+  "tags": ["passing", "golden", "cooldown"],
+  "steps": 40,
+  "cars": [
+    {"team": "blue",   "pos": [0, -2200, 17],   "vel": [0, 1400, 0], "angle_deg": {"yaw": 90}, "boost": 100},
+    {"team": "blue",   "pos": [2500, 1500, 17], "angle_deg": {"yaw": 90}},
+    {"team": "orange", "pos": [-3000, 3500, 17], "angle_deg": {"yaw": 270}},
+    {"team": "orange", "pos": [3000, 3500, 17],  "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [0, -1000, 93]},
+  "actions": [{"car": 0, "from": 0, "action": {"throttle": 1, "boost": 1}}],
+  "rewards": [{"name": "PassingSetupReward", "weight": 1.0}],
+  "expect": [
+    {"kind": "event", "reward": "PassingSetupReward", "car": 0, "event": "paid", "count": [1, 1],
+     "intent": "one clean hit is one payment"},
+    {"kind": "event", "reward": "PassingSetupReward", "car": 0, "event": "cooldown_started", "count": [1, 1],
+     "intent": "the payment starts the anti-farm cooldown exactly once"},
+    {"kind": "reward_sum", "reward": "PassingSetupReward", "car": 0, "steps": [1, 40], "min": 0.5, "max": 4.2,
+     "intent": "a payment sits between a fraction of, and the full sum of, the reward's tiers (at most about 4.1)"},
+    {"kind": "gate", "reward": "PassingSetupReward", "car": 0, "gate": "touched_ball", "passed": true, "mode": "any",
+     "intent": "the car touches the ball at least once"},
+    {"kind": "reward_sum", "reward": "PassingSetupReward", "car": 2, "steps": [1, 40], "min": 0, "max": 0,
+     "intent": "an orange car that never touches the ball earns nothing"}
+  ]
+}

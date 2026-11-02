@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "offside_lone_upfield_car",
+  "description": "Blue car 1000 uu upfield of a resting ball, nobody covering. By hand: upfield beyond the 200 uu dead zone = 800, severity 800/800 = 1.0, team factor 1 (last man), so -1.0 per step. Orange is goalside of the ball.",
+  "tags": ["offside", "golden"],
+  "steps": 10,
+  "cars": [
+    {"team": "blue",   "pos": [0, 1000, 17], "angle_deg": {"yaw": 90}},
+    {"team": "orange", "pos": [0, 3500, 17], "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [500, 0, 93]},
+  "rewards": [{"name": "OffsidePenalty", "weight": 1.0}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "OffsidePenalty", "car": 0, "steps": [1, 10], "min": -10.05, "max": -9.95,
+     "intent": "a lone car 1000 uu upfield of the ball pays -1.0 every step (severity 1.0, nobody covering)"},
+    {"kind": "component", "reward": "OffsidePenalty", "car": 0, "component": "severity", "min": 0.99, "max": 1.01,
+     "intent": "severity is (1000 - 200 dead zone) / 800 ramp = 1.0"},
+    {"kind": "gate", "reward": "OffsidePenalty", "car": 0, "gate": "offside", "passed": true,
+     "intent": "the blue car is offside on every step"},
+    {"kind": "reward_sum", "reward": "OffsidePenalty", "car": 1, "steps": [1, 10], "min": 0, "max": 0,
+     "intent": "the orange car is goalside of the ball and pays nothing"}
+  ]
+}

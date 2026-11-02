@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "offside_2v2_equal_numbers",
+  "description": "2v2, one car out of position on each team (blue car 0 upfield with blue car 1 covering; orange car 2 upfield with orange car 3 covering). Per the reward's own rules, equal numbers out of position pay nothing: team factor = clamp((1 - 1) / 1) = 0.",
+  "tags": ["offside", "team"],
+  "steps": 10,
+  "cars": [
+    {"team": "blue",   "pos": [0, 1000, 17],     "angle_deg": {"yaw": 90}},
+    {"team": "blue",   "pos": [1500, -1000, 17], "angle_deg": {"yaw": 90}},
+    {"team": "orange", "pos": [-1500, -1000, 17], "angle_deg": {"yaw": 270}},
+    {"team": "orange", "pos": [0, 3500, 17],     "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [500, 0, 93]},
+  "rewards": [{"name": "OffsidePenalty", "weight": 1.0}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "OffsidePenalty", "car": 0, "steps": [1, 10], "min": 0, "max": 0,
+     "intent": "equal numbers out of position (1 v 1) pay nothing even though car 0 is 1000 uu upfield"},
+    {"kind": "gate", "reward": "OffsidePenalty", "car": 0, "gate": "covered_by_teammate", "passed": true,
+     "intent": "car 0 is covered by a goalside teammate"},
+    {"kind": "component", "reward": "OffsidePenalty", "car": 0, "component": "team_factor", "min": 0, "max": 0,
+     "intent": "the team factor is exactly 0 when both teams have one car out of position"}
+  ]
+}

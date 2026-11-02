@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "name": "passing_setup_1v1_no_teammate",
+  "description": "1v1 with the same hit as passing_setup_straight_hit. With nobody to pass to this is an ordinary shot or clear, not a pass setup, so the reward pays nothing and the has_living_teammate gate says why.",
+  "tags": ["passing", "near_miss", "1v1"],
+  "steps": 40,
+  "cars": [
+    {"team": "blue",   "pos": [0, -2200, 17],   "vel": [0, 1400, 0], "angle_deg": {"yaw": 90}, "boost": 100},
+    {"team": "orange", "pos": [3000, 3500, 17],  "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [0, -1000, 93]},
+  "actions": [{"car": 0, "from": 0, "action": {"throttle": 1, "boost": 1}}],
+  "rewards": [{"name": "PassingSetupReward", "weight": 1.0}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "PassingSetupReward", "car": 0, "steps": [1, 40], "min": 0, "max": 0,
+     "intent": "a hit with no teammate to receive it is not a pass setup and pays nothing"},
+    {"kind": "gate", "reward": "PassingSetupReward", "car": 0, "gate": "has_living_teammate", "passed": false, "mode": "any",
+     "intent": "the car does touch the ball, and the no-teammate gate is what stops the payment"},
+    {"kind": "event", "reward": "PassingSetupReward", "car": 0, "event": "paid", "count": [0, 0],
+     "intent": "nothing is paid"}
+  ]
+}

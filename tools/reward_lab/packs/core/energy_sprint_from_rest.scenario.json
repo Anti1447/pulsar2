@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "name": "energy_sprint_from_rest",
+  "description": "PBRS check. Blue car sprints from rest with full throttle and boost for 30 steps (2 s) along the lane x = 480, which is 440+ uu from every boost pad; the orange car idles at (-1400, 1500), also clear of pads (a first version put it on the big pad at (3072, 4096) and it picked up boost: the Lab's trace showed the boost term rising). The potential telescopes, so the sum is about Phi(end) - Phi(start). By hand for the sprinter: boost 100 -> about 34 (-33.3/s over 2 s), so the boost term falls from 1.0 to (sqrt(0.34 + 0.01) - 0.1) / 0.905 = 0.54 (-0.46) while kinetic energy rises to (v/2300)^2. The first hand estimate assumed v = 1900 uu/s after 2 s (net +0.22); the first run measured +0.42, and the speed assumption was the error: full throttle plus boost reaches about 2150 uu/s in 2 s, giving (2150/2300)^2 - 0.46 = +0.41. The band below is that corrected derivation (recorded here because it was revised after a measurement). For the idler: it holds Phi = 0.537 (33.3 boost) and pays (gamma - 1) * Phi per step = -0.0031 * 0.537, about -0.00166 per step, -0.050 over 30 steps.",
+  "tags": ["energy", "pbrs"],
+  "steps": 30,
+  "cars": [
+    {"team": "blue",   "pos": [480, -4000, 17], "angle_deg": {"yaw": 90}, "boost": 100},
+    {"team": "orange", "pos": [-1400, 1500, 17], "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [-3000, 4000, 93]},
+  "actions": [{"car": 0, "from": 0, "action": {"throttle": 1, "boost": 1}}],
+  "rewards": [{"name": "CarEnergyPotentialReward", "weight": 1.0, "gamma": 0.9969}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "CarEnergyPotentialReward", "car": 0, "steps": [1, 30], "min": 0.35, "max": 0.5,
+     "intent": "sprinting gains more kinetic energy than the boost it burns: net about +0.41 by the corrected hand derivation (2150 uu/s after 2 s)"},
+    {"kind": "reward_sum", "reward": "CarEnergyPotentialReward", "car": 1, "steps": [1, 30], "min": -0.056, "max": -0.045,
+     "intent": "an idle car pays only the holding cost (gamma - 1) * Phi per step: 30 * -0.0031 * 0.537 = -0.050"},
+    {"kind": "gate", "reward": "CarEnergyPotentialReward", "car": 0, "gate": "not_goal_step", "passed": true,
+     "intent": "no goal is scored, so the terminal rule never applies"}
+  ]
+}

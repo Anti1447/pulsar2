@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "offside_2v2_surplus",
+  "description": "2v2, the same blue positions, but BOTH orange cars are onside. Blue now has one more car out of position than orange: team factor = clamp((1 - 0) / 1) = 1, so car 0 pays the full -1.0 per step even though a teammate covers.",
+  "tags": ["offside", "team"],
+  "steps": 10,
+  "cars": [
+    {"team": "blue",   "pos": [0, 1000, 17],      "angle_deg": {"yaw": 90}},
+    {"team": "blue",   "pos": [1500, -1000, 17],  "angle_deg": {"yaw": 90}},
+    {"team": "orange", "pos": [-1500, 3500, 17],  "angle_deg": {"yaw": 270}},
+    {"team": "orange", "pos": [0, 3500, 17],      "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [500, 0, 93]},
+  "rewards": [{"name": "OffsidePenalty", "weight": 1.0}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "OffsidePenalty", "car": 0, "steps": [1, 10], "min": -10.05, "max": -9.95,
+     "intent": "a surplus car out of position pays in full even with a teammate covering"},
+    {"kind": "gate", "reward": "OffsidePenalty", "car": 0, "gate": "covered_by_teammate", "passed": true,
+     "intent": "car 0 is covered, yet still pays: covering no longer exempts a surplus car"},
+    {"kind": "reward_sum", "reward": "OffsidePenalty", "car": 1, "steps": [1, 10], "min": 0, "max": 0,
+     "intent": "the covering teammate, goalside of the ball, pays nothing"}
+  ]
+}

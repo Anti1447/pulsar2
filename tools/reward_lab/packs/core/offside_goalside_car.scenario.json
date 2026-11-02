@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "name": "offside_goalside_car",
+  "description": "Near miss: the same lone blue car, but 1000 uu BEHIND (goalside of) the ball. There is no positive payout for sitting back, so the reward is exactly 0.",
+  "tags": ["offside", "near_miss"],
+  "steps": 10,
+  "cars": [
+    {"team": "blue",   "pos": [0, -1000, 17], "angle_deg": {"yaw": 90}},
+    {"team": "orange", "pos": [0, 3500, 17],  "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [500, 0, 93]},
+  "rewards": [{"name": "OffsidePenalty", "weight": 1.0}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "OffsidePenalty", "car": 0, "steps": [1, 10], "min": 0, "max": 0,
+     "intent": "a car goalside of the ball pays exactly nothing (the reward is penalty-only)"},
+    {"kind": "gate", "reward": "OffsidePenalty", "car": 0, "gate": "offside", "passed": false,
+     "intent": "the offside gate fails on every step"}
+  ]
+}

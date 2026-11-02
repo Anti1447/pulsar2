@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "name": "offside_dead_zone_inside",
+  "description": "Boundary: the blue car is 199 uu upfield of the ball, 1 uu inside the 200 uu dead zone (room for dribbles and flicks). Pays nothing.",
+  "tags": ["offside", "boundary"],
+  "steps": 10,
+  "cars": [
+    {"team": "blue",   "pos": [0, 199, 17],  "angle_deg": {"yaw": 90}},
+    {"team": "orange", "pos": [0, 3500, 17], "angle_deg": {"yaw": 270}}
+  ],
+  "ball": {"pos": [500, 0, 93]},
+  "rewards": [{"name": "OffsidePenalty", "weight": 1.0}],
+  "expect": [
+    {"kind": "reward_sum", "reward": "OffsidePenalty", "car": 0, "steps": [1, 10], "min": 0, "max": 0,
+     "intent": "199 uu upfield is inside the dead zone and pays nothing"},
+    {"kind": "gate", "reward": "OffsidePenalty", "car": 0, "gate": "offside", "passed": false,
+     "intent": "the offside gate fails just inside the boundary"}
+  ]
+}
