@@ -92,6 +92,21 @@ Everything shown is what the real EnvSet / reward stack returned; the page simul
 (never a file path or the `page` command). A scenario is picked by NAME from the pack folder.
 Limits: one session per server (a second browser tab shares it); one decision step is one held action; no gamepad.
 
+## Pack sign-off (P4-1)
+
+```bash
+build-lab/reward_lab_pack check tools/reward_lab/packs/core      # exit 0 CURRENT, 1 STALE / ENGINE_MISMATCH, 2 INVALID, 3 UNSIGNED
+build-lab/reward_lab_pack sign  tools/reward_lab/packs/core --reviewer "Your Name"   # YOUR act: writes manifest.json
+build-lab/reward_lab_pack probe                                  # the engine samples stored under "engine"
+```
+
+The manifest says "this person reviewed THESE scenarios, against THESE reward sources, on THIS engine behaviour, and they passed". `check` re-derives each part:
+scenario files (sha256), each reward's source (sha256 over every file reachable from its header through quoted `#include`s: a comment edit counts; the engine is outside),
+the engine (a 60-step probe compared within 0.1 uu; a different engine is REFUSED and the scenarios are not re-run), and the results (every scenario is re-run and must pass).
+The verdict names what changed ("reward OffsidePenalty changed after sign-off: Rewards/OffsidePenalty.h"). Only **CURRENT** may be called verified. The Lab harness changing is
+a warning, not a stale. Limits: the probe shows two engines agree on that probe, not that they are identical; a reward in `CommonRewards.h` goes stale when any reward in that
+file changes. `sign` refuses a failing pack, a scenario with no expectations, and a missing reviewer; it is never run by tooling on its own. The core pack ships unsigned.
+
 Adding a reward: one line in `Lab/RewardRegistry.h`. Adding a scenario: copy one from `packs/core/`, derive the expected values by hand first and
 write the derivation in `description`, keep cars off the boost-pad grid.
 
