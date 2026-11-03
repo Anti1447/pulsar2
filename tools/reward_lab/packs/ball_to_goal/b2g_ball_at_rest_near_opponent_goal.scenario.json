@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "name": "b2g_ball_at_rest_near_opponent_goal",
+  "description": "The ball sits still at y = 4000 (Phi = 0.201926). The only payment is the discount leak, (gamma - 1) * Phi = -0.000626 per step; 20 steps = -0.01252 for blue (+0.01252 for orange). No income from waiting there, a small tax.",
+  "tags": [
+    "b2g",
+    "farming"
+  ],
+  "steps": 20,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      }
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      4000,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "BallToGoalPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": -0.0135,
+      "max": -0.0115,
+      "intent": "a resting ball near the goal pays slightly NEGATIVE to the attacker (the discount leak), never positive: waiting is not a farm"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        20
+      ],
+      "min": 0.0115,
+      "max": 0.0135,
+      "intent": "the defender gets the matching tiny positive"
+    }
+  ]
+}

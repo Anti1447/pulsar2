@@ -141,6 +141,7 @@ namespace Lab {
 			{ "PassingSetupReward", "Rewards/PassingSetupRewards.h" },
 			{ "GoalReward", "Rewards/CommonRewards.h" },                  // shared with the other CommonRewards, like CarEnergyPotentialReward
 			{ "AerialTouchReward", "Rewards/CommonRewards.h" },           // shared with the other CommonRewards
+			{ "BallToGoalPotentialReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards
 		};
 		return m;
 	}

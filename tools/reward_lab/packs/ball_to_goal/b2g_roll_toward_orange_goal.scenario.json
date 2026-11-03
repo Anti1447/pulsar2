@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "b2g_roll_toward_orange_goal",
+  "description": "1v1, both cars idle far away. The ball is rolled from (0, -2000) at 1500 uu/s toward the orange goal for 20 steps (20 x 8/120 = 1.33 s, so at most 2000 uu). Hand bound: it cannot go further than 2000 uu, so the potential gain is at most Phi(0) - Phi(-2000) = 0.07218 (blue sum <= about 0.0722). The engine slows the ball more than drag alone (measured from the exported run: it ends at y = -241.5, 1758 uu on), and the formula evaluated independently (a separate script) on that measured path gives blue +0.06663, which is what the reward returned (0.0666285). Orange gets the exact negative.",
+  "tags": [
+    "b2g",
+    "golden"
+  ],
+  "steps": 20,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      }
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      -2000,
+      93
+    ],
+    "vel": [
+      0,
+      1500,
+      0
+    ]
+  },
+  "rewards": [
+    {
+      "name": "BallToGoalPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": 0.0655,
+      "max": 0.0678,
+      "intent": "moving the ball toward the opponent goal pays the potential difference along the real path (independent evaluation 0.06663; hard ceiling 0.0722 if the ball had gone the full 2000 uu)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        20
+      ],
+      "min": -0.0678,
+      "max": -0.0655,
+      "intent": "the opponent is charged exactly the same: the reward is antisymmetric, so it is zero-sum without a wrapper"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": 4.9,
+      "max": 5.1,
+      "intent": "at weight 75 that is about +5 for a 1760 uu carry from just behind midfield to just short of it"
+    }
+  ]
+}

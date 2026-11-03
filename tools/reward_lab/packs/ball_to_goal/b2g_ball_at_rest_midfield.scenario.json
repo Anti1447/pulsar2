@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "name": "b2g_ball_at_rest_midfield",
+  "description": "The ball sits still at the centre. Phi is exactly 0 there (equal goal distances), so every step pays exactly 0 to both cars.",
+  "tags": [
+    "b2g",
+    "gate"
+  ],
+  "steps": 20,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      }
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "BallToGoalPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": -1e-06,
+      "max": 1e-06,
+      "intent": "a resting ball at midfield pays nothing"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        20
+      ],
+      "min": -1e-06,
+      "max": 1e-06,
+      "intent": "nor to the opponent"
+    }
+  ]
+}

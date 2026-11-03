@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "name": "b2g_roll_toward_own_goal",
+  "description": "Mirror of b2g_roll_toward_orange_goal: the ball rolls from (0, 2000) toward the BLUE goal and ends at y = 241.5 (measured). Blue is charged 0.06663 (independent evaluation of the formula on the measured path) and orange paid the same.",
+  "tags": [
+    "b2g",
+    "golden"
+  ],
+  "steps": 20,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      }
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      2000,
+      93
+    ],
+    "vel": [
+      0,
+      -1500,
+      0
+    ]
+  },
+  "rewards": [
+    {
+      "name": "BallToGoalPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": -0.0678,
+      "max": -0.0655,
+      "intent": "letting the ball roll toward your own goal costs the potential difference"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallToGoalPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        20
+      ],
+      "min": 0.0655,
+      "max": 0.0678,
+      "intent": "the opponent gains the same"
+    }
+  ]
+}
