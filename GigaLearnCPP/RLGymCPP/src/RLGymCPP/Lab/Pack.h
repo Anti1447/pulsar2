@@ -151,6 +151,7 @@ namespace Lab {
 			{ "DemoReward", "Rewards/CommonRewards.h" },                  // shared with the other CommonRewards
 			{ "TouchAccelReward", "Rewards/CommonRewards.h" },                // shared with the other CommonRewards
 			{ "GuardedPickupBoostReward", "Rewards/CommonRewards.h" },        // shared with the other CommonRewards
+			{ "BallProximityPotentialReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards
 			{ "OpposedSaveReward", "Rewards/CommonRewards.h" },           // shared with the other CommonRewards
 		};
 		return m;

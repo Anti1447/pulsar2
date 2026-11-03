@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "name": "ball_proximity_driving_toward_a_far_ball_pays_the_potential_gained",
+  "description": "1v1: blue starts 3000 uu from the resting ball at 1000 uu/s with the throttle off, for 20 steps (1.33 s). The car coasts and slows, so it closes less than 1333 uu: the sum is the potential gained minus the hold tax and lies between 0 and Phi(1667) - Phi(3000) = 0.196 for a constant-speed drive; measured 0.092 (about 900 uu closed, as a coasting car would). Closing pays positive.",
+  "tags": [
+    "ball_proximity",
+    "gate",
+    "approach"
+  ],
+  "steps": 20,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -3000,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "BallProximityPotentialReward",
+      "weight": 4.0,
+      "zero_sum": 0.3,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": 0.05,
+      "max": 0.14,
+      "intent": "closing on the ball pays"
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "name": "ball_proximity_a_ball_rolling_away_from_the_car_is_charged",
+  "description": "1v1: blue is parked 310 uu from the ball, which rolls away at 1000 uu/s. 30 steps are 2 s, so the ball ends about 2000 uu further (constant speed: 2300 uu from the car, Phi 0.881 -> 0.260). Hand estimate at constant speed: sum = gamma*Phi_end - Phi_start + (gamma-1)*sum of Phi = -0.666. The engine's ball slows a little on the floor, so it ends closer and the measured sum is -0.583 (band -0.70 .. -0.50). The point: the loss is charged as it happens, as a raw -0.58 for the 4-weighted -2.3 swing.",
+  "tags": [
+    "ball_proximity",
+    "golden",
+    "knock"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -300,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ],
+    "vel": [
+      0,
+      1000,
+      0
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "BallProximityPotentialReward",
+      "weight": 4.0,
+      "zero_sum": 0.3,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.7,
+      "max": -0.5,
+      "intent": "the proximity lost as the ball leaves"
+    }
+  ]
+}

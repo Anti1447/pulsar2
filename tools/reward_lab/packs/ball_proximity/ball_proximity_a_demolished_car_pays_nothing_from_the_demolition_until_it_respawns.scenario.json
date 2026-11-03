@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "name": "ball_proximity_a_demolished_car_pays_nothing_from_the_demolition_until_it_respawns",
+  "description": "1v1: blue (full tank) rams the idle orange car at 2300 uu/s along y = 500 and demolishes it (DemoReward shows it, frame about 19, weight 0). The step orange is demolished, every step it stays demolished and the step it respawns (frame 64) all read 0 for orange: no potential jump is charged or paid for the teleport. Before the demolition and after the respawn orange pays its ordinary hold tax (negative).",
+  "tags": [
+    "ball_proximity",
+    "golden",
+    "guard",
+    "respawn"
+  ],
+  "steps": 110,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        500,
+        17
+      ],
+      "vel": [
+        2300,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3500,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "BallProximityPotentialReward",
+      "weight": 4.0,
+      "zero_sum": 0.3,
+      "gamma": 0.9969
+    },
+    {
+      "name": "DemoReward",
+      "weight": 0.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        18
+      ],
+      "min": -0.2,
+      "max": -0.0001,
+      "intent": "before the demolition orange pays the hold tax"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        19,
+        64
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "demolished (and the respawn step): 0"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        65,
+        110
+      ],
+      "min": -0.2,
+      "max": -0.0001,
+      "intent": "after the respawn the hold tax again"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "proof the demolition happened (DemoReward)"
+    }
+  ]
+}

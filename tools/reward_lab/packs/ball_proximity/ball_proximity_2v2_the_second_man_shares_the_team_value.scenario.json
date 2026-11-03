@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "name": "ball_proximity_2v2_the_second_man_shares_the_team_value",
+  "description": "2v2 (cars blue0, orange0, blue1, orange1): blue0 is parked 309.5 uu from the resting ball and blue1 1500 uu away. The team potential is the CLOSEST car's, so blue1's raw value equals blue0's (-0.00273 per step, -0.0819 over 30 steps): the second man neither gains nor loses by being farther.",
+  "tags": [
+    "ball_proximity",
+    "golden",
+    "2v2",
+    "team"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -300,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        -3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "BallProximityPotentialReward",
+      "weight": 4.0,
+      "zero_sum": 0.3,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.08212065335680765,
+      "max": -0.08172065335680764,
+      "intent": "blue0, the closest car"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.08212065335680765,
+      "max": -0.08172065335680764,
+      "intent": "blue1 reads the same team value"
+    }
+  ]
+}
