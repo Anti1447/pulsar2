@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "name": "team_pressure_a_lone_lapse_is_charged_in_full",
+  "description": "1v1: blue is parked 3500 uu from the ball (far, not closing), orange parked 1500 uu away (within 2500: pressuring). Blue is -1 raw per step and orange 0; through ZeroSum blue is -1 and orange +1 per step; weighted at 0.15 that is -0.15 / +0.15 per step, -4.5 / +4.5 over 30 steps (2 s).",
+  "tags": [
+    "team_pressure",
+    "golden",
+    "1v1"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -3500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "TeamPressureReward",
+      "weight": 0.15,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -30.000001,
+      "max": -29.999999,
+      "intent": "blue lapses"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "orange is near"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -30.000001,
+      "max": -29.999999,
+      "intent": "ZeroSum: -1 per step"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 29.999999,
+      "max": 30.000001,
+      "intent": "ZeroSum: +1 per step"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -4.5001,
+      "max": -4.4999,
+      "intent": "-0.15 per step"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "weighted",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 4.4999,
+      "max": 4.5001,
+      "intent": "+0.15 per step"
+    }
+  ]
+}

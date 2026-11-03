@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "name": "team_pressure_closing_on_the_ball_counts_as_pressure",
+  "description": "1v1: blue starts 3900 uu from the ball (inside the 4000 closing range) rolling toward it at 1000 uu/s with the throttle on: far, but closing faster than 500 uu/s, so it pays 0 every step; at 3900 uu parked it would be -1 (previous scenario). Orange is parked 1500 uu away.",
+  "tags": [
+    "team_pressure",
+    "golden",
+    "closing"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -3900,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TeamPressureReward",
+      "weight": 0.15,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "closing from within 4000 at over 500 uu/s"
+    }
+  ]
+}

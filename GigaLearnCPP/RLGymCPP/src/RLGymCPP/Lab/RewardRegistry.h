@@ -39,6 +39,7 @@ namespace Lab {
 			{ "DemoReward",                [](const RewardSpec&) -> Reward* { return new DemoReward(); } },
 			{ "TouchAccelReward",         [](const RewardSpec&) -> Reward* { return new TouchAccelReward(); } },
 			{ "GuardedPickupBoostReward", [](const RewardSpec&) -> Reward* { return new GuardedPickupBoostReward(); } },
+			{ "TeamPressureReward", [](const RewardSpec&) -> Reward* { return new TeamPressureReward(); } },
 			{ "BallProximityPotentialReward", [](const RewardSpec& s) -> Reward* { return new BallProximityPotentialReward(s.gamma); } },
 			{ "OpposedSaveReward",         [](const RewardSpec&) -> Reward* { return new OpposedSaveReward(); } },
 		};

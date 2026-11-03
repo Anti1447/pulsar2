@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "team_pressure_a_car_far_out_of_range_is_charged_even_when_closing_fast",
+  "description": "1v1: blue starts 4500 uu from the ball (beyond the 4000 closing range) rolling at 1000 uu/s toward it. While it is beyond 4000 uu it is charged -1 per step; it crosses 4000 uu after about 500 uu of travel (about 7-8 steps at 1000+ uu/s) and from then on pays 0. Expectation: between -12 and -5 in all, and exactly 0 over the last 15 steps.",
+  "tags": [
+    "team_pressure",
+    "golden",
+    "closing",
+    "boundary"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -4500,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TeamPressureReward",
+      "weight": 0.15,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -12.0,
+      "max": -5.0,
+      "intent": "charged only while beyond 4000 uu"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        26,
+        40
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "pressuring from then on"
+    }
+  ]
+}

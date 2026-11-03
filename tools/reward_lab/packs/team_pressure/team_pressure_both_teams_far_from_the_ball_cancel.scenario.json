@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "name": "team_pressure_both_teams_far_from_the_ball_cancel",
+  "description": "1v1: both cars are parked 3500 uu from the resting ball (beyond the 2500 near range, not moving). Each is -1 raw every step (30 in all), but through ZeroSum each is charged relative to the other's identical lapse: wrapped 0, weighted 0. Mutual passivity is free in this stack (the reward's own comment accepts it).",
+  "tags": [
+    "team_pressure",
+    "golden",
+    "1v1"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -3500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "TeamPressureReward",
+      "weight": 0.15,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -30.000001,
+      "max": -29.999999,
+      "intent": "far and not closing: -1 per step"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -30.000001,
+      "max": -29.999999,
+      "intent": "the same for orange"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "mutual lapse cancels"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "mutual lapse cancels"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "no weighted effect"
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "name": "team_pressure_a_demolished_lone_car_is_charged_for_the_whole_respawn",
+  "description": "1v1: blue (full tank) rams orange (idle, 2000 uu from the ball so it pays 0 before) at 2300 uu/s and demolishes it (DemoReward shows it, frame about 19). Every alive-teammate check skips a demolished car, and orange's team is only itself, so for the 45 steps it is demolished it reads -1 raw (frames 19 .. 63) whatever the ball does. FINDING: a demolished car in 1v1 is charged -0.15 weighted per step, -6.75 in all, on top of the Demo pair swing, unless the opponent is also off the ball.",
+  "tags": [
+    "team_pressure",
+    "golden",
+    "finding",
+    "respawn"
+  ],
+  "steps": 110,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        500,
+        17
+      ],
+      "vel": [
+        2300,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      -1500,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TeamPressureReward",
+      "weight": 0.15,
+      "zero_sum": 0.3
+    },
+    {
+      "name": "DemoReward",
+      "weight": 0.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        18
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "orange is 2000 uu from the ball: pressuring"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        19,
+        63
+      ],
+      "min": -45.000001,
+      "max": -44.999999,
+      "intent": "demolished: no alive car on the team"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "proof the demolition happened (DemoReward)"
+    }
+  ]
+}
