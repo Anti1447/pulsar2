@@ -293,8 +293,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// cannot fire. NEVER gate (breaks telescoping).
 		// 2026-11-02: the 0.064% figure predates a detector fix. OnWall() used the body-contact flag, which a car
 		// riding a wall on its wheels never sets, so the term could (almost) never fire; it now reads the car's roof
-		// direction (REWARD_CHANGE_LOG). Re-measure the share; guard in the log: lower to 30 if it exceeds 2%.
-		{ new ZeroSumReward(new WallJumpToBallReward(gamma), TEAM_SPIRIT), 60.f },
+		// direction (REWARD_CHANGE_LOG). Weight lowered 60 -> 30 (2026-11-02, user-directed) because one wall exit near the ball is worth ~+19 at 30 (+38 at 60); re-measure the share (log: act if it exceeds 2%).
+		{ new ZeroSumReward(new WallJumpToBallReward(gamma), TEAM_SPIRIT), 30.f },
 
 		// ======================================================================================
 		// PORTED FROM RLGymBot_v3 (branch v3-reward-port) - ALL DISABLED. Do not enable any of these without

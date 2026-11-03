@@ -249,12 +249,12 @@ Current live weights (HEAD): BallToGoalPotential **75** (already antisymmetric â
 no ZeroSum wrapper, that would double it), TouchAccel **10**, Demo **37.5**,
 BallProximityPotential **4** (team-closest, far-field linear term added in 5.0),
 GuardedPickupBoost **6**, AerialTouch **120**, AirInterceptPotential **75**,
-ConsecutiveAirTouch **40**, WallJumpToBall **60**, OpposedSave **25**,
+ConsecutiveAirTouch **40**, WallJumpToBall **30**, OpposedSave **25**,
 CarEnergyPotential **75** (tempo credit), TimeCost **0.01** (not PBRS, not
 zero-sum-wrapped; ~3% of a goal per 30s episode), TeamPressure **0.15**,
 KickoffRace **60**, Goal **150** (the objective, exactly Â±150). All the
 ZeroSum-wrapped terms carry `TEAM_SPIRIT`. (2026-10-27: re-read from ExampleMain
-again - ConsecutiveAirTouch 30->40 and WallJumpToBall 30->60 were raised, both
+again - ConsecutiveAirTouch 30->40 and WallJumpToBall 30->60 were raised (WallJumpToBall back to 30 on 2026-11-02, after its detector fix), both
 exact PBRS and `gamma`-threaded; KickoffRace is 60 not 25; FlipReset and AirReward
 are no longer in the stack. Measured credit shares in REWARD_SHAPING.md section
 3.4 were taken at the old weights.)
