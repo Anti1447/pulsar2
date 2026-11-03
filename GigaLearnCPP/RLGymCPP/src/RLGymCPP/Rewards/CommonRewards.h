@@ -802,9 +802,15 @@ namespace RLGC {
 	// the step is not charged (mirrors the other potentials' demo guard - a
 	// negligible, standard telescoping leak). Per-arena instance -> no cross-arena
 	// state.
+	//
+	// 2026-11-03 audit fix: a touch only COUNTS while the ball is above AerialTouchReward::BALL_MIN_Z (150 uu, the
+	// same floor AerialTouch uses). Before, any airborne contact counted: a hop into a ball resting on the floor
+	// (car 14-140 uu up, ball z 93) built a chain of 3-5 steps (+15..+34 weighted, refunded on landing). A touch with
+	// the ball at or below the floor is treated like no touch: the streak is unchanged (it bleeds, it is not reset).
 	class ConsecutiveAirTouchReward : public Reward {
 	public:
 		constexpr static float TAU = 2.0f; // touches past the first to reach ~63% saturation
+		constexpr static float BALL_MIN_Z = AerialTouchReward::BALL_MIN_Z; // a touch counts only above this ball height
 		float gamma;
 		ConsecutiveAirTouchReward(float gamma = 0.99f) : gamma(gamma) {}
 
@@ -835,8 +841,8 @@ namespace RLGC {
 
 			if (player.isOnGround) {
 				s = 0; // supported (ground OR wall): the airborne chain ends
-			} else if (player.ballTouchedStep) {
-				s = prevStreak + 1; // another airborne touch extends the chain
+			} else if (player.ballTouchedStep && state.ball.pos.z > BALL_MIN_Z) {
+				s = prevStreak + 1; // another airborne touch of a ball above the floor extends the chain
 			}
 			// else: airborne, no touch -> streak unchanged (Phi bleeds by (gamma-1)*Phi)
 

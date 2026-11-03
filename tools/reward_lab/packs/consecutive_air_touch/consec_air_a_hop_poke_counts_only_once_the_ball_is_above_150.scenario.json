@@ -1,0 +1,142 @@
+{
+  "schema": 1,
+  "name": "consec_air_a_hop_poke_counts_only_once_the_ball_is_above_150",
+  "description": "The car drives at 1400 uu/s toward a ball resting on the floor at (-1000, 0, 93) and hops at decision step 8 with boost held, so it is a few tens of uu off the ground when it pushes the ball (touch frames 10-14, car z 57-116, measured). The push lifts the ball: ball z is 112, 133, 151, 166, 178 on frames 10-14. Before the 2026-11-03 ball floor all five contact steps counted (a chain of 5: peak +0.8564 = +34.3 weighted). Now a touch counts only with the ball above 150 uu (strict), so frames 10 and 11 do not count and the chain starts on frame 12 (ball z 151): frame 12 is the lone first touch (0), frame 13 pays gamma*Phi(2) = 0.39225 (+15.7), frame 14 brings the sum to 0.62894 (+25.2). RESIDUAL (finding): the car's own poke lifts the ball over the floor and the contact that follows still counts at full value; the floor shortens a hop-poke chain from 5 to 3 but does not remove it, because the credit does not scale with how far above 150 the ball is (AerialTouch's own payment does: ballFrac = (z - 150) / 1300). The car keeps boosting and stays airborne, so there is no landing refund inside the 45 frames shown.",
+  "tags": [
+    "consec_air",
+    "gate",
+    "finding"
+  ],
+  "steps": 45,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2200,
+        0,
+        17
+      ],
+      "vel": [
+        1400,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -1000,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 8,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 9,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 0
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        10,
+        14
+      ],
+      "intent": "the hopping car pushes the ball on frames 10-14"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        12
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the two contact steps with the ball under 150 uu (frames 10, 11) and the lone first counted touch (frame 12) pay nothing"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        13
+      ],
+      "min": 0.3921,
+      "max": 0.3924,
+      "intent": "frame 13 is the second counted touch: gamma * Phi(2) = 0.39225"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        14
+      ],
+      "min": 0.6288,
+      "max": 0.6291,
+      "intent": "frame 14 is the third: cumulative 0.62894 (it was 0.8564 after five touches before the floor)"
+    }
+  ]
+}

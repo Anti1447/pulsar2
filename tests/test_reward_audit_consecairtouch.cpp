@@ -22,11 +22,12 @@ using namespace RewardTest;
 namespace {
 	constexpr float G = 0.9969f; // TRAIN_GAMMA
 
-	struct CT { bool ground = false, touch = false, demoed = false; };
+	struct CT { bool ground = false, touch = false, demoed = false; float ballZ = 500; };
 	CT A(bool touch) { CT c; c.touch = touch; return c; }           // airborne, touch or not
 	CT Gr() { CT c; c.ground = true; return c; }                    // on the ground or a wall
 	CT Gt() { CT c; c.ground = true; c.touch = true; return c; }    // a touch while supported
 	CT Dm() { CT c; c.demoed = true; return c; }
+CT Low(bool touch = true) { CT c; c.touch = touch; c.ballZ = 93; return c; }   // airborne, ball on the floor
 
 	std::vector<float> Run(ConsecutiveAirTouchReward& r, const std::vector<CT>& fr) {
 		std::vector<GameState> st(fr.size());
@@ -35,6 +36,7 @@ namespace {
 			Player p = MakePlayer(1, 0, Team::BLUE, Vec(0, 0, 500));
 			p.isOnGround = fr[i].ground; p.ballTouchedStep = fr[i].touch; p.isDemoed = fr[i].demoed;
 			st[i].players.push_back(p);
+			st[i].ball.pos = Vec(0, 0, fr[i].ballZ);
 		}
 		for (size_t i = 1; i < st.size(); i++) { st[i].prev = &st[i - 1]; st[i].players[0].prev = &st[i - 1].players[0]; }
 		r.Reset(st[0]);
@@ -137,6 +139,7 @@ TEST(ConsecAir2_a_demo_mid_chain_keeps_the_banked_credit) {
 TEST(ConsecAir2_each_player_has_its_own_streak) {
 	GameState a, b, c; a.deltaTime = b.deltaTime = c.deltaTime = STEP_DT;
 	auto fill = [](GameState& g, bool t0, bool g1) {
+		g.ball.pos = Vec(0, 0, 500);
 		g.players.push_back(MakePlayer(1, 0, Team::BLUE, Vec(0, 0, 500))); g.players[0].isOnGround = false; g.players[0].ballTouchedStep = t0;
 		g.players.push_back(MakePlayer(2, 1, Team::ORANGE, Vec(0, 0, 500))); g.players[1].isOnGround = g1; g.players[1].ballTouchedStep = false;
 	};
@@ -154,12 +157,14 @@ TEST(ConsecAir2_each_player_has_its_own_streak) {
 //   car 0: 0.85 r = 0.33445; teammate 0.15 r = 0.05902; each orange car -0.5 r = -0.19673
 TEST(ConsecAir2_zero_sum_2v2_values_at_team_spirit_0p3) {
 	GameState a, b; a.deltaTime = b.deltaTime = STEP_DT;
-	for (GameState* g : { &a, &b })
+	for (GameState* g : { &a, &b }) {
+		g->ball.pos = Vec(0, 0, 500);
 		for (int i = 0; i < 4; i++) {
 			Player p = MakePlayer(1 + i, i, i < 2 ? Team::BLUE : Team::ORANGE, Vec(i * 100.f, 0, 500));
 			p.isOnGround = false; p.ballTouchedStep = (i == 0);
 			g->players.push_back(p);
 		}
+	}
 	b.prev = &a; for (int i = 0; i < 4; i++) b.players[i].prev = &a.players[i];
 	Reward* zs = new ZeroSumReward(new ConsecutiveAirTouchReward(1.0f), 0.3f);
 	zs->Reset(a); zs->PreStep(a); zs->GetAllRewards(a, false);     // first touch: streak 1, Phi 0
@@ -171,4 +176,35 @@ TEST(ConsecAir2_zero_sum_2v2_values_at_team_spirit_0p3) {
 	CHECK_NEAR(v[3], -0.19673f, 1e-4f);
 	CHECK_NEAR(v[0] + v[1] + v[2] + v[3], 0.0f, 1e-5f);
 	delete zs;
+}
+
+// BALL FLOOR (added 2026-11-03, the same 150 uu as AerialTouchReward): a touch counts only with the ball above it.
+TEST(ConsecAir2_a_touch_counts_only_with_the_ball_above_150uu) {
+	auto second = [](float ballZ) {
+		ConsecutiveAirTouchReward r(1.0f);
+		CT t1 = A(true), t2 = A(true); t1.ballZ = 500; t2.ballZ = ballZ;
+		return Run(r, { A(false), t1, t2 })[2];
+	};
+	CHECK_EQ(second(93), 0.0f);                       // a ball on the floor: not a touch
+	CHECK_EQ(second(150), 0.0f);                      // exactly the floor does not count (strict, like AerialTouch's heightFrac <= 0)
+	CHECK_NEAR(second(150.5f), 0.393469f, 1e-5f);     // just above counts
+	CHECK_NEAR(second(900), 0.393469f, 1e-5f);
+	CHECK_EQ(ConsecutiveAirTouchReward::BALL_MIN_Z, AerialTouchReward::BALL_MIN_Z);   // locked to AerialTouch's floor
+}
+
+// A hop into a ball resting on the floor (airborne car, ball z 93, 4 contact steps) used to build a chain of 4 (+0.777 = +31 weighted at
+// the peak, refunded on landing); it now pays nothing.
+TEST(ConsecAir2_a_hop_into_a_floor_ball_pays_nothing) {
+	ConsecutiveAirTouchReward r(G);
+	auto v = Run(r, { A(false), Low(), Low(), Low(), Low(), Gr() });
+	for (float x : v) CHECK_EQ(x, 0.0f);
+}
+
+// A low touch in the middle of a chain is like no touch: the streak is unchanged (it bleeds), it is not reset, and the chain resumes
+TEST(ConsecAir2_a_low_touch_mid_chain_neither_extends_nor_resets_it) {
+	ConsecutiveAirTouchReward r(1.0f);
+	auto v = Run(r, { A(true), A(true), Low(), A(true) });
+	CHECK_NEAR(v[1], 0.393469f, 1e-5f);               // streak 2
+	CHECK_EQ(v[2], 0.0f);                              // gamma 1: the low touch changes nothing
+	CHECK_NEAR(v[3], 0.632121f - 0.393469f, 1e-5f);   // the next high touch is the THIRD: the chain resumed
 }

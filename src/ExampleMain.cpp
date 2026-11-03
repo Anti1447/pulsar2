@@ -286,7 +286,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// (aerial dribble / juggle). Exact PBRS: Phi = 1 - exp(-(streak-1)/2); landing refunds
 		// the whole chain, so tap-land-tap nets ~0 and it cannot be farmed. Pays nothing for a
 		// lone air touch (AerialTouch's job), so it only matters once first aerial touches
-		// exist. 40 = chain total stays well under AerialTouch 120 per strike. Measured
+		// exist. 40 = chain total stays well under AerialTouch 120 per strike. A touch counts only with
+		// the ball above 150 uu (AerialTouch's floor; 2026-11-03). Measured
 		// 12% of credit density at 30 in REWARD_SHAPING.md §3.4. Watch Rewards/ConsecutiveAirTouchReward.
 		{ new ZeroSumReward(new ConsecutiveAirTouchReward(gamma), TEAM_SPIRIT), 40.f },
 			
