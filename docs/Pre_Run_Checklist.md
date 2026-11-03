@@ -40,10 +40,10 @@ Scope: the 15 active rewards in `BuildRewards()` (Goal 150, AerialTouch 120, Bal
 
 ## 4. Ball prediction confirmed (M)
 Existing: `tests/test_ballpred_cache.cpp`, `tests/test_advanced_obs_padded.cpp`, and the claims in `docs/6.0.md`.
-- [ ] Check the 8 slices in a real render arena, not only unit tests: after touches, resets, kickoffs and state-setter resets (the Lab uses the same builder; ball-at-known-state scenarios can do most of this).
-- [ ] Measure cost at scale: one ball-only arena per environment across 310 games; steps per second before and after, and memory.
-- [ ] Verify Galactus' 5 samples (0.25/0.5/1/1.5/2 s) are built from our predictor correctly.
-- [ ] Confirm the `--gco` lineage still builds its 230-float observation.
+- [x] Check the 8 slices in a real arena with cars: `tests/test_ballpred_arena.cpp` (2026-11-02): slices match the real ball over 2 s (0 uu error), kickoff slices are the stationary ball, and over 300 driven steps with 63 touches and a forced reset the shift/reuse path equals a from-scratch prediction exactly (51 full, 250 reused). Not checked: a visual look in RocketSimVis.
+- [x] Measure cost at scale (same test file, 310 1v1 arenas, 150 steps): env stepping 1.37M -> 1.06M player-steps/s (1.29x slower, 0.068 s -> 0.088 s); resident memory rose about 330 MB (rough: cumulative process). Env step time is small next to inference in the smoke log (0.5 s vs 13.5 s CPU), so expect a minor end-to-end cost; the real number comes from the GPU run.
+- [x] Verify Galactus' 5 samples: read `GGLBotOpponent.cpp`: ticks 30/60/120/180/240 at 120 Hz = 0.25/0.5/1/1.5/2 s, taken from the same `BallPredictor` (241-tick horizon), team-inverted. By reading only; no separate test.
+- [x] Confirm the `--gco` lineage still builds its 230-float observation: `--gco` sets `g_BallPredObs=false`, so `AdvancedObsPadded` gets 0 slices; `test_team_envset_smoke` asserts 230. By code and test, not by running a `--gco` trainer.
 - [ ] Live path: the RLBot client does not request ball prediction (it flooded the socket) and packaging for 6.0 is not done. Defer packaging until after the run starts; it is not needed to train.
 
 ## 5. The new planning document (M, write last)
