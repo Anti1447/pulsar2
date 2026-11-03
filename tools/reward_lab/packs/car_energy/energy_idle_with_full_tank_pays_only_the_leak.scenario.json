@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "name": "energy_idle_with_full_tank_pays_only_the_leak",
+  "description": "The car sits still with a full tank for 30 steps. Phi stays 0.99999, so each step pays (gamma - 1) * 0.99999 = -0.0031: -0.093 in all, -7.0 at weight 75 for two seconds of holding a full tank (about -3.5 weighted per second; the potential's bookkeeping, repaid by the value function when gamma matches the learner).",
+  "tags": [
+    "energy",
+    "pbrs",
+    "farming"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        480,
+        -4000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -1400,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3000,
+      4000,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "CarEnergyPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "CarEnergyPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.097,
+      "max": -0.089,
+      "intent": "holding energy pays slightly negative: nothing to farm by waiting"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "CarEnergyPotentialReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -7.3,
+      "max": -6.7,
+      "intent": "-3.5 per second at weight 75"
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "name": "energy_big_pad_pickup_from_empty",
+  "description": "The car sits at rest on the big boost pad at (3072, -4096) with an empty tank, and takes +100 boost on the first step. Hand calc: Phi goes 0 -> 0.99999, so frame 1 pays gamma * 0.99999 = 0.9969; the 9 later steps pay the holding leak (gamma - 1) * 0.99999 each = -0.0279 in all; total about +0.969. At weight 75 that is about +73, half a Goal, for one pad pickup from empty.",
+  "tags": [
+    "energy",
+    "pbrs",
+    "boost"
+  ],
+  "steps": 10,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        3072,
+        -4096,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -1400,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3000,
+      4000,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "CarEnergyPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "CarEnergyPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        10
+      ],
+      "min": 0.955,
+      "max": 0.985,
+      "intent": "a full-tank pickup from empty is worth about +1 of potential"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "CarEnergyPotentialReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        10
+      ],
+      "min": 71.6,
+      "max": 73.9,
+      "intent": "x75 = about +73: one big pad from empty pays half a Goal"
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "name": "energy_free_fall_is_neutral",
+  "description": "The car is released at z 1500 with no boost and falls for 30 steps (2 s): it drops about 1300 uu to z 200 and reaches about 1300 uu/s. Gravity only converts height into speed, so Phi (kinetic + height) is constant at pe(1483) = 650 * 1483 / 2645000 = 0.3644. Hand calc: the potential difference is 0, only the discount leak remains: 30 * (gamma - 1) * 0.3644 = -0.0339. 'This term must never tax aerials': a fall costs nothing.",
+  "tags": [
+    "energy",
+    "pbrs",
+    "gate"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        480,
+        0,
+        1500
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -1400,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3000,
+      4000,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "CarEnergyPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "CarEnergyPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.04,
+      "max": -0.028,
+      "intent": "falling converts height into speed at no cost: only the tiny discount leak (-0.034) remains"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "CarEnergyPotentialReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -3.0,
+      "max": -2.1,
+      "intent": "at weight 75 the whole 2 s fall costs about -2.5, the leak only"
+    }
+  ]
+}

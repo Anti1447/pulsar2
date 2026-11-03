@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "name": "energy_burning_boost_at_top_speed_costs_the_fuel",
+  "description": "The car already runs at 2300 uu/s (the speed cap) with a full tank and holds throttle + boost for 30 steps along the clear lane x = 480: it burns 33.3 boost/s * 2 s = 66.7 boost (100 -> 33.3) and gains no speed. Hand calc: Phi falls from 1.0 + 1.0 = 2.0 to 1.0 + 0.537 = 1.537; sum = gamma * 1.537 - 2.0 + (gamma - 1) * sum of the 29 middle Phi values (about 51) = -0.468 - 0.159 = -0.627. Boost spent without gaining energy is a pure loss (the fuel price).",
+  "tags": [
+    "energy",
+    "pbrs",
+    "boost"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        480,
+        -4400,
+        17
+      ],
+      "vel": [
+        0,
+        2300,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -1400,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3000,
+      4000,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "CarEnergyPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "CarEnergyPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.66,
+      "max": -0.58,
+      "intent": "fuel burned with no speed to gain is paid as a loss of about -0.63 (-47 at weight 75)"
+    }
+  ],
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ]
+}
