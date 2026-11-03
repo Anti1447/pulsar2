@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "name": "team_pressure_a_car_far_out_of_range_is_charged_even_when_closing_fast",
-  "description": "1v1: blue starts 4500 uu from the ball (beyond the 4000 closing range) rolling at 1000 uu/s toward it. While it is beyond 4000 uu it is charged -1 per step; it crosses 4000 uu after about 500 uu of travel (about 7-8 steps at 1000+ uu/s) and from then on pays 0. Expectation: between -12 and -5 in all, and exactly 0 over the last 15 steps.",
+  "name": "team_pressure_a_car_far_out_of_range_is_charged_less_as_it_closes",
+  "description": "1v1: blue starts 4500 uu from the ball and rolls at 1000 uu/s (throttle on) toward it. Its projected distance is d - 2 s x min(speed, 1000): 2500 at the start (charge 0.5) and falling by about 67 uu a step as it closes (the charge is the smoothstep of (d_eff - 2000) / 1000), so the charge fades from -0.5 to 0 over the first 7-8 steps instead of the old flat -1 until it crossed 4000 uu (old total -6). Expectation: a total between -3.5 and -1.0, and exactly 0 over the last 15 steps.",
   "tags": [
     "team_pressure",
     "golden",
@@ -73,9 +73,9 @@
         1,
         40
       ],
-      "min": -12.0,
-      "max": -5.0,
-      "intent": "charged only while beyond 4000 uu"
+      "min": -3.5,
+      "max": -1.0,
+      "intent": "charged only until the projected distance reaches 2000 uu"
     },
     {
       "kind": "reward_sum",

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "team_pressure_overlap_with_ball_proximity_on_a_long_approach",
-  "description": "1v1 with BOTH rewards on (BallProximity weight 4 gamma 0.9969, TeamPressure weight 0.15, both ZeroSum 0.3): blue starts 4600 uu from the ball and drives toward it for 75 steps (5 s); orange is parked 1500 uu from the ball (pressuring, so it is never charged). Read the per-step weighted traces: TeamPressure is a flat cliff (-0.15 per step while beyond 4000 uu, then 0 once closing), BallProximity a smooth climb. The expectation bands only pin the totals.",
+  "description": "1v1 with BOTH rewards on (BallProximity weight 4 gamma 0.9969, TeamPressure weight 0.15, both ZeroSum 0.3): blue starts 4600 uu from the ball and drives toward it for 75 steps (5 s); orange is parked 1500 uu from the ball (pressuring, so it is never charged). Read the per-step weighted traces: TeamPressure is a smooth fade (from -0.15 x 0.65 at the start to 0 as the projected distance reaches 2000 uu), BallProximity a smooth climb. The expectation bands only pin the totals.",
   "tags": [
     "team_pressure",
     "overlap"

@@ -261,9 +261,13 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 
 		// TEAM PRESSURE (2026-07-19, user-directed; RLGym-PPO-guide item): someone
 		// must be on the ball. -0.15/step (~ -2.25/s; a 5s collective lapse costs
-		// ~7% of a goal) while no alive teammate is near the ball or closing on it
-		// (see TeamPressureReward - shadow defense counts as pressure by
-		// construction, so this bites only on genuine collective disengagement).
+		// ~7% of a goal) while no alive teammate is near the ball or closing on it.
+		// SMOOTHED 2026-11-03: the charge is the smoothstep of a projected distance
+		// (d - 2s x min(closing speed, 1000)) over a 2000-3000uu window instead of two
+		// hard cliffs, and a demolished player's own row is 0. Team-level, <= -1 per
+		// step in every mode (see TeamPressureReward - shadow defense counts as
+		// pressure by construction, so this bites only on genuine collective
+		// disengagement). TODO: tune tau / cap / window on real results.
 		// Zero-sum: charged relative to the opponent's own pressure state; mutual
 		// passivity cancels (accepted - TimeCost still taxes it). Watch
 		// Rewards/TeamPressureReward and the next aerial-census conversion read.

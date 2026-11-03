@@ -1,0 +1,154 @@
+{
+  "schema": 1,
+  "name": "team_pressure_2v2_the_team_reads_its_best_covered_car",
+  "description": "2v2 (cars blue0, orange0, blue1, orange1): blue0 is parked 4500 uu out (lapse 1) and blue1 2500 uu (3D) out (lapse 0.5): the team lapse is the minimum, 0.5, and BOTH blue cars read -0.5 per step (-15 over 30 steps). Both orange cars are within 1600 uu, so they read 0. ZeroSum at team spirit 0.3: each blue car -0.5 (own = team average = -0.5), each orange +0.5.",
+  "tags": [
+    "team_pressure",
+    "golden",
+    "2v2",
+    "team"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -4500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -2498.844532979193,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        1500,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "TeamPressureReward",
+      "weight": 0.15,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -15.1,
+      "max": -14.9,
+      "intent": "blue0 is covered by blue1 at half strength"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -15.1,
+      "max": -14.9,
+      "intent": "blue1 reads the same team value"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "orange is covered"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -15.1,
+      "max": -14.9,
+      "intent": "-0.5 per step"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 14.9,
+      "max": 15.1,
+      "intent": "+0.5 per step"
+    }
+  ]
+}

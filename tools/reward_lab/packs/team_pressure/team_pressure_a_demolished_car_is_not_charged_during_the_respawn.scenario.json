@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "name": "team_pressure_a_demolished_lone_car_is_charged_for_the_whole_respawn",
-  "description": "1v1: blue (full tank) rams orange (idle, 2000 uu from the ball so it pays 0 before) at 2300 uu/s and demolishes it (DemoReward shows it, frame about 19). Every alive-teammate check skips a demolished car, and orange's team is only itself, so for the 45 steps it is demolished it reads -1 raw (frames 19 .. 63) whatever the ball does. FINDING: a demolished car in 1v1 is charged -0.15 weighted per step, -6.75 in all, on top of the Demo pair swing, unless the opponent is also off the ball.",
+  "name": "team_pressure_a_demolished_car_is_not_charged_during_the_respawn",
+  "description": "1v1: blue (full tank) rams orange (idle, 1500 uu from the ball so it pays 0 before) at 2300 uu/s and demolishes it (DemoReward shows it, frame about 19). FIXED 2026-11-03: a demolished player's own row is 0, so orange reads exactly 0 for the 45 steps it is demolished (frames 19 .. 63). Before the fix it read -1 for each of them (-45 raw, -6.75 weighted, an unintended +18% on the Demo swing).",
   "tags": [
     "team_pressure",
     "golden",
-    "finding",
+    "fixed",
     "respawn"
   ],
   "steps": 110,
@@ -43,7 +43,7 @@
   "ball": {
     "pos": [
       0,
-      -1500,
+      -1000,
       93
     ]
   },
@@ -81,7 +81,7 @@
       ],
       "min": -1e-09,
       "max": 1e-09,
-      "intent": "orange is 2000 uu from the ball: pressuring"
+      "intent": "orange is 1500 uu from the ball: pressuring"
     },
     {
       "kind": "reward_sum",
@@ -92,9 +92,9 @@
         19,
         63
       ],
-      "min": -45.000001,
-      "max": -44.999999,
-      "intent": "demolished: no alive car on the team"
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "demolished: not charged (was -45)"
     },
     {
       "kind": "reward_sum",

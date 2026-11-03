@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "name": "team_pressure_3v3_the_same_covering_car_gives_the_same_value",
+  "description": "3v3 (cars blue0, orange0, blue1, orange1, blue2, orange2): two blue cars are parked far (4500 and 4800 uu) and blue2 is parked 2500 uu (3D) out: all three blue cars read the team lapse 0.5, -0.5 per step (-15 over 30), the same value as in the 1v1 and 2v2 scenarios with the same covering car: the reward does not depend on the mode. The orange trio is within 1700 uu and reads 0. Weighted at 0.15: blue -0.075 per step each.",
+  "tags": [
+    "team_pressure",
+    "golden",
+    "3v3",
+    "team"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -4500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -600,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        -2000,
+        -4400,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -2498.844532979193,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        600,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "TeamPressureReward",
+      "weight": 0.15,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -15.1,
+      "max": -14.9,
+      "intent": "blue0"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -15.1,
+      "max": -14.9,
+      "intent": "blue1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 4,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -15.1,
+      "max": -14.9,
+      "intent": "blue2"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "orange is covered"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TeamPressureReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -2.262,
+      "max": -2.238,
+      "intent": "-0.075 per step at weight 0.15"
+    }
+  ]
+}
