@@ -93,6 +93,8 @@ TEST(TeamEnvSet_smoke_zero_sum_and_finite) {
 	CHECK_EQ(envSet.state.numPlayers, 2 + 4 + 6);
 	CHECK_EQ(envSet.obsSize, 230); // padded obs: 51 header + 6x29 slots + 5 presence flags
 
+	// EnvSet::numActions is declared but never assigned, so take the width from the parser
+	const int numActions = DefaultAction().GetActionAmount();
 	int resetsSeen = 0;
 	for (int step = 0; step < 600; step++) {
 		envSet.StepFirstHalf(false);
@@ -103,7 +105,7 @@ TEST(TeamEnvSet_smoke_zero_sum_and_finite) {
 			if (!envSet.state.actionMasks.Defined()) // first step: masks not built yet
 				continue;
 			std::vector<int> valid;
-			for (int a = 0; a < envSet.numActions; a++)
+			for (int a = 0; a < numActions; a++)
 				if (envSet.state.actionMasks.At(p, a))
 					valid.push_back(a);
 			if (!valid.empty())
