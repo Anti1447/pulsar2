@@ -247,7 +247,7 @@ phantom-farmable — source-verified exploit in GameEventTracker).
 
 Current live weights (HEAD): BallToGoalPotential **75** (already antisymmetric —
 no ZeroSum wrapper, that would double it), TouchAccel **10**, Demo **37.5**,
-BallProximityPotential **4** (team-closest, far-field linear term added in 5.0),
+BallProximityPotential **4** (spacing-aware team potential since 2026-11-03: rank weights 1, 1/2, 1/4 cut by a 500-1600uu crowding discount; far-field linear term added in 5.0),
 GuardedPickupBoost **6**, AerialTouch **120**, AirInterceptPotential **75**,
 ConsecutiveAirTouch **40**, WallJumpToBall **30**, OpposedSave **25**,
 CarEnergyPotential **75** (tempo credit), TimeCost **0.01** (not PBRS, not

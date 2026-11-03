@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "name": "ball_proximity_2v2_both_teammates_read_the_same_team_value",
+  "description": "2v2 (cars blue0, orange0, blue1, orange1): blue0 is parked 309.5 uu from the resting ball and blue1 1501.9 uu away (gap 1192, between the 500 and 1600 crowding bounds: crowding 0.310). The team potential is (w1*phi1 + w2*phi2) * 1.08 / 1.27815 = 0.8041 with w = (0.845, 0.5), the same for both blue cars; parked, each step pays the hold tax (gamma-1)*Phi = -0.00249, -0.0748 over 30 steps. (The closest-car-only form gave -0.0818 for blue0.)",
+  "tags": [
+    "ball_proximity",
+    "golden",
+    "2v2",
+    "team"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -300,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        -3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "BallProximityPotentialReward",
+      "weight": 4.0,
+      "zero_sum": 0.3,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.0750800444888045,
+      "max": -0.0744800444888045,
+      "intent": "blue0, the closest car"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.0750800444888045,
+      "max": -0.0744800444888045,
+      "intent": "blue1 reads the same team value"
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "name": "ball_proximity_2v2_the_second_man_shares_the_team_value",
-  "description": "2v2 (cars blue0, orange0, blue1, orange1): blue0 is parked 309.5 uu from the resting ball and blue1 1500 uu away. The team potential is the CLOSEST car's, so blue1's raw value equals blue0's (-0.00273 per step, -0.0819 over 30 steps): the second man neither gains nor loses by being farther.",
+  "name": "ball_proximity_2v2_a_rear_man_leaving_the_striker_is_paid",
+  "description": "2v2: blue0 is parked 310 uu from the ball and blue1 starts right beside it (about 365 uu from the ball, crowded: both weigh 1/2, potential 0.723) and drives straight away at 1000 uu/s for 30 steps (2 s, ending 2000+ uu out: spaced, weights 1 and 1/2, potential about 0.83). With the old closest-car-only form this was worth only the hold tax, -0.082 over the run; now the climb in potential outweighs the tax and the run pays about +0.059 at constant speed (hand estimate), measured about +0.03 because the car's speed varies. Both blue cars are paid the same. Band 0.0 .. 0.09.",
   "tags": [
     "ball_proximity",
     "golden",
     "2v2",
-    "team"
+    "spacing"
   ],
   "steps": 30,
   "cars": [
@@ -42,17 +42,17 @@
     {
       "team": "blue",
       "pos": [
-        0,
-        -1500,
+        250,
+        -300,
         17
       ],
       "vel": [
         0,
-        0,
+        -1000,
         0
       ],
       "angle_deg": {
-        "yaw": 90
+        "yaw": 270
       },
       "boost": 0
     },
@@ -76,7 +76,15 @@
       93
     ]
   },
-  "actions": [],
+  "actions": [
+    {
+      "car": 2,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
   "rewards": [
     {
       "name": "BallProximityPotentialReward",
@@ -95,9 +103,9 @@
         1,
         30
       ],
-      "min": -0.08212065335680765,
-      "max": -0.08172065335680764,
-      "intent": "blue0, the closest car"
+      "min": 0.0,
+      "max": 0.09,
+      "intent": "backing the second man off pays the team (the old form paid -0.082)"
     },
     {
       "kind": "reward_sum",
@@ -108,9 +116,9 @@
         1,
         30
       ],
-      "min": -0.08212065335680765,
-      "max": -0.08172065335680764,
-      "intent": "blue1 reads the same team value"
+      "min": 0.0,
+      "max": 0.09,
+      "intent": "and pays him the same"
     }
   ]
 }

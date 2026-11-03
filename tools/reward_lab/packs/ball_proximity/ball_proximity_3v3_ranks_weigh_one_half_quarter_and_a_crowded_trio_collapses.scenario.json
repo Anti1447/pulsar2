@@ -1,0 +1,184 @@
+{
+  "schema": 1,
+  "name": "ball_proximity_3v3_ranks_weigh_one_half_quarter_and_a_crowded_trio_collapses",
+  "description": "3v3 (cars in order blue0, orange0, blue1, orange1, blue2, orange2): blue is parked in a line 506 / 2501 / 4501 uu from the resting ball (gaps over 1600: no crowding), weights (1, 1/2, 1/4), potential 0.7481, hold tax -0.00232 per step (-0.0696 over 30 steps) for each blue car. Orange is parked as a trio side by side at 431 / 309 / 431 uu (all crowded: 1/4 each), potential 0.5130, tax -0.00159 per step (-0.0477), although they are all much closer to the ball.",
+  "tags": [
+    "ball_proximity",
+    "golden",
+    "3v3",
+    "team"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -300,
+        300,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -2500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        300,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -4500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        300,
+        300,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "BallProximityPotentialReward",
+      "weight": 4.0,
+      "zero_sum": 0.3,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.0698764380846828,
+      "max": -0.06927643808468281,
+      "intent": "blue0 reads the spaced team value"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.0698764380846828,
+      "max": -0.06927643808468281,
+      "intent": "blue1 the same"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 4,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.0698764380846828,
+      "max": -0.06927643808468281,
+      "intent": "blue2 the same"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.04800998823778816,
+      "max": -0.04740998823778816,
+      "intent": "orange0 reads the crowded trio value"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "BallProximityPotentialReward",
+      "of": "raw",
+      "car": 5,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.04800998823778816,
+      "max": -0.04740998823778816,
+      "intent": "orange2 the same"
+    }
+  ]
+}

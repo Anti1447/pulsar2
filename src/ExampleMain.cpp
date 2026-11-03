@@ -197,10 +197,10 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// so policy-invariance holds while the stack's biggest per-player PSD polluter becomes "be
 		// closer to the ball than the opponent". Weight halved (7.5 -> 4) since the ZS swing
 		// doubles. Never gate a potential.
-		// TEAM-CLOSEST since 2026-07-14 (4.0 team play): Phi = the closest alive TEAM car's
-		// proximity, so in 2v2/3v3 the race is "our nearest man vs theirs" and the 2nd/3rd man
-		// earns nothing for crowding the ball — per-player proximity was the stack's biggest
-		// ball-chasing gradient. Identical in 1v1 (team of one), see BallProximityPotentialReward.
+		// SPACING-AWARE TEAM POTENTIAL since 2026-11-03 (was team-closest since 2026-07-14): Phi = the alive team cars sorted by ball distance,
+		// weighted 1, 1/2, 1/4 and cut by a crowding discount between neighbours (full below a 500uu distance gap, none past 1600uu), scaled so the
+		// largest potential is 1.08 in 1v1, 2v2 and 3v3 (one weight for all modes). The closest man counts fully, the second and third still pay at a lower rate, and stacking on the
+		// ball is worth less than spreading. Identical in 1v1. TODO: tune the 500/1600uu bounds and the 1/2 decay on real 2v2/3v3 results.
 		{ new ZeroSumReward(new BallProximityPotentialReward(gamma), TEAM_SPIRIT), 4.f },
 
 		// Boost economy: demo-respawn guarded (mandatory under ZeroSum - without it the demoer is

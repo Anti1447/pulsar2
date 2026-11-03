@@ -1,5 +1,7 @@
 #include "TestFramework.h"
 
+#include <algorithm>
+#include <cmath>
 #include <RLGymCPP/Rewards/CommonRewards.h>
 #include <RLGymCPP/Rewards/ZeroSumReward.h>
 #include <RLGymCPP/Gamestates/GameState.h>
@@ -67,6 +69,21 @@ static float PerPlayerProx(Vec prevCar, Vec curCar, Vec prevBall, Vec curBall) {
 	return GAMMA * Phi(curBall, curCar) - Phi(prevBall, prevCar);
 }
 
+// Team potential oracle for 2+ cars (2026-11-03 spacing-aware form), restated here for the same reason as Phi: weights (1, 1/2, 1/4) cut by a
+// smoothstep crowding discount on the ball-distance gap between rank neighbours (1 at <= 500, 0 at >= 1600), scaled so the largest potential is 1.08 per mode.
+static float TeamOracle(Vec ball, std::vector<Vec> cars, int total) {
+	std::vector<float> d;
+	for (auto& c : cars) d.push_back((ball - c).Length());
+	std::sort(d.begin(), d.end());
+	int m = (int)d.size();
+	auto b = [](int k) { return powf(0.5f, (float)k); };
+	auto crowd = [](float gap) { float t = fminf(1.f, fmaxf(0.f, (gap - 500.f) / 1100.f)); return 1.f - t * t * (3.f - 2.f * t); };
+	float w = b(m - 1), sum = w * Phi(Vec(d[m - 1], 0, 0), Vec(0, 0, 0));
+	for (int k = m - 2; k >= 0; k--) { w = b(k) - (b(k) - w) * crowd(d[k + 1] - d[k]); sum += w * Phi(Vec(d[k], 0, 0), Vec(0, 0, 0)); }
+	const float maxSum = total <= 1 ? 1.08f : total == 2 ? 1.27815f : 1.32016f;   // the largest un-normalised sum per team size
+	return sum * 1.08f / maxSum;
+}
+
 TEST(BallProx_1v1_identical_to_per_player_form) {
 	StatePair sp(
 		{ Team::BLUE, Team::ORANGE },
@@ -108,33 +125,31 @@ TEST(BallProx_1v1_demo_guard_matches_old_behavior) {
 	CHECK_NEAR(r.GetReward(spSteady.cur.players[1], spSteady.cur, false), expOpp, 1e-6f);
 }
 
-TEST(BallProx_2v2_second_man_is_free) {
-	// Blue 0 is the closest man and static; blue 2 (second man) moves 500uu closer to
-	// the ball but stays much farther than blue 0. The team potential must not move.
+TEST(BallProx_2v2_second_man_counts_at_half_when_spaced_and_the_closest_man_still_pays_most) {
+	// Blue 0 is the closest man (803 uu) and static; blue 2 (second man, 3500 -> 3000 uu away: gap > 1600, no crowding) moves 500uu closer.
+	// Since 2026-11-03 the second man's distance counts at weight 1/2, so his approach pays (it was free in the closest-car form).
+	Vec B(0, 0, 93);
 	StatePair sp(
 		{ Team::BLUE, Team::ORANGE, Team::BLUE, Team::ORANGE },
 		{ Vec(0, -800, 17), Vec(0, 2000, 17), Vec(0, -3500, 17), Vec(0, 3500, 17) },
 		{ Vec(0, -800, 17), Vec(0, 2000, 17), Vec(0, -3000, 17), Vec(0, 3500, 17) },
-		Vec(0, 0, 93), Vec(0, 0, 93));
+		B, B);
 
 	BallProximityPotentialReward r(GAMMA);
-	// Team potential unchanged by the second man's approach: reward = (gamma-1)*Phi(closest)
-	// (distances are 3D: ball rests at z=93, cars at z=17)
-	float phiClosest = Phi(Vec(0, 0, 93), Vec(0, -800, 17));
-	float expected = GAMMA * phiClosest - phiClosest;
+	float expected = GAMMA * TeamOracle(B, { Vec(0, -800, 17), Vec(0, -3000, 17) }, 2) - TeamOracle(B, { Vec(0, -800, 17), Vec(0, -3500, 17) }, 2);
+	float holdTaxOnly = (GAMMA - 1.f) * TeamOracle(B, { Vec(0, -800, 17), Vec(0, -3500, 17) }, 2);
+	CHECK(expected > holdTaxOnly + 1e-4f);                              // the second man's approach is now worth something
 	for (int i : { 0, 2 })
 		CHECK_NEAR(r.GetReward(sp.cur.players[i], sp.cur, false), expected, 1e-6f);
 
-	// And the closest man advancing DOES move it, positively, by the same amount for
-	// both teammates (shared team credit)
+	// And the closest man advancing pays more than the second man advancing by the same distance, again equal for both teammates
 	StatePair sp2(
 		{ Team::BLUE, Team::ORANGE, Team::BLUE, Team::ORANGE },
 		{ Vec(0, -800, 17), Vec(0, 2000, 17), Vec(0, -3500, 17), Vec(0, 3500, 17) },
 		{ Vec(0, -600, 17), Vec(0, 2000, 17), Vec(0, -3500, 17), Vec(0, 3500, 17) },
-		Vec(0, 0, 93), Vec(0, 0, 93));
-	float expected2 = GAMMA * Phi(Vec(0, 0, 93), Vec(0, -600, 17))
-		- Phi(Vec(0, 0, 93), Vec(0, -800, 17));
-	CHECK(expected2 > 0);
+		B, B);
+	float expected2 = GAMMA * TeamOracle(B, { Vec(0, -600, 17), Vec(0, -3500, 17) }, 2) - TeamOracle(B, { Vec(0, -800, 17), Vec(0, -3500, 17) }, 2);
+	CHECK(expected2 > expected);
 	CHECK_NEAR(r.GetReward(sp2.cur.players[0], sp2.cur, false), expected2, 1e-6f);
 	CHECK_NEAR(r.GetReward(sp2.cur.players[2], sp2.cur, false), expected2, 1e-6f);
 }
@@ -152,8 +167,8 @@ TEST(BallProx_2v2_teammate_demo_skips_step_only) {
 	BallProximityPotentialReward r(GAMMA);
 	CHECK_NEAR(r.GetReward(sp.cur.players[0], sp.cur, false), 0.f, 1e-9f);
 	CHECK_NEAR(r.GetReward(sp.cur.players[2], sp.cur, false), 0.f, 1e-9f);
-	float expOrange = GAMMA * Phi(Vec(0, 0, 93), Vec(0, 1800, 17))
-		- Phi(Vec(0, 0, 93), Vec(0, 2000, 17));
+	Vec B(0, 0, 93);
+	float expOrange = GAMMA * TeamOracle(B, { Vec(0, 1800, 17), Vec(0, 3500, 17) }, 2) - TeamOracle(B, { Vec(0, 2000, 17), Vec(0, 3500, 17) }, 2);
 	CHECK_NEAR(r.GetReward(sp.cur.players[1], sp.cur, false), expOrange, 1e-6f);
 	CHECK_NEAR(r.GetReward(sp.cur.players[3], sp.cur, false), expOrange, 1e-6f);
 }
