@@ -28,6 +28,7 @@ namespace Lab {
 			{ "GoalReward",                [](const RewardSpec&) -> Reward* { return new GoalReward(); } },
 			{ "AerialTouchReward",         [](const RewardSpec&) -> Reward* { return new AerialTouchReward(); } },
 			{ "BallToGoalPotentialReward", [](const RewardSpec& s) -> Reward* { return new BallToGoalPotentialReward(s.gamma); } },
+			{ "AirInterceptPotentialReward", [](const RewardSpec& s) -> Reward* { return new AirInterceptPotentialReward(s.gamma); } },
 		};
 		return reg;
 	}

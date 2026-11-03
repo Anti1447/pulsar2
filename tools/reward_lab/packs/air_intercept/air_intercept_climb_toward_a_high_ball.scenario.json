@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "name": "air_intercept_climb_toward_a_high_ball",
+  "description": "The car is airborne at z 300 climbing at 1000 uu/s straight under a ball at z 1100 (no boost; both fall at the same gravity, so the gap closes at 1000 uu/s, from 800 uu). In 8 steps (0.53 s) the gap is 267 uu with the car at z about 741 and the ball at about 1008. Hand calc (independent script): Phi 0.1975 at the start, 0.4505 at step 8; sum = gamma * Phi(8) - Phi(0) plus the small leak = about +0.243 (about +18 at weight 75). The touch comes after step 9, so frames 1-8 are the approach only. The ball starts with a 1 uu/s upward velocity on purpose: in the engine a ball set with EXACTLY zero velocity in the air does not fall (it floats, measured), while any nonzero velocity makes it fall normally. Training's state setters all give the ball a random nonzero velocity.",
+  "tags": [
+    "air_intercept",
+    "golden"
+  ],
+  "steps": 8,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        0,
+        300
+      ],
+      "vel": [
+        0,
+        0,
+        1000
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -1400,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      1100
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "AirInterceptPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "AirInterceptPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        8
+      ],
+      "min": 0.233,
+      "max": 0.253,
+      "intent": "climbing toward a high ball pays the potential difference, about +0.24"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "AirInterceptPotentialReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        8
+      ],
+      "min": 17.5,
+      "max": 19.0,
+      "intent": "about +18 at weight 75 for a 0.5 s climb"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "AirInterceptPotentialReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        8
+      ],
+      "min": -5e-05,
+      "max": 5e-05,
+      "intent": "the grounded orange car (carFrac about 0) earns nothing, under 5e-5"
+    }
+  ]
+}

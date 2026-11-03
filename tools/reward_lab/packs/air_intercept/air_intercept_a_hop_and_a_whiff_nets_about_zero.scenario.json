@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "name": "air_intercept_a_hop_and_a_whiff_nets_about_zero",
+  "description": "The car holds jump for 3 steps (a full-height hop, about 200 uu) under a ball that floats at z 1500, then lands without ever getting near it. Phi is tiny in the air (carFrac under 0.4, ball 1300 uu away) and 0 on the ground, so the climb is refunded on landing: the sum is only the discount leak (gamma - 1) * the few Phi values, under 0.01 in size. The ball starts with a 1 uu/s upward velocity on purpose: in the engine a ball set with EXACTLY zero velocity in the air does not fall (it floats, measured), while any nonzero velocity makes it fall normally. Training's state setters all give the ball a random nonzero velocity.",
+  "tags": [
+    "air_intercept",
+    "farming"
+  ],
+  "steps": 25,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -1400,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      1500
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "AirInterceptPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "AirInterceptPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        25
+      ],
+      "min": -0.006,
+      "max": 0.0001,
+      "intent": "a hop toward a high ball and a landing nets about zero (never positive): the attempt is nearly free"
+    }
+  ],
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "jump": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 3,
+      "action": {
+        "jump": 0
+      }
+    }
+  ]
+}

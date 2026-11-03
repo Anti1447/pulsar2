@@ -26,6 +26,8 @@ build-lab/lab_tests
 
 `build.sh` caches objects per `.cpp`; after editing a header the library includes (`Reward.h`, `GameState.h`, ...) run it with `FORCE=1`.
 
+**Scenario caution (measured 2026-11-02):** a ball set with EXACTLY zero velocity in the air does not fall; it floats where it was put (test: z 1100 stays 1100 for 10 steps with velocity (0,0,0), but falls normally with (0,0,1) or (1,0,0)). Give an airborne ball a small nonzero velocity if it should fall. Training's state setters (AirDrill, AirPlay, BallNearCar) all give the ball a random nonzero velocity, so this affects hand-written scenarios, not training.
+
 ## The viewer (P2)
 
 ```bash

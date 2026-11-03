@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "name": "air_intercept_grounded_car_under_a_high_ball_earns_nothing",
+  "description": "The car idles on the ground right under a ball at z 1200 that falls for 15 steps (1 s, to about z 875). A grounded car has carFrac 0, so Phi is (almost) 0 for the whole run: the car rests at z 17.04, so carFrac is about 1e-4 and the sum is a few 1e-6: parking under a dropping ball pays nothing. The ball starts with a 1 uu/s upward velocity on purpose: in the engine a ball set with EXACTLY zero velocity in the air does not fall (it floats, measured), while any nonzero velocity makes it fall normally. Training's state setters all give the ball a random nonzero velocity.",
+  "tags": [
+    "air_intercept",
+    "gate",
+    "farming"
+  ],
+  "steps": 15,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -1400,
+        1500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      1200
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "AirInterceptPotentialReward",
+      "weight": 75.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "AirInterceptPotentialReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        15
+      ],
+      "min": -5e-05,
+      "max": 5e-05,
+      "intent": "a car that stays on the floor earns nothing (under 5e-5 in all) whatever the ball does"
+    }
+  ]
+}

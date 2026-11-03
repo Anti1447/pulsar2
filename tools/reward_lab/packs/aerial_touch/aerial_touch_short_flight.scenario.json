@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "aerial_touch_short_flight",
-  "description": "Blue car is already airborne at z 800 (airTime 0 at frame 0) and flies at 1500 uu/s into a ball floating at z 830. Car and ball fall together, so the hit lands about 0.2-0.3 s into the flight (3-4 steps). Hand calc: airFrac = 0.2-0.3 / 1.75 = 0.11-0.17; ballFrac = (about 810 - 150) / 1300 = 0.5, so heightFrac = airFrac (the MIN); the ball takes well over 500 uu/s of delta-v so impulseFrac = 1. Reward is about 0.11-0.17, a fraction of the full 1.0.",
+  "description": "Blue car is already airborne at z 800 (airTime 0 at frame 0) and flies at 1500 uu/s into a ball floating at z 830. The ball is set with exactly zero velocity, and the engine then holds it in place (it does not fall: measured), so it stays at z 830; the car flies at it and the hit lands about 0.2-0.3 s into the flight (3-4 steps). Hand calc: airFrac = 0.2-0.3 / 1.75 = 0.11-0.17; ballFrac = (830 - 150) / 1300 = 0.52, so heightFrac = airFrac (the MIN); the ball takes well over 500 uu/s of delta-v so impulseFrac = 1. Reward is about 0.11-0.17, a fraction of the full 1.0.",
   "tags": [
     "aerial_touch",
     "golden"
