@@ -183,7 +183,7 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// gaeGamma (threaded from TRAIN_GAMMA) or the potential stops telescoping against GAE.
 		{ new BallToGoalPotentialReward(gamma), 75.f },
 
-		// Touch quality (Nexto touch_accel): pays only for adding ball speed, ~10 total 0->130kph (cap raised from 110, 2026-10-27),
+		// Touch quality (Nexto touch_accel): pays only for adding ball speed, ~10 total 0->110kph (cap 130 tried 2026-10-27, back to 110 on 2026-11-03),
 		// zero-sum so touches can't be co-farmed. Produced the 1933uu/s goal speed.
 		{ new ZeroSumReward(new TouchAccelReward(), TEAM_SPIRIT), 10.f },
 
