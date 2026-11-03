@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "name": "kickoff_outcome_1v1_standoff_charges_both_minus_0p6",
+  "description": "Nobody moves. After 3.0 s (45 steps; the float clock pays on frame 46) everyone is charged -0.6 once and the kickoff is closed. In 1v1 both cars are takers, so both pay the full -0.6 (-7.2 at weight 12). Not zero-sum: both teams lose.",
+  "tags": [
+    "kickoff_outcome",
+    "standoff"
+  ],
+  "steps": 80,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2048,
+        -2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 51.34
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "orange",
+      "pos": [
+        2048,
+        2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 231.34
+      },
+      "boost": 33.33
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "KickoffOutcomeReward",
+      "weight": 12.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        80
+      ],
+      "min": -0.6000001,
+      "max": -0.5999999,
+      "intent": "a standoff costs the blue taker exactly 0.6"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        80
+      ],
+      "min": -0.6000001,
+      "max": -0.5999999,
+      "intent": "and the orange taker the same: both teams lose"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        80
+      ],
+      "min": -7.2001,
+      "max": -7.1999,
+      "intent": "x12 = -7.2 per car"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        46
+      ],
+      "min": -0.6000001,
+      "max": -0.5999999,
+      "intent": "paid by frame 46 at the latest (and never again)"
+    }
+  ]
+}

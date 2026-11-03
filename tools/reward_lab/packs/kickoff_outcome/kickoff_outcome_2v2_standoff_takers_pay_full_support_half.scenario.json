@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "name": "kickoff_outcome_2v2_standoff_takers_pay_full_support_half",
+  "description": "2v2, nobody moves: the diagonal cars (3277 uu from the ball) are the takers and pay -0.6; the back cars (4608 uu) are support and pay half, -0.3.",
+  "tags": [
+    "kickoff_outcome",
+    "standoff",
+    "2v2"
+  ],
+  "steps": 80,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2048,
+        -2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 51.34
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "orange",
+      "pos": [
+        2048,
+        2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 231.34
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -4608,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        4608,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 33.33
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "KickoffOutcomeReward",
+      "weight": 12.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        80
+      ],
+      "min": -0.6000001,
+      "max": -0.5999999,
+      "intent": "blue taker -0.6"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        80
+      ],
+      "min": -0.6000001,
+      "max": -0.5999999,
+      "intent": "orange taker -0.6"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        80
+      ],
+      "min": -0.3000001,
+      "max": -0.2999999,
+      "intent": "blue support -0.3"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 3,
+      "steps": [
+        1,
+        80
+      ],
+      "min": -0.3000001,
+      "max": -0.2999999,
+      "intent": "orange support -0.3"
+    }
+  ]
+}

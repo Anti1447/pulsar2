@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "kickoff_outcome_close_contested_win_can_still_score_negative",
+  "description": "1v1 along the kickoff axis: blue starts at (0,-1200), orange at (0,1400), both boost straight at the ball. Blue touches first (frame 17) and orange touches on the very next frames, so the ball pops up at the centre (frame 48: y = -208, vy = -142, in the air). At the payout (31 steps after the first touch, frame 48) blue's terms are: field 0.4*(-208/2500) = -0.033, possess: the last touch step (frame 18) had BOTH cars touching and the engine's last-touch id is the highest player index, orange: -0.2, momentum 0.15*(-142/2300) = -0.009 (the ball is moving toward blue's own goal), first touch +0.15. Blue = -0.093, orange = +0.093 (-1.1 / +1.1 weighted at 12): the player who won the race by a step is scored negative because the ball sits on orange's side after the scrap. Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
+  "tags": [
+    "kickoff_outcome",
+    "golden"
+  ],
+  "steps": 90,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1200,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1400,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffOutcomeReward",
+      "weight": 12.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        40
+      ],
+      "intent": "blue touches the ball"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        90
+      ],
+      "min": -0.1,
+      "max": -0.085,
+      "intent": "blue won the race by touching first but the ball ends slightly on its own side: -0.093"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        90
+      ],
+      "min": 0.085,
+      "max": 0.1,
+      "intent": "orange is paid the exact opposite: 1v1 is antisymmetric (zero-sum)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        90
+      ],
+      "min": -1.2,
+      "max": -1.02,
+      "intent": "x12 = about -1.1"
+    }
+  ]
+}

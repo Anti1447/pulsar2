@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "kickoff_outcome_dead_even_tie_is_scored_by_who_touches_last_FINDING",
+  "description": "FINDING (current behaviour): a symmetric 50/50. Blue at (0,-1300) and orange at (0,1300) boost at the ball and both touch it on the same step (frame 17), so firstTouch is 0 for both. The ball is then fought over and ends in the air at the centre (frame 48: y = -106, vy = -706). The only large term left is possession, which is the team of `gs.lastTouchCarID`: on this run the last touch step (frame 48) was blue alone, so blue +0.2 and orange -0.2, giving blue +0.137 / orange -0.137 (+1.6 / -1.6 weighted). With the other order the same race would score the other way: a pure tie is scored by who happens to touch last, and when both touch on the same step the engine's id is the higher player index (orange). Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
+  "tags": [
+    "kickoff_outcome",
+    "finding"
+  ],
+  "steps": 90,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1300,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1300,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffOutcomeReward",
+      "weight": 12.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        30
+      ],
+      "intent": "blue touches"
+    },
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 1,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        30
+      ],
+      "intent": "orange touches"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        90
+      ],
+      "min": 0.13,
+      "max": 0.145,
+      "intent": "a dead-even race scores +0.137 for blue on this run (possession decided by last touch)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        90
+      ],
+      "min": -0.145,
+      "max": -0.13,
+      "intent": "and the mirror for orange"
+    }
+  ]
+}

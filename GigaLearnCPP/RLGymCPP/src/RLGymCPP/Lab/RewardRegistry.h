@@ -12,6 +12,7 @@
 #include "../Rewards/OffsidePenalty.h"
 #include "../Rewards/PassingSetupRewards.h"
 #include "../Rewards/ZeroSumReward.h"
+#include "../Rewards/KickoffOutcomeReward.h"
 #include <functional>
 #include <map>
 
@@ -31,6 +32,7 @@ namespace Lab {
 			{ "AirInterceptPotentialReward", [](const RewardSpec& s) -> Reward* { return new AirInterceptPotentialReward(s.gamma); } },
 			{ "WallJumpToBallReward",      [](const RewardSpec& s) -> Reward* { return new WallJumpToBallReward(s.gamma); } },
 			{ "KickoffRaceReward",         [](const RewardSpec&) -> Reward* { return new KickoffRaceReward(); } },
+			{ "KickoffOutcomeReward",      [](const RewardSpec&) -> Reward* { return new KickoffOutcomeReward(); } },
 		};
 		return reg;
 	}

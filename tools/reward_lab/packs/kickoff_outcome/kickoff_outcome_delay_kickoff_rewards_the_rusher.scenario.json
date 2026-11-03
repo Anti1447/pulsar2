@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "name": "kickoff_outcome_delay_kickoff_rewards_the_rusher",
+  "description": "Blue boosts at the ball from (0,-1200); orange never moves (it sits far away at (3000,4000), a delay kickoff). Blue touches at frame 17 and drives the ball 2340 uu toward the orange half by the payout (frame 48: y = 2340, vy = 905). Blue = 0.4*clip(2340/2500=0.936) + 0.2 + 0.15*(905/2300) + 0.15 = 0.783; orange = -0.783 (+9.4 / -9.4 at weight 12). KickoffRace pays 0 here (uncontested), KickoffOutcome has no contested gate and pays the rusher in full. Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
+  "tags": [
+    "kickoff_outcome",
+    "gate"
+  ],
+  "steps": 90,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1200,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        4000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffOutcomeReward",
+      "weight": 12.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        40
+      ],
+      "intent": "blue touches the ball"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        90
+      ],
+      "min": 0.77,
+      "max": 0.8,
+      "intent": "rushing a delay kickoff and winning the ball far upfield pays +0.78"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        90
+      ],
+      "min": -0.8,
+      "max": -0.77,
+      "intent": "and charges the idle orange car the same"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffOutcomeReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        90
+      ],
+      "min": 9.2,
+      "max": 9.6,
+      "intent": "about +9.4 weighted"
+    }
+  ]
+}
