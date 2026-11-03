@@ -28,6 +28,9 @@ namespace GGL {
 		case ModelActivationType::TANH:
 			seq->push_back(torch::nn::Tanh());
 			return;
+		case ModelActivationType::GELU:
+			seq->push_back(torch::nn::GELU());
+			return;
 		}
 
 		RG_ERR_CLOSE("Unknown activation function type: " << (int)type);

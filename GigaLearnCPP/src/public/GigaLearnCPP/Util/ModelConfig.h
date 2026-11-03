@@ -14,11 +14,15 @@ namespace GGL {
 		MUON
 	};
 
+	// Never serialized either: a checkpoint holds no activation, so one loads into a model with the
+	// wrong activation without any error and then plays wrong. Each lineage's ExampleMain config is
+	// the only record of which it uses.
 	enum class ModelActivationType {
 		RELU,
 		LEAKY_RELU,
 		SIGMOID,
-		TANH
+		TANH,
+		GELU      // Exact (erf) GELU
 	};
 
 	// Doesn't include inputs or outputs

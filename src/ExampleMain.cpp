@@ -1008,6 +1008,14 @@ int main(int argc, char* argv[]) {
 
 	cfg.ppo.sharedHead.layerSizes = { 1152, 1152, 1152 };  // stem + 1 residual block
 	cfg.ppo.policy.layerSizes = { 768, 768, 768 };         // SHRUNK: stem + 1 block
+	// 6.0 (2026-11-01, user-directed): a shallower trunk feeding deeper heads. Shared head 2 deep (a stem and one
+	// plain layer: {W,W} gets no residual block), policy 4 deep and wider (stem + 1 block + a trailing plain layer,
+	// ~2.14M -> ~3.9M params). The critic side gets its 4 below the trunk from critic_trunk 2 + each head's 2 (below).
+	// The 5.3/GCO lineage keeps the sizes above: its checkpoints have those shapes.
+	if (g_BallPredObs) {
+		cfg.ppo.sharedHead.layerSizes = { 1152, 1152 };
+		cfg.ppo.policy.layerSizes = { 1024, 1024, 1024, 1024 };
+	}
 
 	// SECOND SHARED TRUNK, VALUE-SIDE ONLY (2026-07-29, user-directed). The four value heads used
 	// to be four independent 5x1280 stacks reading the main trunk (critic + vdag1 + vdag2, which
@@ -1027,6 +1035,9 @@ int main(int argc, char* argv[]) {
 	// COMPOSITION_CRITIC.md section 4.4 measured (H inflating 0.3 -> 11.8 with nothing behind it).
 	// If params must come down further, take them from critic_trunk's depth, not the heads'.
 	cfg.ppo.criticTrunk.layerSizes = { 1280, 1280, 1280 };
+	// 6.0: 2 deep, so the value path below the shared head is 4 (trunk 2 + the 2-layer floor per head kept)
+	if (g_BallPredObs)
+		cfg.ppo.criticTrunk.layerSizes = { 1280, 1280 };
 	cfg.ppo.criticTrunk.addOutputLayer = false;  // it is a body; MakeModels asserts this
 	cfg.ppo.critic.layerSizes = { 1280, 1280 };  // private head on top of critic_trunk
 	// Reachability phi/psi are CONTRASTIVE/regression heads, not value
@@ -1058,13 +1069,19 @@ int main(int argc, char* argv[]) {
 	// were chosen as Adam LRs that transfer to Muon RMS-matched, so it lands with the cold start.
 	cfg.ppo.goalCritic.model.optimType = optim;
 
-	auto activation = ModelActivationType::LEAKY_RELU;
+	// 6.0 (2026-11-01, user-directed): GELU everywhere, critic_trunk included (5.3 never set its activation,
+	// so it fell through to PartialModelConfig's RELU default, the same way the goal critic's optimizer once
+	// did). The 5.3/GCO lineage keeps LeakyReLU and its RELU critic trunk: an activation isn't stored in a
+	// checkpoint, so a GCO checkpoint would load under GELU without error and play wrong.
+	auto activation = g_BallPredObs ? ModelActivationType::GELU : ModelActivationType::LEAKY_RELU;
 	cfg.ppo.policy.activationType = activation;
 	cfg.ppo.critic.activationType = activation;
 	cfg.ppo.sharedHead.activationType = activation;
 	cfg.ppo.reachability.phi.activationType = activation;
 	cfg.ppo.reachability.psi.activationType = activation;
 	cfg.ppo.goalCritic.model.activationType = activation;
+	if (g_BallPredObs)
+		cfg.ppo.criticTrunk.activationType = activation;
 
 	bool addLayerNorm = true;
 	cfg.ppo.policy.addLayerNorm = addLayerNorm;

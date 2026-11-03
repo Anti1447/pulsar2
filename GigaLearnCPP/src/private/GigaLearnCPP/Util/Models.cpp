@@ -72,6 +72,8 @@ torch::Tensor GGL::ForwardSeqModule(const std::shared_ptr<torch::nn::Module>& mo
 		return act->forward(x);
 	if (auto act = std::dynamic_pointer_cast<torch::nn::ReLUImpl>(mod))
 		return act->forward(x);
+	if (auto act = std::dynamic_pointer_cast<torch::nn::GELUImpl>(mod))
+		return act->forward(x);
 	if (auto act = std::dynamic_pointer_cast<torch::nn::SigmoidImpl>(mod))
 		return act->forward(x);
 	if (auto act = std::dynamic_pointer_cast<torch::nn::TanhImpl>(mod))
