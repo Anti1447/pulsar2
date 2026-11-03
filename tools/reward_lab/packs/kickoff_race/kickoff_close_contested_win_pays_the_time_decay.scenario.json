@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "kickoff_close_contested_win_pays_the_time_decay",
+  "description": "A contested kickoff in miniature: the ball rests at the centre; blue starts 1200 uu away and orange 1400 uu away on the other side, both boost straight at it. Blue gets there first (a few steps ahead); orange is within 1500 uu of the ball at that moment, so the touch is contested. Hand calc: blue's nose reaches the ball after about 1050 uu, about 0.9 s under full throttle and boost = about step 14, so the reward is 1 - 14/30 = 0.53 (a touch at step k pays 1 - k/30). Orange earns nothing in the raw reward (the kickoff is resolved by blue's first touch).",
+  "tags": [
+    "kickoff",
+    "golden"
+  ],
+  "steps": 45,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -1200,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        1400,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffRaceReward",
+      "weight": 60.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        30
+      ],
+      "intent": "blue touches the ball inside the 30-step window"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        45
+      ],
+      "min": 0.4,
+      "max": 0.7,
+      "intent": "a fast contested first touch pays about 1 - k/30 = 0.5 (k about 14)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        45
+      ],
+      "min": 24,
+      "max": 42,
+      "intent": "about +32 at weight 60 for a quick contested win"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        45
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the raw reward pays only the first toucher"
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "name": "kickoff_delay_touch_pays_nothing",
+  "description": "The same blue rush, but orange simply stays at its spawn far away at (0, 4608) and does not move (a delay kickoff). At blue's touch no opponent is within 1500 uu of the ball or closing on it, so the kickoff is not contested and the touch pays 0: the reward cannot be farmed by rushing into a hang-back.",
+  "tags": [
+    "kickoff",
+    "gate",
+    "failing"
+  ],
+  "steps": 45,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -1200,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        4608,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffRaceReward",
+      "weight": 60.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        30
+      ],
+      "intent": "blue does touch the ball inside the window"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        45
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "an uncontested (delay) touch pays nothing"
+    }
+  ]
+}

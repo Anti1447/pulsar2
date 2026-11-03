@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "kickoff_standard_diagonal_rush_touches_after_the_window_FINDING",
+  "description": "FINDING (current behaviour): both cars start on the real diagonal kickoff spots, (-2048, -2560) and (2048, 2560), facing the ball with a full tank, and boost straight at it. Measured in the engine: the first touch comes at frame 31 (2.07 s). The reward's window is 30 steps (2.0 s), so even this best straight-line kickoff pays NOTHING (steps 31 > 30). Back and offset kickoffs touch at frames 35-40. See the log: the window is shorter than a physical kickoff.",
+  "tags": [
+    "kickoff",
+    "finding"
+  ],
+  "steps": 50,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2048,
+        -2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 51.34
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        2048,
+        2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 231.34
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffRaceReward",
+      "weight": 60.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": false,
+      "mode": "all",
+      "steps": [
+        1,
+        30
+      ],
+      "intent": "nobody touches the ball inside the window"
+    },
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        31,
+        50
+      ],
+      "intent": "the first touch comes just after it (frame 31)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "FINDING: the best straight-line kickoff pays 0 because the touch lands one step outside the window"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "and nothing to the opponent"
+    }
+  ]
+}

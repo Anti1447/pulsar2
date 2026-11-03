@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "kickoff_close_tie_pays_only_the_first_player_FINDING",
+  "description": "FINDING (current behaviour): a symmetric 50/50. Both cars start 1300 uu from the ball on opposite sides and boost at it, so they touch on the same step. The first toucher in player order (blue, index 0) sets `resolved` and is paid 1 - k/30; orange, touching on the very same step, is then skipped and gets 0. With the ZeroSum wrapper orange is also charged blue's payment as the 'loser', although it touched at the same time.",
+  "tags": [
+    "kickoff",
+    "finding"
+  ],
+  "steps": 45,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -1300,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        1300,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffRaceReward",
+      "weight": 60.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        30
+      ],
+      "intent": "blue touches the ball inside the window"
+    },
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 1,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        30
+      ],
+      "intent": "orange touches the ball inside the window too"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        45
+      ],
+      "min": 0.35,
+      "max": 0.75,
+      "intent": "blue is paid for the contested touch (1 - k/30)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        45
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "FINDING: orange, touching on the same step, gets 0 (and is charged blue's payment by the ZeroSum wrapper)"
+    }
+  ]
+}
