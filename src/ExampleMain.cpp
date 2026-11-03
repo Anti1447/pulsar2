@@ -277,7 +277,10 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// first touch (step 31-40) pays 1 - k/45 = 0.31-0.11, i.e. +19..+7 weighted, and
 		// an exact tie cancels in the zero-sum; small in the stack average since it
 		// only fires on kickoff resets.
-		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 60.f },
+		// DELIBERATELY OFF (2026-11-03, user-directed): add it, with KickoffOutcome, only after the bot hits the ball and scores, so the
+		// kickoff terms do not give an early strong signal (ZeroSum charges the loser of every contested race). Audited and fixed
+		// 2026-11-02 (docs/REWARD_CHANGE_LOG.md); re-enable by restoring the line below at weight 60 and re-reading the log.
+		// { new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 60.f },
 
 		// CONSECUTIVE AIR TOUCHES (2026-10-27): chain of airborne touches without landing
 		// (aerial dribble / juggle). Exact PBRS: Phi = 1 - exp(-(streak-1)/2); landing refunds

@@ -3,7 +3,7 @@
 Written 2026-11-03 (updated the same day for the three KickoffOutcome fixes) from the two audits (`REWARD_CHANGE_LOG.md`, 2026-11-02 and 2026-11-03), `tests/test_reward_audit_kickoffrace.cpp`, `tests/test_reward_audit_kickoffoutcome.cpp`, `tests/test_kickoff_permutations.cpp`, `tests/test_kickoff_outcome_permutations.cpp` and the packs `tools/reward_lab/packs/kickoff_race` and `kickoff_outcome`. Numbers are from the real engine over all 85 kickoff layouts (5 + 20 + 60 ordered spawn-spot choices for 1v1 / 2v2 / 3v3), or from the pack scenarios.
 
 ## Status in the stack
-- **KickoffRace**: live, weight 60, `ZeroSumReward(…, 0.3)`.
+- **KickoffRace**: commented out of `BuildRewards()` on 2026-11-03 (user-directed, until the bot hits the ball and scores); weight was 60, `ZeroSumReward(…, 0.3)`.
 - **KickoffOutcome**: ported from RLGymBot_v3, commented out in `BuildRewards()` (v3 weight 12), no registered Lab/W&B use yet. Its own header says it overlaps KickoffRace.
 
 ## Side by side
@@ -32,5 +32,5 @@ Written 2026-11-03 (updated the same day for the three KickoffOutcome fixes) fro
 
 ## If both are used
 - Both now share the contested gate. Outcome's possession term was fixed (latest touch step, 0 on a double).
-- Plan (user, 2026-11-03): add Outcome AND Race only after the bot hits the ball and scores, to avoid an early strong negative signal (Outcome's flat standoff -0.6 x weight; Race's ZeroSum charge to the loser). Outcome is already commented out; Race is still live in `BuildRewards()` at the time of writing.
+- Plan (user, 2026-11-03): add Outcome AND Race only after the bot hits the ball and scores, to avoid an early strong negative signal (Outcome's flat standoff -0.6 x weight; Race's ZeroSum charge to the loser). Outcome is already commented out; Race was commented out of `BuildRewards()` on 2026-11-03 for the same reason (both kickoff terms are now off).
 - Re-check the weights together: a 12-weight Outcome gives up to +/-12, Race at 60 gives about 7-19; the standoff -7.2 dominates both early in training.

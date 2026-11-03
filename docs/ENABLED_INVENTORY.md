@@ -123,7 +123,7 @@ smoke: trunk 927/1152, policy 88/90, 0 dead units.
 
 BallToGoal **75**, TouchAccel 10, Demo 37.5, BallProximity 4, GuardedPickupBoost 6,
 AerialTouch **120**, AirIntercept **75**, ConsecutiveAirTouch **40**, WallJumpToBall **30** (was 60; lowered 2026-11-02 after the detector fix),
-OpposedSave 25, **CarEnergy 75**, TimeCost 0.01, TeamPressure 0.15, KickoffRace 60, Goal 150.
+OpposedSave 25, **CarEnergy 75**, TimeCost 0.01, TeamPressure 0.15, KickoffRace 60 (OFF since 2026-11-03, see the log), Goal 150.
 (Re-read from `ExampleMain.cpp` 2026-10-27; FlipReset and AirReward are no longer in the stack.
 ConsecutiveAirTouch/WallJumpToBall were raised from 30/30 and are unmeasured at the new weights -
 `REWARD_SHAPING.md` section 3.4 reflects 30/30.)
