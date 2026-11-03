@@ -419,6 +419,25 @@ Kickoff 0.10 / Random 0.25) is fixed and non-adaptive, which is what C1 asks for
   episode boundaries must let the critic learn the new return structure. Full post-mortem:
   `research/reports/STEERED_PRACTICE.md`.
 
+## Reward testing and the change log
+
+A reward is not enabled until it has passed both of these (skills in `.claude/skills/`):
+1. **`reward-scenario-test`** - a hand trace of the real `GetReward()` over a scenario ladder plus a mandatory
+   farming probe, ending in a pre-registration block (health metric and range, panel, behavior to confirm in the
+   viewer, revert condition). Report goes in `docs/reward_scenarios/`.
+2. **`reward-harness`** - the same scenarios as a compiled test in `tests/` (`TestFramework.h`,
+   `RewardTestUtil.h`; off in the trainer build, runs without a GPU, an Arena or a checkpoint). Examples:
+   `test_pbr_rewards.cpp`, `test_ballpred_cache.cpp`, `test_passing_setup.cpp`.
+
+Why the stack is zero-sum / antisymmetric / PBRS (and why that is not a license for any penalty or bonus):
+see `BuildRewards()` comments and `docs/REWARD_SHAPING.md` sections 3.4, 10, 11. Probe a new term against the
+income-loop rate, whether the wrapper really removes it versus a non-mirror opponent, and for penalties:
+avoidance by degeneracy and early-termination incentive.
+
+Every reward add / edit / weight change gets one line in `docs/REWARD_CHANGE_LOG.md` (date | change |
+hypothesis | result), which also carries the status of the rewards ported from RLGymBot_v3 (all disabled and
+untested except `PassingSetupReward`).
+
 ## research/ — the measurement program
 
 Everything offline lives under `research/` (it was `analysis/probes/` until
