@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "name": "touch_accel_a_slow_nudge_pays_the_small_gain_then_a_trickle_for_the_re_touches",
-  "description": "1v1: blue creeps at 500 uu/s at the resting ball. The first contact (frame 11) sends the ball off at 819 uu/s: 0.2679 raw. The car then keeps pushing and re-touching the slowing ball on frames 18 to 21, each re-touch regaining a few uu/s of speed the ball lost between touches: 0.0095 + 0.0019 + 0.0018 + 0.0012 = 0.0143. Total 0.2822. That trickle is the ratchet (see TouchAccel_FINDING_speed_lost_between_touches_is_paid_again): small here, but speed lost and re-gained is paid again.",
+  "name": "touch_accel_a_slow_nudge_pays_once_and_the_re_touches_add_almost_nothing",
+  "description": "1v1: blue creeps at 500 uu/s at the resting ball. The first contact (frame 11) sends the ball off at 819 uu/s: 0.2679 raw. The car then keeps pushing and re-touching the slowing ball on frames 20 and 21, but the ball only regains speed the first contact already paid for, so only the part above the high-water mark is paid: 0.0008 + 0.0012 = 0.0019 (total 0.2698). Before the high-water mark (the old ratchet) the same four re-touch steps paid 0.0143, so the re-pay is cut by 87%.",
   "tags": [
     "touch_accel",
     "golden",
@@ -85,8 +85,8 @@
         11,
         11
       ],
-      "min": 0.2659,
-      "max": 0.26990000000000003,
+      "min": 0.26591,
+      "max": 0.26991,
       "intent": "first contact: 818.6 uu/s / 3055.6"
     },
     {
@@ -96,7 +96,7 @@
       "car": 0,
       "steps": [
         12,
-        17
+        19
       ],
       "min": -1e-09,
       "max": 1e-09,
@@ -108,12 +108,12 @@
       "of": "raw",
       "car": 0,
       "steps": [
-        18,
+        20,
         40
       ],
-      "min": 0.01231,
-      "max": 0.016309999999999998,
-      "intent": "the trickle of small re-touch payments on frames 18-21"
+      "min": 0.00113,
+      "max": 0.0027300000000000002,
+      "intent": "only the speed above the mark is paid on the later contact steps"
     },
     {
       "kind": "reward_sum",
@@ -124,8 +124,8 @@
         1,
         40
       ],
-      "min": 0.2782,
-      "max": 0.2862,
+      "min": 0.26684,
+      "max": 0.27284,
       "intent": "total for the run"
     }
   ]

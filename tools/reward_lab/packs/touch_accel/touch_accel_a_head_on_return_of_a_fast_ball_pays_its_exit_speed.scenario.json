@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "touch_accel_a_head_on_return_of_a_fast_ball_pays_its_exit_speed",
+  "description": "1v1: a ball rolling at 2300 uu/s toward blue, blue driving at it at 2300 uu/s with boost. The hit turns the ball around and leaves it at 1578 uu/s on frame 10: SLOWER than it arrived, so the old rule (pay only a rise in |v|) paid 0 for this hard return. Now the touch pays min(impulse, exit speed fraction) = min(1, 1578 / 3055.6) = 0.5163 raw (+5.16 weighted), once, because the high-water mark starts at 0 and is then raised to 0.5163.",
+  "tags": [
+    "touch_accel",
+    "golden",
+    "return"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        2300,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      1500,
+      93
+    ],
+    "vel": [
+      0,
+      -2300,
+      0
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TouchAccelReward",
+      "weight": 10.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        9
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "nothing before the contact"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        10,
+        10
+      ],
+      "min": 0.51329,
+      "max": 0.51929,
+      "intent": "the return pays its exit speed 1577.6 / 3055.6"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 0.51329,
+      "max": 0.51929,
+      "intent": "paid once"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 5.132899999999999,
+      "max": 5.1929,
+      "intent": "+5.16 at weight 10"
+    }
+  ]
+}
