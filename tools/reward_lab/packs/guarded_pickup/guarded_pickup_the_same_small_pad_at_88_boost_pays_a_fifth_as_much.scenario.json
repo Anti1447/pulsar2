@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "name": "guarded_pickup_the_same_small_pad_at_88_boost_pays_a_fifth_as_much",
+  "description": "D3 (diminishing return): the same pad at the same speed but the tank is at 88. The pad's +12 is clamped at 100 (the tank is full), and the reward is 1 - sqrt(0.88) = 0.0619, 5.6 times less than from empty (0.3464).",
+  "tags": [
+    "guarded_pickup",
+    "gate",
+    "boost_level"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -1024,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 88
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "GuardedPickupBoostReward",
+      "weight": 6.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0.06092,
+      "max": 0.06292,
+      "intent": "88 -> 100"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0.3615,
+      "max": 0.3815,
+      "intent": "+0.37 at weight 6"
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "schema": 1,
+  "name": "guarded_pickup_a_respawn_refill_after_a_demolition_pays_and_charges_nothing",
+  "description": "1v1: blue (full tank) rams the idle orange car (no boost) at 2300 uu/s and demolishes it (frame about 19), as in the demo pack but along y = 500 so it crosses no boost pad. The victim respawns after 3 s with the engine's spawn boost: its tank jumps 0 -> 33.3 on that step. Without the demo guard that jump would pay the victim sqrt(0.333) = 0.577 raw and ZeroSum would CHARGE blue 0.577 (a silent refund of part of the demo swing). With the guard both cars read 0.",
+  "tags": [
+    "guarded_pickup",
+    "golden",
+    "guard",
+    "respawn"
+  ],
+  "steps": 110,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        500,
+        17
+      ],
+      "vel": [
+        2300,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3500,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "GuardedPickupBoostReward",
+      "weight": 6.0,
+      "zero_sum": 0.3
+    },
+    {
+      "name": "DemoReward",
+      "weight": 0.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "blue spends boost, gains none"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the respawn refill is not a pickup"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "blue is not charged for the victim's refill"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "and the victim is not paid"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "proof the demolition happened (DemoReward is only here to show it)"
+    }
+  ]
+}

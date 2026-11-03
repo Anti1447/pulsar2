@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "name": "guarded_pickup_a_car_sitting_on_a_small_pad_is_paid_again_when_it_comes_back",
+  "description": "1v1: blue (no boost, parked) sits on the small pad at (0, -1024). The pad gives +12 at once (0.3464) and rests for 4 s (COOLDOWN_SMALL = 4 s = 60 decision steps), then gives +12 again to the car still on it: 12 -> 24 pays sqrt(0.24) - sqrt(0.12) = 0.1435. Total sqrt(0.24) = 0.4899.",
+  "tags": [
+    "guarded_pickup",
+    "golden",
+    "cooldown"
+  ],
+  "steps": 75,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1024,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      3000,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "GuardedPickupBoostReward",
+      "weight": 6.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        75
+      ],
+      "min": 0.4869,
+      "max": 0.4929,
+      "intent": "two pickups, 12 then 24"
+    }
+  ]
+}

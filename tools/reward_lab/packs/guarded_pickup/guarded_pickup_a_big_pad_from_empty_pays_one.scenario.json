@@ -1,0 +1,145 @@
+{
+  "schema": 1,
+  "name": "guarded_pickup_a_big_pad_from_empty_pays_one",
+  "description": "1v1: blue (no boost) rolls at 1000 uu/s up the x = -3584 line into the big pad at (-3584, 0). The engine gives +100 on the pickup step: the tank goes 0 -> 100 and the reward is sqrt(100/100) - sqrt(0) = 1.0, once (the pad then rests for 10 s). Through ZeroSum 0.3 in 1v1 blue is +1.0 and the idle orange car -1.0; weighted at 6 that is +6 / -6.",
+  "tags": [
+    "guarded_pickup",
+    "golden",
+    "1v1"
+  ],
+  "steps": 50,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3584,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "GuardedPickupBoostReward",
+      "weight": 6.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "one pickup of a big pad from empty"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the idle orange car"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "ZeroSum 1v1: the taker +1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -1.0001,
+      "max": -0.9999,
+      "intent": "ZeroSum 1v1: the opponent -1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 5.999,
+      "max": 6.001,
+      "intent": "+6 at weight 6"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "weighted",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -6.001,
+      "max": -5.999,
+      "intent": "-6 at weight 6"
+    }
+  ]
+}

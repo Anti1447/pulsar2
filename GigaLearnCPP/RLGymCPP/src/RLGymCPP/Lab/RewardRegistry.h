@@ -38,6 +38,7 @@ namespace Lab {
 			{ "MultiAirTouchReward",       [](const RewardSpec&) -> Reward* { return new MultiAirTouchReward(); } },
 			{ "DemoReward",                [](const RewardSpec&) -> Reward* { return new DemoReward(); } },
 			{ "TouchAccelReward",         [](const RewardSpec&) -> Reward* { return new TouchAccelReward(); } },
+			{ "GuardedPickupBoostReward", [](const RewardSpec&) -> Reward* { return new GuardedPickupBoostReward(); } },
 			{ "OpposedSaveReward",         [](const RewardSpec&) -> Reward* { return new OpposedSaveReward(); } },
 		};
 		return reg;

@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "name": "guarded_pickup_a_small_pad_from_empty_pays_sqrt_of_0p12",
+  "description": "1v1: blue (no boost) rolls up the x = -1024 line into the small pad at (-1024, 0). The pad gives +12: 0 -> 12 and the reward is sqrt(0.12) = 0.3464 once (0.3464 x 6 = 2.08 weighted for the taker, -2.08 for the opponent).",
+  "tags": [
+    "guarded_pickup",
+    "golden",
+    "1v1"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -1024,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "GuardedPickupBoostReward",
+      "weight": 6.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0.34541,
+      "max": 0.34741,
+      "intent": "one small pad from empty"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 2.0685000000000002,
+      "max": 2.0885,
+      "intent": "+2.08 at weight 6"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "weighted",
+      "car": 1,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -2.0885,
+      "max": -2.0685000000000002,
+      "intent": "-2.08 at weight 6"
+    }
+  ]
+}

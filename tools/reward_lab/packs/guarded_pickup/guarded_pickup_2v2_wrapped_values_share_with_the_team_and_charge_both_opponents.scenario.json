@@ -1,0 +1,174 @@
+{
+  "schema": 1,
+  "name": "guarded_pickup_2v2_wrapped_values_share_with_the_team_and_charge_both_opponents",
+  "description": "2v2: blue car 0 takes the big pad (-3584, 0) from empty (cars in order blue0, orange0, blue1, orange1). Raw +1.0. Through ZeroSum 0.3: blue0 0.7 + 0.3*0.5 = 0.85, blue1 0.3*0.5 = 0.15, each orange car -0.5. Weighted at 6: +5.1 / +0.9 / -3 / -3.",
+  "tags": [
+    "guarded_pickup",
+    "golden",
+    "2v2"
+  ],
+  "steps": 50,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3584,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "GuardedPickupBoostReward",
+      "weight": 6.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.999,
+      "max": 1.001,
+      "intent": "the taker"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.849,
+      "max": 0.851,
+      "intent": "the taker 0.85"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 2,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.149,
+      "max": 0.151,
+      "intent": "its teammate 0.15"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -0.501,
+      "max": -0.499,
+      "intent": "an opponent -0.5"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 3,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -0.501,
+      "max": -0.499,
+      "intent": "the other opponent -0.5"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 5.09,
+      "max": 5.109999999999999,
+      "intent": "+5.1 at weight 6"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "name": "guarded_pickup_a_small_pad_with_a_full_tank_pays_nothing",
+  "description": "1v1: the same run with a full tank. Nothing is gained, so nothing is paid.",
+  "tags": [
+    "guarded_pickup",
+    "gate",
+    "failing"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -1024,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "GuardedPickupBoostReward",
+      "weight": 6.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "a full tank gains nothing"
+    }
+  ]
+}

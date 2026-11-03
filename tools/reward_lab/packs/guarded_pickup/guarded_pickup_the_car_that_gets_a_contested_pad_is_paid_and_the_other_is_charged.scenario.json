@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "name": "guarded_pickup_the_car_that_gets_a_contested_pad_is_paid_and_the_other_is_charged",
+  "description": "1v1: both cars (no boost) roll toward the big pad at (-3584, 0), orange from 1000 uu away and blue from 1500, so orange gets there first and takes +100 (raw +1.0). Blue's raw reward is 0, but through ZeroSum 0.3 blue is charged the whole 1.0 (-6 weighted) for losing the pad: denying the pad is worth as much as taking it.",
+  "tags": [
+    "guarded_pickup",
+    "golden",
+    "denial"
+  ],
+  "steps": 60,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3584,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        1000,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3584,
+        1000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0,
+      "vel": [
+        0,
+        -1000,
+        0
+      ]
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "GuardedPickupBoostReward",
+      "weight": 6.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        60
+      ],
+      "min": 0.999,
+      "max": 1.001,
+      "intent": "orange takes the pad"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        60
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "blue gets nothing"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        60
+      ],
+      "min": 0.999,
+      "max": 1.001,
+      "intent": "orange +1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        60
+      ],
+      "min": -1.001,
+      "max": -0.999,
+      "intent": "blue -1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GuardedPickupBoostReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        60
+      ],
+      "min": -6.01,
+      "max": -5.99,
+      "intent": "blue -6 at weight 6"
+    }
+  ]
+}
