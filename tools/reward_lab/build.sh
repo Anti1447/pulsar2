@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build the Reward Lab runner without touching build/ (safe while the trainer runs).
-#   tools/reward_lab/build.sh            -> build-lab/libRLGymCPP.a (current headers), reward_lab_run, reward_lab_host, reward_lab_pack
+#   tools/reward_lab/build.sh            -> build-lab/libRLGymCPP.a (current headers), reward_lab_run, reward_lab_host, reward_lab_pack, reward_lab_stream_demo
 #   tools/reward_lab/build.sh --tests    -> also build-lab/lab_tests (tests/test_reward_lab.cpp)
 # Run from anywhere; it cd's to the repo root. Objects are cached per source file and rebuilt when the .cpp is newer; a changed
 # HEADER does not invalidate them, so set FORCE=1 after editing headers the library includes (Reward.h, GameState.h, ...).
@@ -22,7 +22,9 @@ g++ -std=gnu++20 -O2 -DRG_ROCKETSIM_V3 $INC tools/reward_lab/reward_lab_host.cpp
 echo "built $O/reward_lab_host"
 g++ -std=gnu++20 -O2 -DRG_ROCKETSIM_V3 $INC tools/reward_lab/reward_lab_pack.cpp -o "$O/reward_lab_pack" $LIBS
 echo "built $O/reward_lab_pack"
+g++ -std=gnu++20 -O2 -DRG_ROCKETSIM_V3 $INC tools/reward_lab/stream_demo.cpp -o "$O/reward_lab_stream_demo" $LIBS
+echo "built $O/reward_lab_stream_demo"
 if [ "$1" = "--tests" ]; then
-  g++ -std=gnu++20 -O1 -DRG_ROCKETSIM_V3 -Itests $INC tests/TestMain.cpp tests/test_reward_lab.cpp tests/test_reward_lab_export.cpp tests/test_reward_lab_macro.cpp tests/test_reward_lab_host.cpp tests/test_reward_lab_pack.cpp tests/test_reward_lab_capture.cpp -o "$O/lab_tests" $LIBS
+  g++ -std=gnu++20 -O1 -DRG_ROCKETSIM_V3 -Itests $INC tests/TestMain.cpp tests/test_reward_lab.cpp tests/test_reward_lab_export.cpp tests/test_reward_lab_macro.cpp tests/test_reward_lab_host.cpp tests/test_reward_lab_pack.cpp tests/test_reward_lab_capture.cpp tests/test_reward_lab_stream.cpp -o "$O/lab_tests" $LIBS
   echo "built $O/lab_tests (run from the repo root)"
 fi

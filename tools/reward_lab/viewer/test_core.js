@@ -124,6 +124,51 @@ check('fmt keeps small numbers readable', C.fmt(0.000123456789) === '0.000123457
   throws('applyDelta: refuses a traced frame without a trace', () => C.applyDelta(r, { ok: true, keep: 4, frames: [noTrace], expectations: [], result: 'NONE' }), 'no schema-1 trace');
   throws('applyDelta: refuses missing expectations', () => C.applyDelta(r, { ok: true, keep: 4, frames: [] }), 'not a valid delta');
 }
+// ---- stream mode: appending a render run's frames -------------------------------------------------------------------------
+{
+  const base = makeRun();                                          // frames 0..3, cars [7, 9]
+  const mkStream = () => Object.assign({}, makeRun(), { stream: { episode: 3, seq_first: 8, seq_last: 10, orig_first_i: 0, orig_last_i: 3, starts_at_reset: true, next_idx: 20 } });
+  const frameMsg = (seq, i, ep) => { const f = JSON.parse(JSON.stringify(base.frames[3])); f.i = i; f.trace.step = i - 1; return { kind: 'lab_stream_frame', schema: 1, seq, episode: ep === undefined ? 3 : ep, frame: f }; };
+  const r0 = mkStream();
+  const a = C.appendStreamMessages(r0, [frameMsg(11, 4), frameMsg(12, 5)]);
+  check('stream: contiguous frames are appended, renumbered, with the number the sender gave kept', a.run.frames.length === 6 && a.run.frames[4].i === 4 && a.run.frames[4].orig_i === 4 && a.run.frames[5].orig_i === 5 && a.added === 2);
+  check('stream: the bookkeeping follows (seq_last, orig_last_i) and nothing is flagged', a.run.stream.seq_last === 12 && a.run.stream.orig_last_i === 5 && !a.refetch && a.events.length === 0);
+  check('stream: the old run is untouched', r0.frames.length === 4 && r0.stream.seq_last === 10 && a.run.frames[3] === r0.frames[3]);
+  const none = C.appendStreamMessages(r0, []);
+  check('stream: no messages changes nothing', none.run.frames === r0.frames && none.added === 0 && !none.refetch);
+  const gap = C.appendStreamMessages(r0, [frameMsg(11, 4), frameMsg(14, 7), frameMsg(15, 8)]);
+  check('stream: a gap in seq stops the append, keeps what was contiguous, and asks for a refetch', gap.run.frames.length === 5 && gap.run.stream.seq_last === 11 && eq(gap.events, ['gap']) && gap.refetch);
+  const dup = C.appendStreamMessages(r0, [frameMsg(10, 3)]);
+  check('stream: a repeated or lower seq is a restart of the sender, not an append', dup.run.frames.length === 4 && eq(dup.events, ['restart']) && dup.refetch);
+  const err = C.appendStreamMessages(r0, [{ kind: 'lab_stream_error', schema: 1, seq: 11, episode: 3, reason: 'frame too large', bytes: 70000 }, frameMsg(12, 5)]);
+  check('stream: a frame the sender refused is a hole: stop and refetch', err.run.frames.length === 4 && eq(err.events, ['refused_frame']) && err.refetch);
+  const ne = C.appendStreamMessages(r0, [{ kind: 'lab_stream_hello', schema: 1, seq: 11, episode: 4, tick_skip: 8, cars: [], rewards: [] }, frameMsg(12, 1, 4)]);
+  check('stream: a hello for a NEWER episode stops the append and asks for a refetch', ne.run.frames.length === 4 && eq(ne.events, ['new_episode']) && ne.refetch);
+  const ne2 = C.appendStreamMessages(r0, [frameMsg(11, 1, 4)]);
+  check('stream: a frame of a newer episode does the same', eq(ne2.events, ['new_episode']) && ne2.refetch);
+  const old = C.appendStreamMessages(r0, [frameMsg(11, 4, 2), frameMsg(11, 4)]);
+  check('stream: a message of an OLDER episode is skipped, later ones still append, and it does not force a refetch', old.run.frames.length === 5 && eq(old.events, ['other_episode']) && !old.refetch);
+  const hello = C.appendStreamMessages(r0, [{ kind: 'lab_stream_hello', schema: 1, seq: 11, episode: 3, tick_skip: 8, cars: [], rewards: [] }]);
+  check('stream: a repeated hello for the same episode is ignored', hello.run.frames.length === 4 && hello.events.length === 0);
+  const junk = C.appendStreamMessages(r0, [null, 5, 'x', { kind: 'other' }, {}, frameMsg(11, 4)]);
+  check('stream: unrelated or malformed entries are skipped without crashing', junk.run.frames.length === 5 && junk.added === 1);
+  throws('stream: a run that is not a stream run is refused', () => C.appendStreamMessages(makeRun(), [frameMsg(11, 4)]), 'not a stream run');
+  const badPlayers = frameMsg(11, 4); badPlayers.frame.players = badPlayers.frame.players.slice(0, 1);
+  throws('stream: a frame that makes the run invalid throws instead of being shown', () => C.appendStreamMessages(r0, [badPlayers]), 'invalid run');
+  const noTrace = frameMsg(11, 4); noTrace.frame.trace = null;
+  throws('stream: a traced frame without a trace throws', () => C.appendStreamMessages(r0, [noTrace]), 'no schema-1 trace');
+  const many = C.appendStreamMessages(r0, Array.from({ length: 50 }, (_, k) => frameMsg(11 + k, 4 + k)));
+  check('stream: a long batch appends in order with continuous numbering', many.run.frames.length === 54 && many.run.frames.every((f, k) => f.i === k) && many.run.stream.seq_last === 60);
+  const oldHello = C.appendStreamMessages(r0, [{ kind: 'lab_stream_hello', schema: 1, seq: 11, episode: 2, tick_skip: 8, cars: [], rewards: [] }, frameMsg(11, 4)]);
+  check('stream: a hello of an OLDER episode is skipped too, and the append continues', oldHello.run.frames.length === 5 && eq(oldHello.events, ['other_episode']) && !oldHello.refetch);
+  // a window that starts mid-episode: positions 0.. but the sender numbers 20.. ; the position is the viewer's index, the sender's number is kept beside it
+  const mid = mkStream(); mid.stream.orig_first_i = 20; mid.stream.orig_last_i = 23; mid.frames.forEach((f, k) => { f.orig_i = 20 + k; });
+  const midNext = C.appendStreamMessages(mid, [frameMsg(11, 24)]);
+  check('stream: positions are the viewer index, the sender frame number rides along', midNext.run.frames[4].i === 4 && midNext.run.frames[4].orig_i === 24 && midNext.run.stream.orig_last_i === 24);
+  const first = C.appendStreamMessages(r0, [frameMsg(11, 4)]);
+  const second = C.appendStreamMessages(first.run, [frameMsg(12, 5)]);
+  check('stream: appends compose (two batches equal one)', JSON.stringify(second.run.frames) === JSON.stringify(a.run.frames));
+}
 // ---- live mode: keyboard and script ---------------------------------------------------------------------------------------
 {
   const RL = C.PRESETS.rocket_league.bindings;

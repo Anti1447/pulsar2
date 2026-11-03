@@ -17,31 +17,13 @@
 //    "expectations":[{"kind":"..","intent":"..","ok":b,"detail":"..","reward":"..","car":n,"from":n,"to":n}]}
 // ============================================================================
 #include "LabReport.h"
+#include "FrameJson.h"   // FrameToJson
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
 namespace RLGC {
 namespace Lab {
-
-	inline nlohmann::json FrameToJson(const Frame& f) {
-		using nlohmann::json;
-		json jf;
-		jf["i"] = f.index; jf["terminal"] = f.terminal; jf["goal"] = f.goalScored;
-		jf["ball"] = { { "pos", detail::V3J(f.ball.pos) }, { "vel", detail::V3J(f.ball.vel) } };
-		json players = json::array();
-		for (auto& p : f.players)
-			players.push_back({ { "car", p.carId }, { "team", p.team }, { "pos", detail::V3J(p.pos) }, { "vel", detail::V3J(p.vel) },
-				{ "forward", detail::V3J(p.forward) }, { "up", detail::V3J(p.up) }, { "boost", p.boost }, { "on_ground", p.onGround },
-				{ "flipping", p.isFlipping }, { "jumped", p.hasJumped }, { "double_jumped", p.hasDoubleJumped }, { "flipped", p.hasFlipped },
-				{ "demoed", p.isDemoed }, { "touched", p.ballTouchedStep } });
-		jf["players"] = players;
-		json acts = json::array();
-		for (auto& a : f.actions) acts.push_back(json(std::vector<float>(a.begin(), a.end())));
-		jf["actions"] = acts;
-		jf["trace"] = f.hasTrace ? ToJson(f.trace) : json(nullptr);
-		return jf;
-	}
 
 	inline nlohmann::json ExpectationsToJson(const LabSession& s) {
 		using nlohmann::json;

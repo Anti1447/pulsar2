@@ -37,6 +37,16 @@
     </div>
   </section>
   <section>
+    <div class="card" id="stream" hidden style="margin-bottom:12px">
+      <h2>Stream: a render run's reward trace (read-only)</h2>
+      <div class="row">
+        <label><input type="checkbox" id="follow" checked> follow the newest frame</label>
+        <label>episode <select id="epsel"></select></label>
+      </div>
+      <div id="streamstat" class="muted" aria-live="polite"></div>
+      <div id="streamwarn" class="warn"></div>
+      <div class="muted">This page only receives. A lost datagram shows up as a gap (never filled in); the run shown is the latest unbroken stretch of the episode. Nothing here can reach the trainer.</div>
+    </div>
     <div class="card" id="live" hidden style="margin-bottom:12px">
       <h2>Live: you drive <span id="livecar"></span></h2>
       <div class="row">

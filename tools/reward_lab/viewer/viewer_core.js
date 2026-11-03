@@ -298,7 +298,35 @@ const LabCore = (function () {
     return ACTION_NAMES.map(n => (act && act[n] !== undefined) ? act[n] : 0);
   }
 
-  const api = { parseRun, validate, consistency, fmt, playerOf, rewardRows, totalAt, cumulative, series, eventMarks, gateFlips, FIELD, makeView, topViewHeight, sideViewHeight, prims, ROLES, roleStyle, expectationRange, applyDelta, ACTION_NAMES, ACTIONS, PRESETS, DEFAULT_PRESET, copyBindings, validateBindings, actionFromHeld, inputsForCode, PLAYBACK_CODES, bindingWarnings, codeLabel, scriptedAction };
+  // ---- stream mode (P4-3): follow a render run's reward trace, read-only ---------------------------------------------------
+  // A stream run is a lab_run with a `stream` object: {episode, seq_first, seq_last, orig_first_i, orig_last_i, next_idx, ...}. Frames are numbered 0..n for
+  // the viewer; the sender's own frame number is kept as `orig_i`. appendStreamMessages adds the next frames in order and STOPS at the first thing it cannot
+  // append honestly: a gap in `seq`, a frame the sender refused, a restart of the sender, or a new episode. It reports which, so the page asks the server for a
+  // fresh run instead of papering over it. Returns a NEW run (the old one is untouched); throws if the result is not a valid run.
+  function appendStreamMessages(run, msgs) {
+    const s = run.stream;
+    if (!s) throw new Error('not a stream run');
+    let frames = null, seqLast = s.seq_last, origLast = s.orig_last_i, added = 0;
+    const events = [];
+    for (const m of msgs) {
+      if (!m || typeof m !== 'object') continue;
+      if (m.kind === 'lab_stream_hello') { if (m.episode !== s.episode) { events.push(m.episode > s.episode ? 'new_episode' : 'other_episode'); if (m.episode > s.episode) break; } continue; }
+      if (m.kind !== 'lab_stream_frame' && m.kind !== 'lab_stream_error') continue;
+      if (m.episode !== s.episode) { events.push(m.episode > s.episode ? 'new_episode' : 'other_episode'); if (m.episode > s.episode) break; continue; }
+      if (m.kind === 'lab_stream_error') { events.push('refused_frame'); break; }
+      if (m.seq <= seqLast) { events.push('restart'); break; }
+      if (m.seq !== seqLast + 1) { events.push('gap'); break; }
+      frames = frames || run.frames.slice();
+      frames.push(Object.assign({}, m.frame, { i: frames.length, orig_i: m.frame.i }));
+      seqLast = m.seq; origLast = m.frame.i; added++;
+    }
+    const next = Object.assign({}, run, { frames: frames || run.frames, stream: Object.assign({}, s, { seq_last: seqLast, orig_last_i: origLast }) });
+    const errs = validate(next);
+    if (errs.length) throw new Error('stream makes an invalid run: ' + errs.join('; '));
+    return { run: next, added, events, refetch: events.some(e => e !== 'other_episode') };
+  }
+
+  const api = { parseRun, validate, consistency, fmt, playerOf, rewardRows, totalAt, cumulative, series, eventMarks, gateFlips, FIELD, makeView, topViewHeight, sideViewHeight, prims, ROLES, roleStyle, expectationRange, appendStreamMessages, applyDelta, ACTION_NAMES, ACTIONS, PRESETS, DEFAULT_PRESET, copyBindings, validateBindings, actionFromHeld, inputsForCode, PLAYBACK_CODES, bindingWarnings, codeLabel, scriptedAction };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();

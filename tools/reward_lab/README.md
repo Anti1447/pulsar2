@@ -119,6 +119,23 @@ In the Live card, scrub to a frame, type a name (optional), then:
 A capture has **no expectations** on purpose: an expectation is what a person says should happen, with the reason. Add them (with an `intent` line) before it counts as a test; the runner says
 "no expectations" until you do and `reward_lab_pack sign` refuses it. The same thing from code: host command `capture` (`Lab/Capture.h`).
 
+## Watching a render run's rewards: the stream (P4-3)
+
+```bash
+python3 tools/reward_lab/serve.py --stream --no-live --record /tmp/session.jsonl      # receives on UDP 127.0.0.1:9280, page at http://127.0.0.1:8765/stream
+REWARD_LAB_STREAM=127.0.0.1:9280 build-lab/reward_lab_stream_demo tools/reward_lab/packs/core/passing_setup_straight_hit.scenario.json --loop    # a stand-in sender
+python3 tools/reward_lab/serve.py --replay /tmp/session.jsonl --no-live                # replay a recorded session later
+python3 tools/reward_lab/test_stream.py                                                # receiver tests (needs the build)
+```
+
+The sender is `Rewards/RewardStreamTap.h`: it wraps the rewards of ONE arena (render mode), sends each step's Lab frame (players, ball, actions, the whole reward trace) as one JSON datagram,
+and passes every reward's value through untouched. It does nothing unless `REWARD_LAB_STREAM=127.0.0.1:PORT` is set (loopback only; anything else is refused with one log line). **It is not
+wired into the trainer yet** (held by decision): the render branch of `ExampleMain.cpp` would call `MaybeInstallStreamTapsFromEnv(result.rewards, TICK_SKIP)`; until then `reward_lab_stream_demo`
+sends what a render run would. The stream page follows the newest frame, appends frames while they are contiguous, and refetches on a gap, a refused frame, a sender restart or a new episode;
+a lost datagram is shown as a gap and never filled in; the run shown is the latest unbroken stretch of one episode. Read-only: the page only GETs, and nothing it does reaches a trainer.
+Limits: a frame must fit one datagram (60,000 bytes; larger frames are refused with an error message, not truncated), only rewards that emit show geometry, a window that starts mid-episode
+shows its first frame without a reward and counts sums from there. Ring: `--ring N` messages (default 4096, about 4.5 minutes at 15 Hz).
+
 Adding a reward: one line in `Lab/RewardRegistry.h`. Adding a scenario: copy one from `packs/core/`, derive the expected values by hand first and
 write the derivation in `description`, keep cars off the boost-pad grid.
 

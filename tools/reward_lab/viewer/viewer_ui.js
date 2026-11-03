@@ -6,6 +6,26 @@
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const SVG = 'http://www.w3.org/2000/svg';
 
+  const STREAM = !!window.LAB_STREAM;               // set by serve.py for /stream; a static export or the live page never has it
+  // /stream with nothing received yet embeds {"waiting":true}: say so, poll, and reload when the first frames arrive
+  let embedded = null;
+  try { embedded = JSON.parse($('labdata').textContent); } catch (e) { /* parseRun below reports it */ }
+  if (STREAM && embedded && embedded.waiting) {
+    document.body.innerHTML = '<main style="grid-template-columns:1fr"><section><div class="card" id="waiting"><h2>Stream</h2><div id="waitmsg">Waiting for the first frames from a render run&hellip;</div>'
+      + '<div class="muted" style="margin-top:6px">Start the trainer in render mode with REWARD_LAB_STREAM set, or run build-lab/reward_lab_stream_demo (REWARD_LAB_STREAM=127.0.0.1:PORT, a scenario file). This page reloads by itself.</div></div></section></main>';
+    const wait = async () => {
+      try {
+        const j = await (await fetch('/api/stream?after=-1&limit=1')).json();
+        const s = j.stats || {};
+        const where = s.source && s.source.mode === 'udp' ? 'UDP 127.0.0.1:' + s.source.port : s.source && s.source.file ? 'file ' + s.source.file : 'the stream';
+        document.getElementById('waitmsg').textContent = 'Waiting on ' + where + ': ' + s.received + ' messages received, ' + s.bad + ' rejected.';
+        if (s.received > 0 && (await (await fetch('/api/stream/run')).json()).ok) { location.reload(); return; }
+      } catch (e) { document.getElementById('waitmsg').textContent = 'Server unreachable: ' + e.message; }
+      setTimeout(wait, 700);
+    };
+    wait();
+    return;
+  }
   let run;
   try { run = C.parseRun($('labdata').textContent); }
   catch (e) { document.body.innerHTML = '<pre class="warn" style="padding:16px">Reward Lab could not read this run: ' + String(e.message).replace(/</g, '&lt;') + '</pre>'; throw e; }
@@ -21,7 +41,7 @@
     $('title').textContent = sc.name;
     $('result').textContent = run.result; $('result').dataset.result = run.result;
     $('desc').textContent = sc.description || '';
-    $('runinfo').textContent = nFrames + ' steps, tick_skip ' + sc.tick_skip + ', ' + nCars + ' cars, ' + run.expectations.filter(e => e.ok).length + '/' + run.expectations.length + ' expectations' + (LIVE ? '  [LIVE]' : '');
+    $('runinfo').textContent = nFrames + ' steps, tick_skip ' + sc.tick_skip + ', ' + nCars + ' cars, ' + run.expectations.filter(e => e.ok).length + '/' + run.expectations.length + ' expectations' + (LIVE ? '  [LIVE]' : '') + (STREAM ? '  [STREAM]' : '');
     document.title = 'Reward Lab - ' + sc.name + ' - ' + run.result;
     $('car').innerHTML = '';
     run.frames[0].players.forEach((p, i) => {
@@ -162,7 +182,7 @@
 
   function updateHud() {
     const f = run.frames[st.frame], p = f.players[st.car];
-    $('frameinfo').textContent = 'frame ' + st.frame + ' / ' + nFrames + (f.terminal ? '  (episode ended' + (f.goal ? ': goal' : '') + ')' : '');
+    $('frameinfo').textContent = 'frame ' + st.frame + ' / ' + nFrames + (run.stream && f.orig_i !== undefined ? '  [sender frame ' + f.orig_i + ']' : '') + (f.terminal ? '  (episode ended' + (f.goal ? ': goal' : '') + ')' : '');
     $('frameinfo').dataset.frame = st.frame; $('frameinfo').dataset.frames = nFrames;
     const a = st.frame > 0 ? f.actions[st.car] : null;
     $('controls').textContent = 'car ' + st.car + ': boost ' + C.fmt(p.boost) + ', speed ' + C.fmt(Math.hypot(p.vel[0], p.vel[1], p.vel[2])) + ' uu/s, z ' + C.fmt(p.pos[2]) + (p.on_ground ? ', on ground' : ', airborne') + (p.demoed ? ', demoed' : '')
@@ -268,6 +288,70 @@
   // Start on the first frame where something happens (an event or a failed gate), else frame 1.
   const firstEvent = C.eventMarks(run, 0).map(m => m.frame).sort((a, b) => a - b)[0];
   setFrame(firstEvent !== undefined ? firstEvent : Math.min(1, nFrames));
+
+  // ---- stream mode (serve.py --stream / --replay): follow a render run, read-only -----------------------------------------
+  // The page only GETs. New frames are appended while they are contiguous; a gap, a refused frame, a restart or a new episode makes it fetch a fresh run.
+  if (STREAM && run.stream) {
+    $('stream').hidden = false; document.body.dataset.stream = 'true';
+    const sv = { cursor: run.stream.next_idx, pinned: null, polling: false, lastStats: null, epTick: 0 };
+    window.__streamState = sv;
+    const noteUserNav = () => { $('follow').checked = false; };
+    $('timeline').addEventListener('pointerdown', noteUserNav);
+    document.addEventListener('keydown', (e) => { if (/^(ArrowLeft|ArrowRight|Home|\[|\])$/.test(e.key)) noteUserNav(); });
+    function streamStatus(stats, extra) {
+      sv.lastStats = stats;
+      const src = stats.source && stats.source.mode === 'udp' ? 'UDP 127.0.0.1:' + stats.source.port : stats.source && stats.source.file ? 'recorded file ' + stats.source.file : 'stream';
+      $('streamstat').textContent = src + ': ' + stats.received + ' messages received, ' + stats.kept + ' kept (ring ' + stats.ring + '), ' + stats.bad + ' rejected, '
+        + stats.gaps.length + ' gap(s), ' + stats.restarts + ' sender restart(s), ' + stats.refused_by_sender + ' frame(s) the sender refused as too large.' + (extra ? ' ' + extra : '');
+      $('streamstat').dataset.received = stats.received; $('streamstat').dataset.gaps = stats.gaps.length; $('streamstat').dataset.bad = stats.bad;
+      const bits = [];
+      if (stats.gaps.length) bits.push('Lost datagrams (seq ' + stats.gaps.slice(-3).map(g => g.from_seq + '..' + g.to_seq).join(', ') + '): the run shows the stretch after the last gap.');
+      if (stats.bad) bits.push(stats.bad + ' malformed datagram(s) rejected, e.g. "' + (stats.bad_samples[stats.bad_samples.length - 1] || '') + '".');
+      if (!run.stream.starts_at_reset) bits.push('This window starts mid-episode (a gap, or the ring\'s edge): cumulative sums count from its first frame, whose own reward is not shown.');
+      $('streamwarn').textContent = bits.join(' ');
+    }
+    async function refreshEpisodes() {
+      try {
+        const j = await (await fetch('/api/stream/info')).json();
+        const sel = $('epsel'), cur = sv.pinned === null ? '' : String(sv.pinned);
+        sel.innerHTML = '<option value="">newest (follow)</option>';
+        j.episodes.slice().reverse().forEach(e => { const o = document.createElement('option'); o.value = e.episode; o.textContent = 'episode ' + e.episode + ' (' + e.frames + ' frames' + (e.has_hello ? '' : ', no hello') + ')'; sel.appendChild(o); });
+        sel.value = cur;
+      } catch (e) { /* the next poll reports it */ }
+    }
+    async function loadRun(episode) {
+      const j = await (await fetch('/api/stream/run' + (episode === null ? '' : '?episode=' + episode))).json();
+      if (!j.ok) { $('streamwarn').textContent = 'No frames for that episode (they may have left the ring).'; return false; }
+      const e = C.validate(j.run); if (e.length) { $('streamwarn').textContent = 'The server sent an invalid run: ' + e[0]; return false; }
+      sv.cursor = j.run.stream.next_idx;
+      const follow = $('follow').checked;
+      setRun(j.run, follow ? j.run.frames.length - 1 : Math.min(st.frame, j.run.frames.length - 1));
+      return true;
+    }
+    async function poll() {
+      if (sv.polling) return; sv.polling = true;
+      try {
+        const j = await (await fetch('/api/stream?after=' + sv.cursor + '&limit=500')).json();
+        let note = '';
+        if (j.messages.length) {
+          const r = C.appendStreamMessages(run, j.messages.map(m => m.msg));
+          sv.cursor = j.next;
+          if (r.refetch && !(sv.pinned !== null && r.events.every(e => e === 'new_episode'))) {
+            note = 'fetched a fresh run (' + r.events.join(', ') + ').';
+            await loadRun(sv.pinned);
+          } else if (r.added) {
+            setRun(r.run, $('follow').checked ? r.run.frames.length - 1 : st.frame);
+          }
+        }
+        streamStatus(j.stats, note);
+        if (++sv.epTick % 8 === 1) refreshEpisodes();
+      } catch (e) { $('streamstat').textContent = 'Server unreachable: ' + e.message + ' (retrying)'; }
+      finally { sv.polling = false; }
+    }
+    $('epsel').onchange = async (e) => { sv.pinned = e.target.value === '' ? null : Number(e.target.value); await loadRun(sv.pinned); streamStatus(sv.lastStats || { received: 0, kept: 0, ring: 0, bad: 0, gaps: [], restarts: 0, refused_by_sender: 0, bad_samples: [] }); };
+    refreshEpisodes(); poll(); setInterval(poll, 250);
+    if ($('follow').checked) setFrame(nFrames);
+  }
 
   // ---- live mode (tools/reward_lab/serve.py): step with your own inputs, branch from any frame, record and play macros -------
   // The page only sends inputs and shows what the host's EnvSet/reward stack returned; nothing is simulated or scored here.
