@@ -102,7 +102,9 @@ int main(int argc, char** argv) {
 
 	RLBotParams params = {};
 	params.tickSkip = 8;      // matches cfg.tickSkip in ExampleMain.cpp
-	params.actionDelay = 7;   // matches cfg.actionDelay (5.0v3: zero actuation latency)
+	params.actionDelay = 7;   // live play uses 7: with 0 the bot behaved erratically in RLBot (observed 2026-11-02).
+	                          // NOTE: the trainer's cfg.actionDelay is still 0 (ExampleMain.cpp), so live and training differ until that is decided.
+	                          // Chronos and Galactus were trained with 7 (docs/6.0.md).
 	params.inferUnit = inferUnit;
 
 	RLBotClient::Run(params);
