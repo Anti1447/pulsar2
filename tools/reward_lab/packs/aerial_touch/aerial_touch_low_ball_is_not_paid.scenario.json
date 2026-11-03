@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "name": "aerial_touch_low_ball_is_not_paid",
+  "description": "Blue car is airborne at z 110 (falling from a hop) and flies at 1500 uu/s into a ball resting at z 93: airborne touch, but the ball is under the 150 uu floor, so ballFrac = 0 and nothing is paid.",
+  "tags": [
+    "aerial_touch",
+    "gate",
+    "failing"
+  ],
+  "steps": 20,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -500,
+        110
+      ],
+      "vel": [
+        0,
+        1500,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "AerialTouchReward",
+      "weight": 120.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "intent": "the car really touches the ball (PassingSetupReward's touched_ball gate is the witness; AerialTouchReward emits no gates)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "AerialTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": 0,
+      "max": 0,
+      "intent": "an airborne touch of a ball on the floor pays nothing"
+    }
+  ]
+}

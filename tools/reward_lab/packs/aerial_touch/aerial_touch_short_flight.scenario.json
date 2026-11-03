@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "aerial_touch_short_flight",
+  "description": "Blue car is already airborne at z 800 (airTime 0 at frame 0) and flies at 1500 uu/s into a ball floating at z 830. Car and ball fall together, so the hit lands about 0.2-0.3 s into the flight (3-4 steps). Hand calc: airFrac = 0.2-0.3 / 1.75 = 0.11-0.17; ballFrac = (about 810 - 150) / 1300 = 0.5, so heightFrac = airFrac (the MIN); the ball takes well over 500 uu/s of delta-v so impulseFrac = 1. Reward is about 0.11-0.17, a fraction of the full 1.0.",
+  "tags": [
+    "aerial_touch",
+    "golden"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -500,
+        800
+      ],
+      "vel": [
+        0,
+        1500,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      830
+    ]
+  },
+  "rewards": [
+    {
+      "name": "AerialTouchReward",
+      "weight": 120.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "intent": "the car really touches the ball (PassingSetupReward's touched_ball gate is the witness; AerialTouchReward emits no gates)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "AerialTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        60
+      ],
+      "min": 0.11,
+      "max": 0.17,
+      "intent": "a hit 0.2-0.3 s into the flight is paid about airTime/1.75 = 0.11-0.17: aerial credit grows with time in the air"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "AerialTouchReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        60
+      ],
+      "min": 13.2,
+      "max": 20.4,
+      "intent": "at weight 120 that is 13.2-20.4"
+    }
+  ]
+}

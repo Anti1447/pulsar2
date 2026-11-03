@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "name": "aerial_touch_long_flight_full_credit",
+  "description": "Blue car launched at z 700 with velocity (0, 800, 1100); the ball launched from z 500 with vz 1200. Both are ballistic so gravity cancels in their relative motion; they meet about 2.0 s in (ball near its apex at z about 1600), the contact begins about 1.8 s in. Hand calc: airFrac = min(1, 1.8/1.75) = 1; ballFrac = min(1, (1600-150)/1300) = 1; impulse 1. Reward about 1.0. Observed in the engine: contact at frame 28 (1.87 s) pays exactly 1.0; a second, low touch near frame 59 adds about 0.05 (not modelled by the hand calculation; bounded by the last expectation).",
+  "tags": [
+    "aerial_touch",
+    "golden"
+  ],
+  "steps": 60,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1600,
+        700
+      ],
+      "vel": [
+        0,
+        800,
+        1100
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      500
+    ],
+    "vel": [
+      0,
+      0,
+      1200
+    ]
+  },
+  "rewards": [
+    {
+      "name": "AerialTouchReward",
+      "weight": 120.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "intent": "the car really touches the ball (PassingSetupReward's touched_ball gate is the witness; AerialTouchReward emits no gates)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "AerialTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0.99,
+      "max": 1.0,
+      "intent": "a high ball hit after a long flight (contact at about 1.87 s, frame 28) earns the full 1.0, paid once"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "AerialTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        60
+      ],
+      "min": 1.0,
+      "max": 1.2,
+      "intent": "no farming: later touches (the ball and car meet again near frame 59) add only a small tail, well under a second full payment"
+    }
+  ]
+}

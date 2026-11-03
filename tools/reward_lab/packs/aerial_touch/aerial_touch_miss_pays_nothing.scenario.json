@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "name": "aerial_touch_miss_pays_nothing",
+  "description": "Same flight as aerial_touch_short_flight but the ball floats 400 uu to the side, so the car flies past without touching it: no touch, no pay.",
+  "tags": [
+    "aerial_touch",
+    "gate",
+    "failing"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -500,
+        800
+      ],
+      "vel": [
+        0,
+        1500,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      400,
+      0,
+      830
+    ]
+  },
+  "rewards": [
+    {
+      "name": "AerialTouchReward",
+      "weight": 120.0
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": false,
+      "mode": "all",
+      "intent": "the car never touches the ball in this scenario"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "AerialTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0,
+      "max": 0,
+      "intent": "no touch, no reward"
+    }
+  ]
+}
