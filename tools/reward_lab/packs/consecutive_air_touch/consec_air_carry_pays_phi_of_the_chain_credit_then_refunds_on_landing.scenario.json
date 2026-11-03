@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "consec_air_carry_pays_phi_of_the_chain_credit_then_refunds_on_landing",
-  "description": "The car flies level at 1500 uu/s (z 900) into the floating ball and PUSHES it: a push registers a touch on every step of the contact in the engine (frames 8 to 25, 18 steps). Each touch now adds the ball-height credit (z - 150)/1300 to the effective streak e; the ball sinks from z 806 to about 120 while carried, so the credits shrink (0.5051, 0.4856, 0.4639, ... down to 0): e = 0.51 (frame 8), 0.99 (frame 9, still under 1 so nothing yet), 1.45 (frame 10), 1.89, 2.31, 2.69, 3.05 ... saturating at 4.51 by frame 24. Pay: frame 10 gamma*Phi(1.4546) = 0.9969*(1 - exp(-0.2273)) = 0.20268 (+8.1 at weight 40); cumulative 0.4768 by frame 12, 0.796 by frame 20, peak +0.8004 (+32.0 weighted, under the old +38.7 because the ball is not at full height). While the chain is held it bleeds (gamma-1)*Phi per step. The car lands on frame 29 and the whole chain is refunded; the run nets the bleed only, -0.04177 (-1.67 weighted). The ball starts with a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). Verified independently: a separate script that recomputes the effective streak from the exported on-ground, touched and ball-height values reproduces every step's reward to 1e-7.",
+  "description": "The car flies level at 1500 uu/s (z 900) into the floating ball and PUSHES it: a push registers a touch on every step of the contact in the engine (frames 8 to 25, 18 steps). Each touch adds credit = ball height x softness x car height x horizontal-speed factor to the effective streak e. In the carry the ball and car move together (|dv| about 5 uu/s, softness 0.9999), the ball sinks from z 806 to about 120 (credit (z-150)/1300 shrinks 0.505, 0.485, 0.464 ... to 0), the car's height credit stays 1 until it falls under 517 uu, and the ball sits about 160 uu ahead of the car (control gate 0.985): e = 0.505 (frame 8), 0.990 (frame 9, under 1: nothing yet), 1.453 (frame 10), 1.893, 2.306 ... saturating at 4.30 by frame 24. Pay: frame 10 pays 0.9969 * Phi(1.453) * gate = 0.19926 (+8.0 at weight 40); cumulative 0.4699 by frame 12, 0.7766 by frame 20, peak +0.7785 (+31.1 weighted). While held it bleeds, and the gate shaves the potential when the ball drifts. The car lands on frame 29 and the whole chain is refunded; the run nets -0.04058 (-1.62 weighted). The ball starts with a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). Verified independently: a separate script that recomputes the effective streak and the control gate from the exported on-ground, touched, position and velocity values reproduces every step's reward to 1e-7.",
   "tags": [
     "consec_air",
     "golden"
@@ -97,9 +97,9 @@
         1,
         10
       ],
-      "min": 0.2024,
-      "max": 0.203,
-      "intent": "frame 10 (e = 1.4546) pays gamma * Phi(1.4546) = 0.20268"
+      "min": 0.1988,
+      "max": 0.1997,
+      "intent": "frame 10 (e = 1.453) pays 0.99 * Phi(1.453) * gate = 0.19926"
     },
     {
       "kind": "reward_sum",
@@ -110,9 +110,9 @@
         1,
         10
       ],
-      "min": 8.09,
-      "max": 8.12,
-      "intent": "x40 = +8.1 for the first paying touch"
+      "min": 7.95,
+      "max": 7.99,
+      "intent": "x40 = +8.0 for the first paying touch"
     },
     {
       "kind": "reward_sum",
@@ -123,9 +123,9 @@
         1,
         12
       ],
-      "min": 0.4763,
-      "max": 0.4773,
-      "intent": "cumulative 0.4768 by frame 12"
+      "min": 0.4694,
+      "max": 0.4704,
+      "intent": "cumulative 0.4699 by frame 12"
     },
     {
       "kind": "reward_sum",
@@ -136,9 +136,9 @@
         1,
         20
       ],
-      "min": 0.794,
-      "max": 0.798,
-      "intent": "the chain saturates near 0.80 (+31.8 weighted)"
+      "min": 0.774,
+      "max": 0.779,
+      "intent": "the chain saturates near 0.78 (+31 weighted)"
     },
     {
       "kind": "reward_sum",
@@ -149,9 +149,9 @@
         1,
         40
       ],
-      "min": -0.0423,
-      "max": -0.0413,
-      "intent": "landing refunds the whole chain: the run nets only the holding bleed, -0.04177"
+      "min": -0.0411,
+      "max": -0.0401,
+      "intent": "landing refunds the whole chain: the run nets only the holding bleed, -0.04058"
     },
     {
       "kind": "reward_sum",
@@ -162,9 +162,9 @@
         1,
         40
       ],
-      "min": -1.69,
-      "max": -1.65,
-      "intent": "-1.67 weighted over the whole carry-and-landing"
+      "min": -1.65,
+      "max": -1.6,
+      "intent": "-1.62 weighted over the whole carry-and-landing"
     }
   ]
 }

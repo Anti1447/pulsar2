@@ -287,7 +287,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// the whole chain, so tap-land-tap nets ~0 and it cannot be farmed. Pays nothing for a
 		// lone air touch (AerialTouch's job), so it only matters once first aerial touches
 		// exist. 40 = chain total stays well under AerialTouch 120 per strike. Each touch is weighted by
-		// AerialTouch's ball-height scale, (z-150)/1300 clamped to [0,1] (2026-11-03). Measured
+		// AerialTouch's ball-height scale, (z-150)/1300 clamped to [0,1], by softness, car height and ball horizontal speed
+		// (MultiAirTouch's), an opponent touch ends the chain, and the potential has a control-distance gate 150..1100 uu (2026-11-03). Measured
 		// 12% of credit density at 30 in REWARD_SHAPING.md §3.4. Watch Rewards/ConsecutiveAirTouchReward.
 		{ new ZeroSumReward(new ConsecutiveAirTouchReward(gamma), TEAM_SPIRIT), 40.f },
 			

@@ -89,7 +89,7 @@ TEST(ConsecAir_phi_shape) {
 
 TEST(ConsecAir_local_credit_shape) {
 	ConsecutiveAirTouchReward r(0.99f);
-	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); return f; };
+	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); f.carPos = Vec(0, 0, 1390); return f; };
 	Frame ground; ground.onGround = true;
 
 	std::vector<Frame> frames = {
@@ -113,7 +113,7 @@ TEST(ConsecAir_unfarmable_cycle_nets_zero) {
 	// With gamma == 1 an exact potential telescopes: build any chain, land, and the
 	// undiscounted sum is Phi(start) - Phi(end) == 0. Grinding cannot extract reward.
 	ConsecutiveAirTouchReward r(1.0f);
-	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); return f; };
+	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); f.carPos = Vec(0, 0, 1390); return f; };
 	Frame ground; ground.onGround = true;
 
 	std::vector<Frame> frames = {
@@ -133,7 +133,7 @@ TEST(ConsecAir_unfarmable_cycle_nets_zero) {
 TEST(ConsecAir_ground_and_wall_break_chain) {
 	// isOnGround is true on walls too, so landing on either resets the streak.
 	ConsecutiveAirTouchReward r(1.0f);
-	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); return f; };
+	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); f.carPos = Vec(0, 0, 1390); return f; };
 	Frame wall; wall.onGround = true; wall.hasContact = true; wall.normal = Vec(1, 0, 0);
 
 	std::vector<Frame> frames = { air(true), air(true), air(true), wall };
@@ -146,8 +146,8 @@ TEST(ConsecAir_ground_and_wall_break_chain) {
 TEST(ConsecAir_demo_guard) {
 	// A demoed step pays nothing and drops the chain (teleport, not the player's action).
 	ConsecutiveAirTouchReward r(0.99f);
-	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); return f; };
-	Frame demoed; demoed.onGround = false; demoed.demoed = true; demoed.ballPos = Vec(0, 0, 1450);
+	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); f.carPos = Vec(0, 0, 1390); return f; };
+	Frame demoed; demoed.onGround = false; demoed.demoed = true; demoed.ballPos = Vec(0, 0, 1450); demoed.carPos = Vec(0, 0, 1390);
 
 	std::vector<Frame> frames = { air(true), air(true), demoed, air(true) };
 	auto rew = RunSingle(r, frames);
