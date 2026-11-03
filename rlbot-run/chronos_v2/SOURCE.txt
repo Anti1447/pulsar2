@@ -1,0 +1,2 @@
+https://github.com/KingJake3113/Chronos rlbot/ at 4f8fdd27e4802d977b33b9ade4759ff6aeaca5aa
+Downloaded 2026-11-02T04:19:54Z. Inference weights only; no license file in the repo, so not for redistribution.

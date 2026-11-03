@@ -1,0 +1,2 @@
+https://github.com/SoldierDoge/GalactusV2 rlbot/ at 217324c2fc516048effe0407595fa61c2ebc6863
+Downloaded 2026-11-02T04:19:51Z. Inference weights only; no license file in the repo, so not for redistribution.
