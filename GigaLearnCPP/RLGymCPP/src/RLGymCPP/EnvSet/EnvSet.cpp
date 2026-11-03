@@ -28,6 +28,11 @@ void _SaveEventCallback(Arena* arena, Car* saver, void* userInfo) {
 	IncPlayerCounter<&RLGC::PlayerEventState::save>(saver, userInfo);
 }
 
+// Minimum ball speed (uu/s) for the engine's shot event, which OpposedSaveReward's saves depend on. The tracker's default is 1750, so an ordinary
+// unflipped ground hit (1789 decaying to 1741 within 0.3 s) was not a shot and its saves paid nothing; widened to 1000 on 2026-11-03 (user-directed).
+// At 1000 uu/s the tracker's 2.0 s shotMinScoreTime still limits a shot to about 2000 uu from the goal line (the time to goal is measured on y only).
+static constexpr float EVENT_SHOT_MIN_SPEED = 1000.f;
+
 void _BumpCallback(Arena* arena, Car* bumper, Car* victim, bool isDemo, void* userInfo) {
 	if (bumper->team == victim->team)
 		return;
@@ -80,6 +85,7 @@ RLGC::EnvSet::EnvSet(const EnvSetConfig& config) : config(config) {
 
 		if (arena->gameMode != GameMode::HEATSEEKER) {
 			GameEventTracker* tracker = new GameEventTracker({});
+			tracker->config.shotMinSpeed = EVENT_SHOT_MIN_SPEED;
 			eventTrackers[idx] = tracker;
 
 			tracker->SetShotCallback(_ShotEventCallback, userInfo);
