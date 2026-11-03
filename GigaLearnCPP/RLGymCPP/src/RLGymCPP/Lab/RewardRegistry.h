@@ -25,6 +25,7 @@ namespace Lab {
 			{ "OffsidePenalty",            [](const RewardSpec&) -> Reward* { return new OffsidePenalty(); } },
 			{ "CarEnergyPotentialReward",  [](const RewardSpec& s) -> Reward* { return new CarEnergyPotentialReward(s.gamma); } },
 			{ "PassingSetupReward",        [](const RewardSpec&) -> Reward* { return new PassingSetupReward(); } },
+			{ "GoalReward",                [](const RewardSpec&) -> Reward* { return new GoalReward(); } },
 		};
 		return reg;
 	}

@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "name": "goal_weighted_150",
+  "description": "Same goal as goal_2v2_blue_scores but at the production weight 150: the weighted values are +150 for the scorers and -150 for the conceders.",
+  "tags": [
+    "goal",
+    "weight"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      }
+    },
+    {
+      "team": "blue",
+      "pos": [
+        3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      }
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      4400,
+      93
+    ],
+    "vel": [
+      0,
+      2000,
+      0
+    ]
+  },
+  "rewards": [
+    {
+      "name": "GoalReward",
+      "weight": 150.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GoalReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 150,
+      "max": 150,
+      "intent": "scoring team: +1 x 150 = +150"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GoalReward",
+      "of": "weighted",
+      "car": 2,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -150,
+      "max": -150,
+      "intent": "conceding team: -1 x 150 = -150"
+    }
+  ]
+}

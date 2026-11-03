@@ -139,6 +139,7 @@ namespace Lab {
 			{ "OffsidePenalty", "Rewards/OffsidePenalty.h" },
 			{ "CarEnergyPotentialReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards: an edit to any of them stales this one
 			{ "PassingSetupReward", "Rewards/PassingSetupRewards.h" },
+			{ "GoalReward", "Rewards/CommonRewards.h" },                  // shared with the other CommonRewards, like CarEnergyPotentialReward
 		};
 		return m;
 	}

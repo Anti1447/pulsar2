@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "name": "goal_rolls_short",
+  "description": "1v1. The ball rolls at 300 uu/s from y = 4400 and has gone only about 300 uu in 15 steps, so it never reaches the line: no goal.",
+  "tags": [
+    "goal",
+    "gate",
+    "failing"
+  ],
+  "steps": 15,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      }
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      4400,
+      93
+    ],
+    "vel": [
+      0,
+      300,
+      0
+    ]
+  },
+  "rewards": [
+    {
+      "name": "GoalReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GoalReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        15
+      ],
+      "min": 0,
+      "max": 0,
+      "intent": "short of the line is no goal"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GoalReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        15
+      ],
+      "min": 0,
+      "max": 0,
+      "intent": "short of the line is no goal"
+    }
+  ]
+}

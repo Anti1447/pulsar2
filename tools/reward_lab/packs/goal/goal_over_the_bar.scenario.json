@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "name": "goal_over_the_bar",
+  "description": "1v1. The ball is lobbed at the goal mouth from height 900 (crossbar at about z 643): it hits the back wall above the goal. No goal.",
+  "tags": [
+    "goal",
+    "gate",
+    "failing"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        -3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      }
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      }
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      4400,
+      900
+    ],
+    "vel": [
+      0,
+      2500,
+      0
+    ]
+  },
+  "rewards": [
+    {
+      "name": "GoalReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "GoalReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0,
+      "max": 0,
+      "intent": "above the bar is no goal for blue"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "GoalReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0,
+      "max": 0,
+      "intent": "above the bar is no goal for orange"
+    }
+  ]
+}
