@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "touch_accel_the_orange_car_is_paid_for_its_own_touch",
-  "description": "1v1: orange drives at the resting ball from the other side at 1500 uu/s; its touch on frame 26 sends the ball off at 1002 uu/s: 0.2776 raw for orange. Blue gets nothing raw and -0.2776 through ZeroSum.",
+  "description": "1v1: orange drives at the resting ball from the other side at 1500 uu/s; its touch on frame 26 sends the ball off at 1002 uu/s: 0.3280 raw for orange. Blue gets nothing raw and -0.3280 through ZeroSum.",
   "tags": [
     "touch_accel",
     "golden",
@@ -85,8 +85,8 @@
         1,
         30
       ],
-      "min": 0.27555,
-      "max": 0.27955,
+      "min": 0.32595999999999997,
+      "max": 0.32996,
       "intent": "orange's single contact step"
     },
     {
@@ -98,8 +98,8 @@
         1,
         30
       ],
-      "min": -0.27955,
-      "max": -0.27555,
+      "min": -0.32996,
+      "max": -0.32595999999999997,
       "intent": "ZeroSum charges blue the same"
     },
     {
@@ -111,8 +111,8 @@
         1,
         30
       ],
-      "min": 0.27555,
-      "max": 0.27955,
+      "min": 0.32595999999999997,
+      "max": 0.32996,
       "intent": "ZeroSum 1v1 orange +y"
     }
   ]

@@ -8,15 +8,15 @@ using namespace RLGC;
 using namespace RewardTest;
 
 // Audit of TouchAccelReward (weight 10, wrapped ZeroSum(TEAM_SPIRIT 0.3)). On a step where the player's ballTouchedStep is set it pays
-//   max(0, min(1, |ball.vel| / M) - min(1, |prev.ball.vel| / M))      with M = KPHToVel(130) = 130 * 250/9 = 3611.11 uu/s
+//   max(0, min(1, |ball.vel| / M) - min(1, |prev.ball.vel| / M))      with M = KPHToVel(110) = 110 * 250/9 = 3055.56 uu/s
 // i.e. the increase in the capped speed fraction between the previous step and this one; 0 with no previous state, no touch, or a
 // touch that did not speed the ball up. Direction is ignored (|v|, not the component toward the opposing goal).
-// Hand values at M = 3611.111: 1000 uu/s -> 0.276923;  1500 -> 0.415385;  3000 -> 0.830769;  500 -> 0.138462.
+// Hand values at M = 3055.556: 1000 uu/s -> 0.327273;  1500 -> 0.490909;  3000 -> 0.981818;  500 -> 0.163636.
 // Fixture: fabricated states (no engine). The engine side (what a real touch does to the ball speed, how many steps a contact lasts) is in
 // tools/reward_lab/packs/touch_accel.
 
 namespace {
-	constexpr float M = 130.f * 250.f / 9.f;
+	constexpr float M = 110.f * 250.f / 9.f;
 
 	GameState Make(Vec ballVel, int perTeam, int toucher = -1, bool both = false) {
 		GameState gs; gs.deltaTime = STEP_DT;
@@ -40,19 +40,19 @@ namespace {
 	}
 }
 
-TEST(TouchAccel_the_cap_is_130_kph_in_uu_per_s) {
-	CHECK_NEAR(TouchAccelReward::MAX_REWARDED_BALL_SPEED, 3611.111f, 0.01f);
+TEST(TouchAccel_the_cap_is_110_kph_in_uu_per_s) {
+	CHECK_NEAR(TouchAccelReward::MAX_REWARDED_BALL_SPEED, 3055.556f, 0.01f);
 }
 
 TEST(TouchAccel_pays_the_increase_in_speed_fraction_on_a_touch) {
-	CHECK_NEAR(Step(0, 1000), 0.276923f, 1e-5f);
-	CHECK_NEAR(Step(1000, 2000), 0.276923f, 1e-5f);          // linear: the same 1000 uu/s gain pays the same anywhere below the cap
-	CHECK_NEAR(Step(500, 1500), 0.276923f, 1e-5f);
-	CHECK_NEAR(Step(0, 1500), 0.415385f, 1e-5f);
+	CHECK_NEAR(Step(0, 1000), 0.327273f, 1e-5f);
+	CHECK_NEAR(Step(1000, 2000), 0.327273f, 1e-5f);          // linear: the same 1000 uu/s gain pays the same anywhere below the cap
+	CHECK_NEAR(Step(500, 1500), 0.327273f, 1e-5f);
+	CHECK_NEAR(Step(0, 1500), 0.490909f, 1e-5f);
 }
 
-TEST(TouchAccel_is_capped_at_130_kph_so_the_total_for_a_full_speed_up_is_one) {
-	CHECK_NEAR(Step(3000, 4000), 1.0f - 3000.f / M, 1e-5f);  // only the part below the cap: 1 - 0.830769 = 0.169231
+TEST(TouchAccel_is_capped_at_110_kph_so_the_total_for_a_full_speed_up_is_one) {
+	CHECK_NEAR(Step(3000, 4000), 1.0f - 3000.f / M, 1e-5f);  // only the part below the cap: 1 - 0.981818 = 0.018182
 	CHECK_NEAR(Step(0, 9999), 1.0f, 1e-6f);                  // one huge hit pays 1.0, not more
 	CHECK_NEAR(Step(M, 6000), 0.0f, 1e-6f);                          // already at the cap: nothing left to earn
 	CHECK_EQ(Step(4000, 5000), 0.0f);                        // both above the cap
@@ -80,7 +80,7 @@ TEST(TouchAccel_ignores_the_direction_of_the_ball) {
 	GameState a = Make(Vec(0, 1000, 0), 1);
 	GameState b = Make(Vec(0, -1500, 0), 1, 0);               // reversed and faster: speed 1000 -> 1500
 	b.prev = &a;
-	CHECK_NEAR(r.GetReward(b.players[0], b, false), 500.f / M, 1e-5f);   // 0.138462
+	CHECK_NEAR(r.GetReward(b.players[0], b, false), 500.f / M, 1e-5f);   // 0.163636
 	GameState c = Make(Vec(0, -1000, 0), 1, 0);               // a pure reversal at the same speed pays nothing
 	c.prev = &a;
 	CHECK_EQ(r.GetReward(c.players[0], c, false), 0.0f);
@@ -101,7 +101,7 @@ TEST(TouchAccel_a_simultaneous_touch_pays_every_toucher_the_full_increment) {
 	GameState b = Make(Vec(0, 1000, 0), 1, -1, /*both=*/true);
 	b.prev = &a;
 	auto v = r.GetAllRewards(b, false);
-	CHECK_NEAR(v[0], 0.276923f, 1e-5f); CHECK_NEAR(v[1], 0.276923f, 1e-5f);
+	CHECK_NEAR(v[0], 0.327273f, 1e-5f); CHECK_NEAR(v[1], 0.327273f, 1e-5f);
 }
 
 // A chain of touch steps with the speed rising each step telescopes to the final fraction (the "total is 1.0" claim in the source comment)
@@ -116,7 +116,7 @@ TEST(TouchAccel_a_monotone_chain_telescopes_to_the_final_speed_fraction) {
 }
 
 // FINDING: the reward is a ratchet, not a potential. Speed gained is paid again after the ball loses it (touch-free slowdown by drag, gravity
-// on a roll, a wall, an opponent), so a 0 -> 1000 -> 500 -> 1500 sequence pays 0.2769 + 0 + 0.2769 = 0.5538, more than the final fraction 0.4154.
+// on a roll, a wall, an opponent), so a 0 -> 1000 -> 500 -> 1500 sequence pays 0.3273 + 0 + 0.3273 = 0.6545, more than the final fraction 0.4909.
 TEST(TouchAccel_FINDING_speed_lost_between_touches_is_paid_again) {
 	TouchAccelReward r;
 	float speeds[] = { 0, 1000, 500, 1500 };        // the drop 1000 -> 500 is a step with no touch by this player
@@ -124,20 +124,20 @@ TEST(TouchAccel_FINDING_speed_lost_between_touches_is_paid_again) {
 	for (int i = 0; i < 4; i++) st.push_back(Make(Vec(0, speeds[i], 0), 1, i == 2 ? -1 : 0));
 	float total = 0;
 	for (size_t i = 1; i < st.size(); i++) { st[i].prev = &st[i - 1]; total += r.GetReward(st[i].players[0], st[i], false); }
-	CHECK_NEAR(total, 2.f * 1000.f / M, 1e-5f);     // 0.553846
+	CHECK_NEAR(total, 2.f * 1000.f / M, 1e-5f);     // 0.654545
 	CHECK(total > 1500.f / M);
 }
 
 // Wiring as in training: ZeroSum(TouchAccel, 0.3), weight 10.  1v1: toucher +x, opponent -x.  2v2: 0.85x, 0.15x, -0.5x, -0.5x
 TEST(TouchAccel_zero_sum_values_1v1_and_2v2_at_team_spirit_0p3_weight_10) {
-	const float x = 1000.f / M;                     // 0.276923
+	const float x = 1000.f / M;                     // 0.327273
 	{
 		Reward* zs = new ZeroSumReward(new TouchAccelReward(), 0.3f);
 		GameState a = Make(Vec(0, 0, 0), 1); zs->Reset(a);
 		GameState b = Make(Vec(0, 1000, 0), 1, 0); b.prev = &a; zs->PreStep(b);
 		auto v = zs->GetAllRewards(b, false);
 		CHECK_NEAR(v[0], x, 1e-6f); CHECK_NEAR(v[1], -x, 1e-6f);
-		CHECK_NEAR(10.f * v[0], 2.76923f, 1e-4f);
+		CHECK_NEAR(10.f * v[0], 3.27273f, 1e-4f);
 		delete zs;
 	}
 	{

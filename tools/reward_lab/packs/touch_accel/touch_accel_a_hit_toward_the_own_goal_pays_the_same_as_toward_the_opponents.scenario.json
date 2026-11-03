@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "touch_accel_a_hit_toward_the_own_goal_pays_the_same_as_toward_the_opponents",
-  "description": "D5 (direction-blind): the same run mirrored. Blue drives from (0, +1500) toward -y, the way blue's OWN goal is (blue defends y = -5120), and hits the resting ball into it. The payment is identical to the hit toward the opponents' goal: 0.3191 raw on frame 14. The reward looks only at the speed gained, never at where the ball is sent.",
+  "description": "D5 (direction-blind): the same run mirrored. Blue drives from (0, +1500) toward -y, the way blue's OWN goal is (blue defends y = -5120), and hits the resting ball into it. The payment is identical to the hit toward the opponents' goal: 0.3771 raw on frame 14. The reward looks only at the speed gained, never at where the ball is sent.",
   "tags": [
     "touch_accel",
     "gate",
@@ -85,9 +85,9 @@
         14,
         14
       ],
-      "min": 0.31707,
-      "max": 0.32107,
-      "intent": "the same 0.3191 as the forward hit: direction is not looked at"
+      "min": 0.37508,
+      "max": 0.37908000000000003,
+      "intent": "the same 0.3771 as the forward hit: direction is not looked at"
     },
     {
       "kind": "reward_sum",
@@ -98,8 +98,8 @@
         1,
         30
       ],
-      "min": 0.31707,
-      "max": 0.32107,
+      "min": 0.37508,
+      "max": 0.37908000000000003,
       "intent": "paid once"
     }
   ]

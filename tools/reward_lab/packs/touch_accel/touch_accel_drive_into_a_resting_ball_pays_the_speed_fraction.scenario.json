@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "touch_accel_drive_into_a_resting_ball_pays_the_speed_fraction",
-  "description": "1v1: blue drives straight at the resting ball at 1500 uu/s (no boost, no flip). The ball leaves at 1152 uu/s on the single contact step (frame 14), and TouchAccel pays that step 1152.2 / 3611.1 = 0.3191 raw, once. Through ZeroSum 0.3 in 1v1 blue is +0.3191 and orange -0.3191; weighted at 10 that is +3.19 / -3.19. Nothing is paid before the contact.",
+  "description": "1v1: blue drives straight at the resting ball at 1500 uu/s (no boost, no flip). The ball leaves at 1152 uu/s on the single contact step (frame 14), and TouchAccel pays that step 1152.2 / 3055.6 = 0.3771 raw, once. Through ZeroSum 0.3 in 1v1 blue is +0.3771 and orange -0.3771; weighted at 10 that is +3.77 / -3.77. Nothing is paid before the contact.",
   "tags": [
     "touch_accel",
     "golden",
@@ -85,9 +85,9 @@
         14,
         14
       ],
-      "min": 0.31707,
-      "max": 0.32107,
-      "intent": "the contact step pays the speed gained: 1152 uu/s / 3611.1 = 0.3191"
+      "min": 0.37508,
+      "max": 0.37908000000000003,
+      "intent": "the contact step pays the speed gained: 1152 uu/s / 3055.6 = 0.3771"
     },
     {
       "kind": "reward_sum",
@@ -98,8 +98,8 @@
         1,
         30
       ],
-      "min": 0.31707,
-      "max": 0.32107,
+      "min": 0.37508,
+      "max": 0.37908000000000003,
       "intent": "paid once for the whole run"
     },
     {
@@ -124,8 +124,8 @@
         1,
         30
       ],
-      "min": 0.31707,
-      "max": 0.32107,
+      "min": 0.37508,
+      "max": 0.37908000000000003,
       "intent": "ZeroSum 1v1: the toucher +x"
     },
     {
@@ -137,8 +137,8 @@
         1,
         30
       ],
-      "min": -0.32107,
-      "max": -0.31707,
+      "min": -0.37908000000000003,
+      "max": -0.37508,
       "intent": "ZeroSum 1v1: the opponent -x"
     },
     {
@@ -150,9 +150,9 @@
         1,
         30
       ],
-      "min": 3.1707,
-      "max": 3.2107,
-      "intent": "+3.19 at weight 10"
+      "min": 3.7508000000000004,
+      "max": 3.7908000000000004,
+      "intent": "+3.77 at weight 10"
     },
     {
       "kind": "reward_sum",
@@ -163,9 +163,9 @@
         1,
         30
       ],
-      "min": -3.2107,
-      "max": -3.1707,
-      "intent": "-3.19 at weight 10"
+      "min": -3.7908000000000004,
+      "max": -3.7508000000000004,
+      "intent": "-3.77 at weight 10"
     }
   ]
 }
