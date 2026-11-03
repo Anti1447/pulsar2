@@ -7,7 +7,7 @@ Started 2026-11-02. Tick items as they are finished. Sizes are rough (S/M/L). Fa
 
 ## 0. Decisions and housekeeping
 - [x] Observation design locked (above).
-- [x] Success target defined (above). *Still to write down:* what the reward-health and behavior checks look like for "hits the ball" and "basic recoveries" (W&B metric, range, and what to look for in RocketSimVis).
+- [x] Success target defined (above). Decided 2026-11-02: no numeric thresholds; judged by eye in RocketSimVis (does it hit the ball, does it recover), with the W&B reward curves as a sanity glance.
 - [x] All uncommitted work committed 2026-11-02 (6.0 nets, ported-reward includes, `CLAUDE.md`, improvement-ideas doc, Chronos/Galactus `SOURCE.txt`, submodule pointers). Nothing is pushed.
 - [x] **Decided 2026-11-02: `actionDelay` 7 for training** (done in `ExampleMain.cpp`, `CLAUDE.md`, `docs/6.0.md`, `docs/PULSAR5.md`). Original question: The live client now uses 7 (RLBot play with 0 was erratic) but `cfg.actionDelay` in `ExampleMain.cpp:844` is still 0, so live and training differ.
   - For 7: matches live, and matches Chronos and Galactus (both trained with 7, so they would no longer act ~58 ms sooner than trained; `docs/6.0.md`).
@@ -15,7 +15,7 @@ Started 2026-11-02. Tick items as they are finished. Sizes are rough (S/M/L). Fa
   - If it changes: fresh run needed anyway; update the comment there, `CLAUDE.md` lines 26/120/139/515, `docs/6.0.md` line 53 and `docs/PULSAR5.md`; the engine requires `actionDelay <= tickSkip`; the Reward Lab scenarios default to 0 (set `action_delay` per scenario or leave as is, since rewards do not read it).
 - [ ] **Push** the new commits and, if wanted, the `cpp-interface` branch to a fork (see item 6). Remotes: `origin` = lucamignatti/pulsar2, `fork` = Anti1447/pulsar2.
 - [x] (tag pre-6.0-20261102, hashes in docs/6.0_RESTORE_POINT.md) Restore point: tag the commit the run starts from (precedent: `pre-strip-20260725`), and record the `*.lt` hashes (weights are git-ignored).
-- [ ] Final go/no-go: all tests green (2026-11-02: GigaLearnTests 207/207 incl. Lab, built with -DGGL_BUILD_TESTS=ON, run from the repo root; receiver tests tools/reward_lab/test_stream.py 20/20 and test_serve.py 8/8 passed 2026-11-02), clean checkpoints_6.0 (re-clean after the smoke), short smoke run DONE 2026-11-02 (CPU GGL_SMOKE, 21 iterations, 843k steps, no errors).
+- [x] Final go/no-go: all tests green (2026-11-02: GigaLearnTests 207/207 incl. Lab, built with -DGGL_BUILD_TESTS=ON, run from the repo root; receiver tests tools/reward_lab/test_stream.py 20/20 and test_serve.py 8/8 passed 2026-11-02), clean checkpoints_6.0 (re-clean after the smoke), short smoke run DONE 2026-11-02 (CPU GGL_SMOKE, 21 iterations, 843k steps, no errors).
 
 ## 1. Chronos and Galactus verified in training (M-L)
 Existing: `GGLBotOpponent` ports each bot's observations and action masks; a random-weight smoke run loses heavily to both. The render viewer can choose the agent on each side.
