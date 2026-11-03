@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "name": "demo_supersonic_ram_pays_the_bumper_once",
+  "description": "1v1: blue starts at (-3000, 0) doing 2300 uu/s (supersonic) with a full tank and drives straight at the idle orange car at the centre. Hand calc: it reaches the car after about 2940 uu / 2300 uu/s = 1.28 s = 19 decision steps, the engine reports a demolition on frame 19, the bumper's eventState.demo is set for that step only and DemoReward pays +1 once (+37.5 at weight 37.5; through ZeroSum 0.3 in 1v1 the bumper is +1 and the victim -1: a pair swing of 75, half a Goal). The victim then stays demolished at the contact point for 45 frames (DEMO_RESPAWN_TIME 3.0 s) and respawns on frame 64 at one of four corner spots behind its own goal (measured: (2688, 4608) in one run, (-2688, 4608) in another: the spot is random). Nothing more is paid while it stays demolished.",
+  "tags": [
+    "demo",
+    "golden"
+  ],
+  "steps": 110,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        0,
+        17
+      ],
+      "vel": [
+        2300,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3500,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "DemoReward",
+      "weight": 37.5,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        18
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "nothing before the contact"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "one demo, one payment of 1.0 on frame 19"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        19,
+        110
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "the whole 3 s of respawn pays nothing more"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the victim's raw reward is 0"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "wrapped (ZeroSum 0.3, 1v1): the bumper +1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -1.0001,
+      "max": -0.9999,
+      "intent": "wrapped: the victim -1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 37.49,
+      "max": 37.51,
+      "intent": "+37.5 weighted"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "weighted",
+      "car": 1,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -37.51,
+      "max": -37.49,
+      "intent": "-37.5 weighted: a 75 swing"
+    }
+  ]
+}

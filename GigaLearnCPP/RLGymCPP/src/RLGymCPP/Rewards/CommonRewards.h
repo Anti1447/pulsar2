@@ -25,7 +25,9 @@ namespace RLGC {
 	typedef PlayerDataEventReward<&PlayerEventState::save, false> SaveReward;
 	typedef PlayerDataEventReward<&PlayerEventState::bump, false> BumpReward;
 	typedef PlayerDataEventReward<&PlayerEventState::bumped, true> BumpedPenalty;
-	typedef PlayerDataEventReward<&PlayerEventState::demo, false> DemoReward;
+	// A real class, not a typedef (2026-11-03 audit): the typedef's readable name was just "false>" (shared by every non-negated event
+	// reward), so the Lab could not name it and the trainer's reward key was the mangled template string. 1.0 for the bumper of a demo.
+	class DemoReward : public PlayerDataEventReward<&PlayerEventState::demo, false> {};
 	typedef PlayerDataEventReward<&PlayerEventState::demoed, true> DemoedPenalty;
 
 	// Rewards a goal by anyone on the team

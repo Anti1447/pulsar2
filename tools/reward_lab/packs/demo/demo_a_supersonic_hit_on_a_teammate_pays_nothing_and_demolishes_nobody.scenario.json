@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "demo_a_supersonic_hit_on_a_teammate_pays_nothing_and_demolishes_nobody",
+  "description": "The supersonic ram, but the car in the way is a TEAMMATE. In this engine a friendly supersonic hit does not demolish the teammate (measured: no demolition) and the bump callback ignores same-team pairs anyway, so nothing is paid.",
+  "tags": [
+    "demo",
+    "gate",
+    "failing"
+  ],
+  "steps": 60,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        0,
+        17
+      ],
+      "vel": [
+        2300,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3500,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "DemoReward",
+      "weight": 37.5,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        60
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "no payment for hitting a teammate"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        60
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "and the teammate pays nothing"
+    }
+  ]
+}

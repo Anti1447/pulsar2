@@ -1,0 +1,170 @@
+{
+  "schema": 1,
+  "name": "demo_2v2_wrapped_values_share_with_the_team_and_charge_both_opponents",
+  "description": "2v2: blue car 0 demolishes orange car 0 (cars in order blue0, orange0, blue1, orange1). Through ZeroSum 0.3: the bumper 0.7 + 0.3*0.5 = 0.85 (+31.9 weighted at 37.5), its teammate 0.3*0.5 = 0.15 (+5.6), each orange car -0.5 (-18.75): the victim's teammate is charged as much as the victim.",
+  "tags": [
+    "demo",
+    "golden",
+    "2v2"
+  ],
+  "steps": 110,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        0,
+        17
+      ],
+      "vel": [
+        2300,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3500,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "DemoReward",
+      "weight": 37.5,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 0.8499,
+      "max": 0.8501,
+      "intent": "the bumper"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -0.5001,
+      "max": -0.4999,
+      "intent": "the victim"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "wrapped",
+      "car": 2,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 0.1499,
+      "max": 0.1501,
+      "intent": "the bumper's teammate shares"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "wrapped",
+      "car": 3,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -0.5001,
+      "max": -0.4999,
+      "intent": "the victim's teammate is charged equally"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 31.87,
+      "max": 31.88,
+      "intent": "+31.875 weighted"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "weighted",
+      "car": 3,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -18.76,
+      "max": -18.74,
+      "intent": "-18.75 weighted"
+    }
+  ]
+}

@@ -36,6 +36,7 @@ namespace Lab {
 			{ "KickoffOutcomeReward",      [](const RewardSpec&) -> Reward* { return new KickoffOutcomeReward(); } },
 			{ "ConsecutiveAirTouchReward", [](const RewardSpec& s) -> Reward* { return new ConsecutiveAirTouchReward(s.gamma); } },
 			{ "MultiAirTouchReward",       [](const RewardSpec&) -> Reward* { return new MultiAirTouchReward(); } },
+			{ "DemoReward",                [](const RewardSpec&) -> Reward* { return new DemoReward(); } },
 		};
 		return reg;
 	}

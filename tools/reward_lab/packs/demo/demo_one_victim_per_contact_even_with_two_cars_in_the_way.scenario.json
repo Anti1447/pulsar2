@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "name": "demo_one_victim_per_contact_even_with_two_cars_in_the_way",
+  "description": "Two orange cars stand side by side (y = -45 and +45, inside the width of the ramming nose). Only the first car (y = -45) is demolished and the bumper is paid once; the second car is untouched (measured). A bool event flag could not pay twice in one step anyway.",
+  "tags": [
+    "demo",
+    "gate"
+  ],
+  "steps": 60,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        0,
+        17
+      ],
+      "vel": [
+        2300,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        -45,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        45,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3500,
+      3000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "DemoReward",
+      "weight": 37.5,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        60
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "one payment of 1.0"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        60
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the second orange car is not demolished and pays nothing"
+    }
+  ]
+}
