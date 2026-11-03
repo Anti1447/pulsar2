@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
 
 	RLBotParams params = {};
 	params.tickSkip = 8;      // matches cfg.tickSkip in ExampleMain.cpp
-	params.actionDelay = 0;   // matches cfg.actionDelay (5.0v3: zero actuation latency)
+	params.actionDelay = 7;   // matches cfg.actionDelay (5.0v3: zero actuation latency)
 	params.inferUnit = inferUnit;
 
 	RLBotClient::Run(params);
