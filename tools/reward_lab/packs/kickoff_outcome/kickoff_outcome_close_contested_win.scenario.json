@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "name": "kickoff_outcome_close_contested_win_can_still_score_negative",
-  "description": "1v1 along the kickoff axis: blue starts at (0,-1200), orange at (0,1400), both boost straight at the ball. Blue touches first (frame 17) and orange touches on the very next frames, so the ball pops up at the centre (frame 48: y = -208, vy = -142, in the air). At the payout (31 steps after the first touch, frame 48) blue's terms are: field 0.4*(-208/2500) = -0.033, possess: the last touch step (frame 18) had BOTH cars touching and the engine's last-touch id is the highest player index, orange: -0.2, momentum 0.15*(-142/2300) = -0.009 (the ball is moving toward blue's own goal), first touch +0.15. Blue = -0.093, orange = +0.093 (-1.1 / +1.1 weighted at 12): the player who won the race by a step is scored negative because the ball sits on orange's side after the scrap. Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
+  "name": "kickoff_outcome_close_contested_win",
+  "description": "1v1 along the kickoff axis: blue starts at (0,-1200), orange at (0,1400), both boost straight at the ball. Blue touches first (frame 17) and orange touches on the next frames, so the ball pops up near the centre (frame 48, the payout: y = -208, vy = -142, in the air). Blue = field 0.4*(-208/2500) = -0.033 + possession 0 (the latest touch step had BOTH teams on it) + momentum 0.15*(-142/2300) = -0.009 + first touch 0.15 = +0.107; orange = -0.107 (+1.3 / -1.3 at weight 12). HISTORY (fixed 2026-11-03): possession followed the engine's last-touch id, the higher player index (orange), so the same race scored blue -0.093. Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
   "tags": [
     "kickoff_outcome",
     "golden"
@@ -91,9 +91,9 @@
         1,
         90
       ],
-      "min": -0.1,
-      "max": -0.085,
-      "intent": "blue won the race by touching first but the ball ends slightly on its own side: -0.093"
+      "min": 0.1,
+      "max": 0.115,
+      "intent": "blue won the arrival race and the scrap is level: +0.107"
     },
     {
       "kind": "reward_sum",
@@ -104,8 +104,8 @@
         1,
         90
       ],
-      "min": 0.085,
-      "max": 0.1,
+      "min": -0.115,
+      "max": -0.1,
       "intent": "orange is paid the exact opposite: 1v1 is antisymmetric (zero-sum)"
     },
     {
@@ -117,9 +117,9 @@
         1,
         90
       ],
-      "min": -1.2,
-      "max": -1.02,
-      "intent": "x12 = about -1.1"
+      "min": 1.2,
+      "max": 1.4,
+      "intent": "x12 = about +1.3"
     }
   ]
 }

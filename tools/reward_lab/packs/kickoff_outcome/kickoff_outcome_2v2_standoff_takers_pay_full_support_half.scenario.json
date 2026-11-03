@@ -1,13 +1,13 @@
 {
   "schema": 1,
   "name": "kickoff_outcome_2v2_standoff_takers_pay_full_support_half",
-  "description": "2v2, nobody moves: the diagonal cars (3277 uu from the ball) are the takers and pay -0.6; the back cars (4608 uu) are support and pay half, -0.3.",
+  "description": "2v2, nobody moves (3.5 s standoff, charged on frame 53 or 54): the diagonal cars (3277 uu from the ball) are the takers and pay -0.6; the back cars (4608 uu) are support and pay half, -0.3.",
   "tags": [
     "kickoff_outcome",
     "standoff",
     "2v2"
   ],
-  "steps": 80,
+  "steps": 90,
   "cars": [
     {
       "team": "blue",
@@ -83,7 +83,7 @@
       "car": 0,
       "steps": [
         1,
-        80
+        90
       ],
       "min": -0.6000001,
       "max": -0.5999999,
@@ -96,7 +96,7 @@
       "car": 1,
       "steps": [
         1,
-        80
+        90
       ],
       "min": -0.6000001,
       "max": -0.5999999,
@@ -109,7 +109,7 @@
       "car": 2,
       "steps": [
         1,
-        80
+        90
       ],
       "min": -0.3000001,
       "max": -0.2999999,
@@ -122,7 +122,7 @@
       "car": 3,
       "steps": [
         1,
-        80
+        90
       ],
       "min": -0.3000001,
       "max": -0.2999999,

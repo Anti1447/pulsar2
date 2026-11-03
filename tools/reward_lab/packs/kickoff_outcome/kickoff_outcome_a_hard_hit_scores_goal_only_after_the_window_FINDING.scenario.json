@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "kickoff_outcome_a_hard_hit_scores_goal_only_after_the_window_FINDING",
-  "description": "Blue is 250 uu behind the ball doing 2300 uu/s at full boost and hits it straight at the orange goal. The ball reaches y = 3254 (vy = 1279, bouncing at z 155) at the payout (frame 31, 2 s after the first touch at frame 1) and is only in the net on frame 58, AFTER the window. So the +/-1 goal override did not fire: blue gets the ordinary score 0.4*1 + 0.2 + 0.15*(1279/2300) + 0.15 = 0.833 (+10.0 weighted), orange the opposite, and the goal on frame 58 pays nothing more (the kickoff is already resolved). From the centre the ball loses speed to drag and bounces, so the goal override is practically unreachable on a real kickoff. Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
+  "description": "Blue is 250 uu behind the ball doing 2300 uu/s at full boost and hits it straight at the orange goal; orange idles at (1200,0), within 1500 uu of the ball, so the kickoff is contested. The ball reaches y = 3254 (vy = 1279, bouncing at z 155) at the payout (frame 31, 2 s after the first touch at frame 1) and is only in the net on frame 58, AFTER the window. So the +/-1 goal override did not fire: blue gets 0.4*1 + 0.2 + 0.15*(1279/2300) + 0.15 = 0.833 (+10.0 weighted), orange the opposite, and the goal on frame 58 pays nothing more. From the centre the ball loses speed to drag and bounces, so the goal override is practically unreachable on a real kickoff. Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
   "tags": [
     "kickoff_outcome",
     "finding",
@@ -29,12 +29,12 @@
     {
       "team": "orange",
       "pos": [
-        3000,
-        3000,
+        1200,
+        0,
         17
       ],
       "angle_deg": {
-        "yaw": 270
+        "yaw": 180
       },
       "boost": 100
     }

@@ -309,6 +309,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// ======================================================================================
 		// -- Kickoff
 		// { new KickoffOutcomeReward(), 12.f },                    // v3 Gold 12 (Silver 20). static metrics. Overlaps KickoffRaceReward.
+		// ^ audited and fixed 2026-11-03 (possession by latest touch step, contested gate, standoff 3.5 s). DELIBERATELY OFF: add it only
+		//   after the bot hits the ball and scores, because a random policy sits in standoff and would eat a flat -0.6 x weight per kickoff.
 		// { new KickoffStandoffPenalty(), 70.f },                  // v3 Gold 70 (Diamond 300). terminal-step only; static metrics.
 		// -- Positioning penalties. Offside and TooFar apply in 1v1 too (no teammate => offside is never "covered", so the full penalty applies; TooFar has a 1v1 threshold). Only TeammateSpacing is team-only.
 		// { new OffsidePenalty(), 0.3f },                          // v3 Gold 0.3. raw range [-6,0] so worst case -1.8/step.

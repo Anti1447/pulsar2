@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "name": "kickoff_outcome_dead_even_tie_is_scored_by_who_touches_last_FINDING",
-  "description": "FINDING (current behaviour): a symmetric 50/50. Blue at (0,-1300) and orange at (0,1300) boost at the ball and both touch it on the same step (frame 17), so firstTouch is 0 for both. The ball is then fought over and ends in the air at the centre (frame 48: y = -106, vy = -706). The only large term left is possession, which is the team of `gs.lastTouchCarID`: on this run the last touch step (frame 48) was blue alone, so blue +0.2 and orange -0.2, giving blue +0.137 / orange -0.137 (+1.6 / -1.6 weighted). With the other order the same race would score the other way: a pure tie is scored by who happens to touch last, and when both touch on the same step the engine's id is the higher player index (orange). Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
+  "name": "kickoff_outcome_a_tie_is_scored_by_the_latest_touch_step",
+  "description": "A symmetric 50/50: blue at (0,-1300) and orange at (0,1300) boost at the ball and both touch it on the same step (frame 17): no first touch. The ball is then fought over and ends in the air near the centre (frame 48: y = -106, vy = -706). Possession now comes from the LATEST touch step: on this run frame 48 had blue alone, so blue +0.2 and orange -0.2, giving blue +0.137 / orange -0.137 (+1.6 / -1.6 at weight 12). A step where BOTH teams touch counts for neither (possession 0); this race is decided by who really touched last, not by player order. Verified independently: the formula re-evaluated by a separate script on the ball state and touches read from the exported run reproduces the reward to 5 digits.",
   "tags": [
     "kickoff_outcome",
-    "finding"
+    "golden"
   ],
   "steps": 90,
   "cars": [
@@ -106,7 +106,7 @@
       ],
       "min": 0.13,
       "max": 0.145,
-      "intent": "a dead-even race scores +0.137 for blue on this run (possession decided by last touch)"
+      "intent": "the last touch was blue's alone: +0.137"
     },
     {
       "kind": "reward_sum",

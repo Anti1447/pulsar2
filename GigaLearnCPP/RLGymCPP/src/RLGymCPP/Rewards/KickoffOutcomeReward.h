@@ -46,6 +46,15 @@ namespace RLGC {
 //           (KickoffDoubleCommitPenalty / KickoffNoChaseTeamPenalty).
 //   Credit horizon: 2.0s keeps PPO credit assignment tractable (<= 2s guidance, CLAUDE.md 7A).
 //
+// 2026-11-03 audit fixes (REWARD_CHANGE_LOG), three levers:
+//   (1) POSSESSION no longer follows GameState::lastTouchCarID (on a same-step touch that is the highest player index, i.e. orange, so
+//       a symmetric race was scored for orange in 75 of 85 layouts). The reward now tracks the team(s) that touched on the most recent
+//       touch step itself: +1 / -1 for the lone toucher, 0 when both teams touched on that step.
+//   (2) CONTESTED GATE (as KickoffRaceReward): if no opponent of the first toucher(s) is within contestDistUU of the ball or closing on it
+//       faster than contestSpeedUU at the first touch (a delay kickoff), the kickoff is closed WITHOUT a payout, so rushing into a
+//       hang-back is no longer paid. Counted in Metrics::uncontested.
+//   (3) standoffSec 3.0 -> 3.5: a no-boost rush from every spot touches at 3.0-3.9 s, so 3.0 closed 15 of 85 layouts that were racing.
+//
 // Metrics (static atomics -> Kickoff/Outcome/*): Armed, Resolved, GoalInWindow, MeanAbsScore,
 //   MeanFirstTouchSec, plus per-mode (1v1/2v2/3v3) resolved count and mean |score|.
 // ============================================================================
@@ -61,12 +70,14 @@ namespace RLGC {
 			float wFirstTouch    = 0.15f;
 			float wCoverage      = 0.10f;
 			float supportShare   = 0.5f;
-			float standoffSec    = 3.0f;   // no touch by this long after kickoff -> standoff penalty
+			float standoffSec    = 3.5f;   // no touch by this long after kickoff -> standoff penalty (3.0 before the 2026-11-03 audit)
 			float standoffPenalty = 0.6f;  // paid once as -standoffPenalty (before taker/support share)
+			float contestDistUU  = 1500.0f; // an opponent this close to the ball at the first touch = a contested kickoff
+			float contestSpeedUU = 500.0f;  // ...or closing on it faster than this
 		};
 
 		struct Metrics {
-			long long armed = 0, resolved = 0, goals = 0, standoffs = 0;
+			long long armed = 0, resolved = 0, goals = 0, standoffs = 0, uncontested = 0;
 			double meanAbsScore = 0, meanFirstTouchSec = 0;
 			long long modeResolved[3] = { 0, 0, 0 };
 			double modeMeanAbs[3] = { 0, 0, 0 };
@@ -78,6 +89,7 @@ namespace RLGC {
 			m.resolved = s_resolved.exchange(0);
 			m.goals = s_goals.exchange(0);
 			m.standoffs = s_standoffs.exchange(0);
+			m.uncontested = s_uncontested.exchange(0);
 			double absSum = s_absScoreMilli.exchange(0) / 1000.0;
 			double ftSum = s_firstTouchMilli.exchange(0) / 1000.0;
 			if (m.resolved > 0) {
@@ -101,6 +113,7 @@ namespace RLGC {
 			armed = RewardMath::IsKickoffActive(initialState.ball.pos, initialState.ball.vel);
 			touched = false; resolved = false; justResolved = false;
 			firstBlue = firstOrange = false;
+			lastTouchTeams = 0;
 			clock = 0.0f; touchClock = 0.0f;
 			scoreBlue = scoreOrange = 0.0f;
 			takers.clear();
@@ -117,11 +130,22 @@ namespace RLGC {
 			if (!armed || resolved) return;
 			clock += (state.deltaTime > 0.0f) ? state.deltaTime : (1.0f / 120.0f);
 
+			// Which team(s) touched this step (bit 1 blue, bit 2 orange). The most recent touch step defines possession.
+			int stepTeams = 0;
+			for (const Player& p : state.players)
+				if (p.ballTouchedStep) stepTeams |= (p.team == Team::BLUE) ? 1 : 2;
+			if (stepTeams) lastTouchTeams = stepTeams;
+
 			if (!touched) {
 				for (const Player& p : state.players) {
 					if (!p.ballTouchedStep) continue;
 					touched = true; touchClock = clock;
 					(p.team == Team::BLUE ? firstBlue : firstOrange) = true;   // both set on a same-step double
+				}
+				if (touched && !FirstTouchContested(state)) {   // a delay kickoff: nothing to score, close it
+					resolved = true;
+					s_uncontested.fetch_add(1);
+					return;
 				}
 			}
 			if (!touched) {
@@ -143,7 +167,7 @@ namespace RLGC {
 		}
 
 	private:
-		inline static std::atomic<long long> s_armed{ 0 }, s_resolved{ 0 }, s_goals{ 0 }, s_standoffs{ 0 };
+		inline static std::atomic<long long> s_armed{ 0 }, s_resolved{ 0 }, s_goals{ 0 }, s_standoffs{ 0 }, s_uncontested{ 0 };
 		inline static std::atomic<long long> s_absScoreMilli{ 0 }, s_firstTouchMilli{ 0 };
 		inline static std::atomic<long long> s_modeResolved[3] = { {0}, {0}, {0} };
 		inline static std::atomic<long long> s_modeAbsMilli[3] = { {0}, {0}, {0} };
@@ -151,9 +175,26 @@ namespace RLGC {
 		Config cfg;
 		bool armed = false, touched = false, resolved = false, justResolved = false;
 		bool firstBlue = false, firstOrange = false;   // which team(s) made the first-touch step
+		int lastTouchTeams = 0;                        // team(s) on the latest touch step: 1 blue, 2 orange, 3 both, 0 none yet
 		float clock = 0.0f, touchClock = 0.0f;
 		float scoreBlue = 0.0f, scoreOrange = 0.0f;
 		std::vector<uint32_t> takers;
+
+		// Is an alive opponent of the team(s) that made the first touch within contestDistUU of the ball, or closing on it above
+		// contestSpeedUU? (The same test as KickoffRaceReward::Contested.) A double touch is contested by definition.
+		bool FirstTouchContested(const GameState& state) const {
+			for (const Player& toucher : state.players) {
+				if (!toucher.ballTouchedStep) continue;
+				for (const Player& p : state.players) {
+					if (p.team == toucher.team || p.isDemoed) continue;
+					Vec to = state.ball.pos - p.pos;
+					float d = to.Length();
+					if (d < cfg.contestDistUU) return true;
+					if (d > 1e-3f && p.vel.Dot(to * (1.0f / d)) > cfg.contestSpeedUU) return true;
+				}
+			}
+			return false;
+		}
 
 		float TeamScore(Team team, const GameState& state) const {
 			const float dir = (team == Team::BLUE) ? 1.0f : -1.0f;
@@ -168,9 +209,12 @@ namespace RLGC {
 			float field = clip(state.ball.pos.y * dir / cfg.fieldScaleUU);
 			float momentum = clip(state.ball.vel.y * dir / cfg.momentumScale);
 
+			// Possession: the team that touched on the latest touch step; 0 if both teams touched on it (a tie is not a win for the
+			// higher player index, which is what GameState::lastTouchCarID would say)
 			float possess = 0.0f;
-			for (const Player& p : state.players) {
-				if ((int)p.carId == state.lastTouchCarID) { possess = (p.team == team) ? 1.0f : -1.0f; break; }
+			if (lastTouchTeams == 1 || lastTouchTeams == 2) {
+				bool blueHasIt = (lastTouchTeams == 1);
+				possess = ((team == Team::BLUE) == blueHasIt) ? 1.0f : -1.0f;
 			}
 
 			bool mineFirst = (team == Team::BLUE) ? firstBlue : firstOrange;
