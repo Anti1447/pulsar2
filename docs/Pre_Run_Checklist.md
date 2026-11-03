@@ -15,7 +15,7 @@ Started 2026-11-02. Tick items as they are finished. Sizes are rough (S/M/L). Fa
   - If it changes: fresh run needed anyway; update the comment there, `CLAUDE.md` lines 26/120/139/515, `docs/6.0.md` line 53 and `docs/PULSAR5.md`; the engine requires `actionDelay <= tickSkip`; the Reward Lab scenarios default to 0 (set `action_delay` per scenario or leave as is, since rewards do not read it).
 - [ ] **Push** the new commits and, if wanted, the `cpp-interface` branch to a fork (see item 6). Remotes: `origin` = lucamignatti/pulsar2, `fork` = Anti1447/pulsar2.
 - [x] (tag pre-6.0-20261102, hashes in docs/6.0_RESTORE_POINT.md) Restore point: tag the commit the run starts from (precedent: `pre-strip-20260725`), and record the `*.lt` hashes (weights are git-ignored).
-- [ ] Final go/no-go: all tests green (2026-11-02: GigaLearnTests 207/207 incl. Lab, built with -DGGL_BUILD_TESTS=ON, run from the repo root; receiver tests not yet run), clean checkpoints_6.0 (done 2026-11-02), a short smoke run.
+- [ ] Final go/no-go: all tests green (2026-11-02: GigaLearnTests 207/207 incl. Lab, built with -DGGL_BUILD_TESTS=ON, run from the repo root; receiver tests not yet run), clean checkpoints_6.0 (re-clean after the smoke), short smoke run DONE 2026-11-02 (CPU GGL_SMOKE, 21 iterations, 843k steps, no errors).
 
 ## 1. Chronos and Galactus verified in training (M-L)
 Existing: `GGLBotOpponent` ports each bot's observations and action masks; a random-weight smoke run loses heavily to both. The render viewer can choose the agent on each side.
