@@ -1,0 +1,219 @@
+{
+  "schema": 1,
+  "name": "kickoff_2v2_both_diagonals_all_tie",
+  "description": "2v2 standard kickoff with both diagonal spots (the engine's 2v2 layout 0,1; 20 ordered layouts exist, all are run in tests/test_kickoff_permutations.cpp). Cars are blue 0 at (-2048,-2560), orange 0 at (2048,2560), blue 1 at (2048,-2560), orange 1 at (-2048,2560): all four are 3277 uu from the ball, face it, and boost straight in with a real kickoff tank (33.3). All four touch on the same step (measured step 33), so every raw payment is 1 - 33/45 = 0.2667 (+16 weighted). ZeroSum at team spirit 0.3: own*0.7 + team average*0.3 - opponent average = 0.2667*(0.7 + 0.3 - 1) = 0 for everyone: an exact four-way tie pays nobody.",
+  "tags": [
+    "kickoff",
+    "2v2",
+    "golden"
+  ],
+  "steps": 50,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2048,
+        -2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 51.34
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "orange",
+      "pos": [
+        2048,
+        2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 231.34
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "blue",
+      "pos": [
+        2048,
+        -2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 128.66
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -2048,
+        2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 308.66
+      },
+      "boost": 33.33
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 2,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 3,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffRaceReward",
+      "weight": 60.0,
+      "zero_sum": 0.3
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.24,
+      "max": 0.3,
+      "intent": "blue 0 touches on step 33 and is paid 1 - 33/45 = 0.267"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.24,
+      "max": 0.3,
+      "intent": "orange 0 touches on the same step: the same payment"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.24,
+      "max": 0.3,
+      "intent": "blue 1 likewise"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 3,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.24,
+      "max": 0.3,
+      "intent": "orange 1 likewise"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -0.0001,
+      "max": 0.0001,
+      "intent": "after ZeroSum an exact tie nets 0 for blue 0"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -0.0001,
+      "max": 0.0001,
+      "intent": "and for orange 0"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "wrapped",
+      "car": 2,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -0.0001,
+      "max": 0.0001,
+      "intent": "and for blue 1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "wrapped",
+      "car": 3,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -0.0001,
+      "max": 0.0001,
+      "intent": "and for orange 1"
+    }
+  ]
+}

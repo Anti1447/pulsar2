@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "name": "kickoff_close_tie_pays_only_the_first_player_FINDING",
-  "description": "FINDING (current behaviour): a symmetric 50/50. Both cars start 1300 uu from the ball on opposite sides and boost at it, so they touch on the same step. The first toucher in player order (blue, index 0) sets `resolved` and is paid 1 - k/30; orange, touching on the very same step, is then skipped and gets 0. With the ZeroSum wrapper orange is also charged blue's payment as the 'loser', although it touched at the same time.",
+  "name": "kickoff_close_tie_pays_both_cars_equally",
+  "description": "A symmetric 50/50: both cars start 1300 uu from the ball on opposite sides and boost at it, touching on the same step (frame 17, measured). Both are paid 1 - 17/45 = 0.6222. HISTORY (fixed 2026-11-02): the first toucher in player order (blue) set `resolved` and was paid 0.4333 (window 30) while orange, touching on the very same step, got 0 and, through ZeroSum, was charged blue's payment as the 'loser'.",
   "tags": [
     "kickoff",
-    "finding"
+    "golden"
   ],
   "steps": 45,
   "cars": [
@@ -104,9 +104,9 @@
         1,
         45
       ],
-      "min": 0.35,
-      "max": 0.75,
-      "intent": "blue is paid for the contested touch (1 - k/30)"
+      "min": 0.55,
+      "max": 0.7,
+      "intent": "blue is paid 1 - k/45 for a touch at step 17 = 0.622"
     },
     {
       "kind": "reward_sum",
@@ -117,9 +117,9 @@
         1,
         45
       ],
-      "min": -1e-09,
-      "max": 1e-09,
-      "intent": "FINDING: orange, touching on the same step, gets 0 (and is charged blue's payment by the ZeroSum wrapper)"
+      "min": 0.55,
+      "max": 0.7,
+      "intent": "orange touching on the same step is paid the same"
     }
   ]
 }

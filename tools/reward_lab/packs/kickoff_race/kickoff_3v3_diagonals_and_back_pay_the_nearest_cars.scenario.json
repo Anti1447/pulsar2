@@ -1,0 +1,285 @@
+{
+  "schema": 1,
+  "name": "kickoff_3v3_diagonals_and_back_pay_the_nearest_cars",
+  "description": "3v3 standard kickoff with spots 0, 1 and 4: blue 0 (-2048,-2560), blue 1 (2048,-2560), blue 2 (0,-4608) and the three orange mirrors. All face the ball and boost straight in with a real kickoff tank. The four diagonal cars (3277 uu) touch first, on the same step (33): raw 1 - 33/45 = 0.2667 each; the two back cars (4608 uu) arrive later and are not paid. ZeroSum 0.3 with 3 cars a side: a diagonal car gets 0.2667*0.7 + 0.3*(0.5333/3) - 0.5333/3 = +0.0622; a back car gets 0 + 0.0533 - 0.1778 = -0.1244 (the team total is 2*0.0622 - 0.1244 = 0, and the other team mirrors it). A back-spot car that sits out the touch is charged relative to its team-mates.",
+  "tags": [
+    "kickoff",
+    "3v3",
+    "golden"
+  ],
+  "steps": 50,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2048,
+        -2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 51.34
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "orange",
+      "pos": [
+        2048,
+        2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 231.34
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "blue",
+      "pos": [
+        2048,
+        -2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 128.66
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -2048,
+        2560,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 308.66
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -4608,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90.0
+      },
+      "boost": 33.33
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        4608,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270.0
+      },
+      "boost": 33.33
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 2,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 3,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 4,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 5,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "KickoffRaceReward",
+      "weight": 60.0,
+      "zero_sum": 0.3
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.24,
+      "max": 0.3,
+      "intent": "blue diagonal car 0: 1 - 33/45"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.24,
+      "max": 0.3,
+      "intent": "orange diagonal car 0: the same (a tie)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.24,
+      "max": 0.3,
+      "intent": "blue diagonal car 1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 3,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.24,
+      "max": 0.3,
+      "intent": "orange diagonal car 1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 4,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the blue back car did not touch on the first-touch step: raw 0"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "raw",
+      "car": 5,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "nor the orange back car"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.055,
+      "max": 0.07,
+      "intent": "diagonal car after ZeroSum: +0.0622"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 0.055,
+      "max": 0.07,
+      "intent": "mirrored for orange"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "wrapped",
+      "car": 4,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -0.135,
+      "max": -0.115,
+      "intent": "the back car after ZeroSum: -0.1244"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "wrapped",
+      "car": 5,
+      "steps": [
+        1,
+        50
+      ],
+      "min": -0.135,
+      "max": -0.115,
+      "intent": "mirrored for orange"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "kickoff_close_contested_win_pays_the_time_decay",
-  "description": "A contested kickoff in miniature: the ball rests at the centre; blue starts 1200 uu away and orange 1400 uu away on the other side, both boost straight at it. Blue gets there first (a few steps ahead); orange is within 1500 uu of the ball at that moment, so the touch is contested. Hand calc: blue's nose reaches the ball after about 1050 uu, about 0.9 s under full throttle and boost = about step 14, so the reward is 1 - 14/30 = 0.53 (a touch at step k pays 1 - k/30). Orange earns nothing in the raw reward (the kickoff is resolved by blue's first touch).",
+  "description": "A contested kickoff in miniature: the ball rests at the centre; blue starts 1200 uu away and orange 1400 uu away on the other side, both boost straight at it. Blue gets there first (a few steps ahead); orange is within 1500 uu of the ball at that moment, so the touch is contested. Hand calc: blue's nose reaches the ball after about 1050 uu, about 0.9 s under full throttle and boost = about step 14, so the reward is about 1 - 14/45 = 0.69 (a touch at step k pays 1 - k/45). Measured: blue touches at step 17, so 1 - 17/45 = 0.622 (+37.3 weighted). Orange earns nothing in the raw reward (the kickoff is resolved by blue's first touch).",
   "tags": [
     "kickoff",
     "golden"
@@ -91,9 +91,9 @@
         1,
         45
       ],
-      "min": 0.4,
-      "max": 0.7,
-      "intent": "a fast contested first touch pays about 1 - k/30 = 0.5 (k about 14)"
+      "min": 0.5,
+      "max": 0.75,
+      "intent": "a fast contested first touch pays about 1 - k/45 = 0.62 (k = 17)"
     },
     {
       "kind": "reward_sum",
@@ -104,9 +104,9 @@
         1,
         45
       ],
-      "min": 24,
-      "max": 42,
-      "intent": "about +32 at weight 60 for a quick contested win"
+      "min": 30,
+      "max": 45,
+      "intent": "about +37 at weight 60 for a quick contested win"
     },
     {
       "kind": "reward_sum",

@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "name": "kickoff_standard_diagonal_rush_touches_after_the_window_FINDING",
-  "description": "FINDING (current behaviour): both cars start on the real diagonal kickoff spots, (-2048, -2560) and (2048, 2560), facing the ball with a full tank, and boost straight at it. Measured in the engine: the first touch comes at frame 31 (2.07 s). The reward's window is 30 steps (2.0 s), so even this best straight-line kickoff pays NOTHING (steps 31 > 30). Back and offset kickoffs touch at frames 35-40. See the log: the window is shorter than a physical kickoff.",
+  "name": "kickoff_standard_diagonal_rush_pays_both_cars_equally",
+  "description": "Both cars start on the real diagonal kickoff spots, (-2048, -2560) and (2048, 2560), facing the ball with a full tank (boost 100), and boost straight at it. Measured in the engine: they first touch on frame 31 (2.07 s). They touch on the same step, so both are paid 1 - 31/45 = 0.3111 (+18.7 at weight 60). HISTORY (fixed 2026-11-02): the window was 30 steps, so this best straight-line kickoff paid nothing; and before the same-step rule only the lower player index would have been paid.",
   "tags": [
     "kickoff",
-    "finding"
+    "golden"
   ],
   "steps": 50,
   "cars": [
@@ -78,9 +78,9 @@
       "mode": "all",
       "steps": [
         1,
-        30
+        28
       ],
-      "intent": "nobody touches the ball inside the window"
+      "intent": "nobody can touch the ball before step 29 from this spot (3277 uu away)"
     },
     {
       "kind": "gate",
@@ -90,10 +90,10 @@
       "passed": true,
       "mode": "any",
       "steps": [
-        31,
-        50
+        29,
+        45
       ],
-      "intent": "the first touch comes just after it (frame 31)"
+      "intent": "blue touches the ball at about step 31"
     },
     {
       "kind": "reward_sum",
@@ -104,9 +104,9 @@
         1,
         50
       ],
-      "min": -1e-09,
-      "max": 1e-09,
-      "intent": "FINDING: the best straight-line kickoff pays 0 because the touch lands one step outside the window"
+      "min": 0.27,
+      "max": 0.36,
+      "intent": "the best straight-line kickoff pays 1 - k/45 for k about 31: about 0.31"
     },
     {
       "kind": "reward_sum",
@@ -117,9 +117,22 @@
         1,
         50
       ],
-      "min": -1e-09,
-      "max": 1e-09,
-      "intent": "and nothing to the opponent"
+      "min": 0.27,
+      "max": 0.36,
+      "intent": "orange touches on the same step and is paid the same: a tie is not a win for blue"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "KickoffRaceReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        50
+      ],
+      "min": 16.2,
+      "max": 21.6,
+      "intent": "about +18.7 weighted for the fastest real kickoff touch"
     }
   ]
 }

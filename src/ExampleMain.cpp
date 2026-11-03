@@ -272,9 +272,11 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// kickoff goals). Zero-sum, time-decayed first-touch reward, GATED on the
 		// kickoff being contested (see KickoffRaceReward) so an opponent's delay
 		// kickoff can't farm us into committing. Fires once per kickoff episode
-		// (~the KickoffState reset slice), inert otherwise. Weight 25 (~1/6 of a
-		// goal for a fast contested win) - meaningful on kickoffs, small in the
-		// stack average since it only fires on kickoff resets.
+		// (~the KickoffState reset slice), inert otherwise. Weight 60: after the
+		// 2026-11-02 fixes (3 s window, same-step touches all paid) a straight-rush
+		// first touch (step 31-40) pays 1 - k/45 = 0.31-0.11, i.e. +19..+7 weighted, and
+		// an exact tie cancels in the zero-sum; small in the stack average since it
+		// only fires on kickoff resets.
 		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 60.f },
 
 		// CONSECUTIVE AIR TOUCHES (2026-10-27): chain of airborne touches without landing

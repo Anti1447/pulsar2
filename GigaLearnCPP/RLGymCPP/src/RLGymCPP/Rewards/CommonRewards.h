@@ -490,13 +490,20 @@ namespace RLGC {
 	// Kickoff is detected ONLY at Reset (ball spawned at field center at rest;
 	// KickoffState / FuzzedKickoffState both leave the ball at (0,0,rest)), so a ball
 	// passing through center mid-play can never false-fire it. Fires once per kickoff.
+	//
+	// 2026-11-02 audit fixes (REWARD_CHANGE_LOG): (1) WINDOW_STEPS 30 -> 45. A straight boost rush from the real
+	// kickoff spots first touches the ball at step 31 (diagonal) to 40 (back), so the old 2.0 s window paid nothing on
+	// any real kickoff; 3.0 s covers them (a touch on step k pays 1 - k/45). (2) Every player who touches on the
+	// FIRST-TOUCH step is paid (it used to be only the lowest player index, so a dead-even 50/50 always favoured blue;
+	// kickoffs are exactly point-symmetric, so ties are the normal case).
 	class KickoffRaceReward : public Reward {
 	public:
-		constexpr static int WINDOW_STEPS = 30;      // ~2s at 15Hz; a touch later pays ~0
+		constexpr static int WINDOW_STEPS = 45;      // 3s at 15Hz (tickSkip 8); a touch on step k pays 1 - k/45
 		constexpr static float CONTEST_DIST = 1500;  // opponent within this of the ball = contesting
 		constexpr static float CONTEST_SPEED = 500;  // ...or closing on it faster than this
 		bool active = false, resolved = false;
 		int steps = 0;
+		int resolveStep = -1; // the step of the first touch: touches on that same step are all paid
 
 		static bool IsKickoffBall(const GameState& s) {
 			return fabsf(s.ball.pos.x) < 200 && fabsf(s.ball.pos.y) < 200
@@ -522,20 +529,28 @@ namespace RLGC {
 			active = IsKickoffBall(initialState);
 			resolved = false;
 			steps = 0;
+			resolveStep = -1;
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
-			if (!active || resolved)
+			if (!active)
 				return 0;
 			if (player.index == 0) // one bump per step (index 0 exists in every arena)
 				steps++;
+			if (resolved && steps != resolveStep)
+				return 0; // decided on an earlier step
 			if (steps > WINDOW_STEPS) { // window elapsed unresolved -> no race reward
 				resolved = true;
+				resolveStep = steps;
 				return 0;
 			}
 			if (!player.ballTouchedStep)
 				return 0;
-			resolved = true; // first touch of the kickoff, either team
+			if (!resolved) { // first touch of the kickoff, either team
+				resolved = true;
+				resolveStep = steps;
+			}
+			// (a touch on the SAME step by a later player index is also paid: a 50/50 is a tie, not a win for the lower index)
 			if (!Contested(player, state))
 				return 0; // uncontested (delay kickoff) -> no drive to commit into a counter
 			return RS_CLAMP(1.f - (float)steps / WINDOW_STEPS, 0.f, 1.f);
