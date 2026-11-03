@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "name": "consec_air_touches_on_the_ground_do_not_count",
+  "description": "The car drives on the floor at 1400 uu/s into a ball resting at (-1000, 0, 93) and pushes it for two steps (frames 10 and 11). The player is supported (isOnGround), so the streak stays 0 and nothing is paid however long the contact lasts. Verified independently: a separate script that recomputes the streak from the exported on-ground and touched flags reproduces every step's reward to 1e-7.",
+  "tags": [
+    "consec_air",
+    "gate",
+    "failing"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2200,
+        0,
+        17
+      ],
+      "vel": [
+        1400,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -1000,
+      0,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        40
+      ],
+      "intent": "the car does touch the ball"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "ground touches never start a chain"
+    }
+  ],
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ]
+}

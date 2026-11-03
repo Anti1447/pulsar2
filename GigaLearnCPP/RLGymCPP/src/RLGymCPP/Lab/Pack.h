@@ -146,6 +146,7 @@ namespace Lab {
 			{ "WallJumpToBallReward", "Rewards/CommonRewards.h" },       // shared with the other CommonRewards
 			{ "KickoffRaceReward", "Rewards/CommonRewards.h" },          // shared with the other CommonRewards
 			{ "KickoffOutcomeReward", "Rewards/KickoffOutcomeReward.h" },
+			{ "ConsecutiveAirTouchReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards
 		};
 		return m;
 	}

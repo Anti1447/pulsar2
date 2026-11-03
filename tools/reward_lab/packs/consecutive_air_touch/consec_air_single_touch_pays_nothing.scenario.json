@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "consec_air_single_touch_pays_nothing",
+  "description": "The car climbs at 45 degrees (900 uu/s along x and up, nose pitched 44.7) into a ball floating at (0, 0, 900) and hits it once: exactly one step (frame 8) registers a touch and the ball leaves. A single air touch is streak 1, Phi(1) = 0, so nothing is paid on the touch or after: the reward only starts on the SECOND chained touch (that is AerialTouchReward's job). The ball starts with a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). Verified independently: a separate script that recomputes the streak from the exported on-ground and touched flags reproduces every step's reward to 1e-7.",
+  "tags": [
+    "consec_air",
+    "golden",
+    "gate"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -600,
+        0,
+        400
+      ],
+      "vel": [
+        900,
+        0,
+        900
+      ],
+      "angle_deg": {
+        "yaw": 0,
+        "pitch": 44.7
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      900
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        40
+      ],
+      "intent": "the car touches the ball (frame 8)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "a lone air touch pays exactly nothing"
+    }
+  ]
+}

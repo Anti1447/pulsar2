@@ -1,0 +1,170 @@
+{
+  "schema": 1,
+  "name": "consec_air_carry_pays_phi_of_the_length_then_refunds_on_landing",
+  "description": "The car flies level at 1500 uu/s (z 900) into the floating ball and PUSHES it: in the engine a push registers a touch on every step of the contact (frames 8 to 25, 18 steps), so this is an 18-touch chain. Hand calc with gamma 0.9969: frame 8 (streak 1) 0; frame 9 pays gamma*Phi(2) = 0.9969*0.393469 = 0.39225 (+15.7 at weight 40); frame 10 pays gamma*Phi(3) - Phi(2) = 0.23669, cumulative 0.62894; the chain saturates (Phi(18) = 0.9998, cumulative about 0.97 = +38.6 weighted). While the chain is held it bleeds (gamma-1)*Phi per step. The car lands on frame 29 and the whole chain is refunded; over the whole run the reward nets only the bleed, -0.0572 (-2.3 weighted). The ball starts with a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). Verified independently: a separate script that recomputes the streak from the exported on-ground and touched flags reproduces every step's reward to 1e-7.",
+  "tags": [
+    "consec_air",
+    "golden"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -900,
+        0,
+        900
+      ],
+      "vel": [
+        1500,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      900
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        8,
+        25
+      ],
+      "intent": "the car keeps touching the ball from frame 8 to 25"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        8
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the first air touch (frame 8) and everything before it pays nothing"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        9
+      ],
+      "min": 0.3921,
+      "max": 0.3924,
+      "intent": "the second chained touch pays gamma * Phi(2) = 0.39225"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        10
+      ],
+      "min": 0.6288,
+      "max": 0.6291,
+      "intent": "the third adds gamma * Phi(3) - Phi(2): cumulative 0.62894"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": 0.95,
+      "max": 0.975,
+      "intent": "the chain saturates near 0.96-0.97 (about +38.6 weighted, under the 40 cap)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        9
+      ],
+      "min": 15.6,
+      "max": 15.8,
+      "intent": "x40 = +15.7 for the second touch"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -0.0575,
+      "max": -0.057,
+      "intent": "landing refunds the whole chain: the run nets only the holding bleed, -0.0572"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -2.31,
+      "max": -2.28,
+      "intent": "-2.3 weighted over the whole carry-and-landing"
+    }
+  ]
+}
