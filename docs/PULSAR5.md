@@ -16,6 +16,7 @@ learned recipe into the formative window where it compounds.
    ~0.18/instance) and the Nexto counter-example both point here. Open
    sub-decision: actionDelay 0 (max learnability) vs 2 (sim-to-real fidelity
    for RLBot deployment). Default: 0; revisit only if deployment matters.
+   **6.0 update (2026-11-02): actionDelay 7**, to match live RLBot play and Chronos/Galactus.
 2. **RND frontier optimism from step 0** (advantage-side, mean-zero,
    std-matched, w=0.1; persisted nets). In 4.0 it arrived at 35B — after the
    equilibrium. In the formative window, novelty pressure and high entropy

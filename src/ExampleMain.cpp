@@ -840,8 +840,11 @@ int main(int argc, char* argv[]) {
 	// developed wavedashes/speedflips AT ts8. Zero delay = max action-effect
 	// correlation for precision mechanics (revisit only if RLBot sim-to-real matters).
 	// Gamma re-derived above; fresh run required (obs prevAction + dynamics semantics).
+	// 6.0: actionDelay 7 (was 0). Matches the live RLBot client (play with 0 was erratic) and
+	// Chronos/Galactus (both trained with 7), so the in-training opponents act as trained.
+	// Requires actionDelay <= tickSkip.
 	cfg.tickSkip = 8;
-	cfg.actionDelay = 0;
+	cfg.actionDelay = 7;
 
 	cfg.numGames = 1024;
 

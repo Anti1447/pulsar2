@@ -23,7 +23,7 @@ were paid for in Elo.**
 > measurement-before-machinery, critic-aliasing post-mortems, methodological
 > traps) it remains authoritative. Where it states *current facts* (engine
 > version, tickSkip, obs/net dims, reward weights, checkpoint dirs) the truth is
-> now the 5.0v3 run: RocketSim **v3** (Rust FFI), **tickSkip 8 / actionDelay 0**
+> now the 5.0v3 run: RocketSim **v3** (Rust FFI), **tickSkip 8 / actionDelay 0** (6.0: actionDelay 7)
 > (15 Hz), **230-dim padded obs**, a policy head at plain trunk width (the Ladder
 > wire was removed 2026-07-25), `checkpoints_resid`.
 > Sections are updated inline; `research/reports/PULSAR5.md` (cold-start design)
@@ -117,7 +117,7 @@ Key operational facts:
 - Python analysis env: `research/tools/requirements.txt` (torch-cpu, sklearn,
   matplotlib, pip `RocketSim==2.2.1`). The vendored training engine is now
   RocketSim **v3** (Rust); the offline harness was migrated to 5.0 dynamics
-  (tickSkip 8, actionDelay 0, DT auto-derived) so rollout parity holds — the
+  (tickSkip 8, actionDelay 0 as of 5.0; the 6.0 trainer uses 7, DT auto-derived) so rollout parity holds — the
   policy plays competently, verified by kickoff behavior.
 
 ## System architecture
@@ -137,7 +137,7 @@ Four layers, bottom-up:
    Rewards / TerminalConditions / StateSetters. The split-step protocol still
    exists: `StepFirstHalf` runs `actionDelay` ticks with the OLD controls, then
    new actions are set and `StepSecondHalf` runs `tickSkip - actionDelay`. **5.0
-   set actionDelay 0 and tickSkip 8** (was 3/4), so `StepFirstHalf` is a
+   set actionDelay 0 and tickSkip 8** (6.0 sets actionDelay 7, so the first half is 7 ticks) (was 3/4), so `StepFirstHalf` is a
    confirmed no-op (`Arena::Step(0)` returns immediately) — the chosen action
    now governs the whole 8-tick window from tick 1 (zero actuation latency),
    traded for a coarser **15 Hz** decision rate (was 30 Hz + 3-tick lag). The
@@ -512,7 +512,7 @@ a plastic-but-matured equilibrium (Elo ~1793, 0% dormant units) whose opponent
 pool priced out learning-phase play — it had passed its formative high-entropy
 window before aerial/mechanic pressure existed. So **5.0 was a user-directed cold
 start** (`PULSAR5.md`): the same recipe placed into the formative window, on the
-RocketSim **v3** engine, at **tickSkip 8 / actionDelay 0** (15 Hz — chosen
+RocketSim **v3** engine, at **tickSkip 8 / actionDelay 0** (6.0: actionDelay 7) (15 Hz — chosen
 because a wavedash plateau at 11% convicted learnability, not a control ceiling,
 as the binding constraint), with scaffolded aerial rewards and RND from birth.
 On that run the optimism program moved off activations: the **Optimistic-Critic
