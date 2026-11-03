@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "consec_air_single_touch_pays_nothing",
-  "description": "The car climbs at 45 degrees (900 uu/s along x and up, nose pitched 44.7) into a ball floating at (0, 0, 900) and hits it once: exactly one step (frame 8) registers a touch and the ball leaves. A single air touch is streak 1, Phi(1) = 0, so nothing is paid on the touch or after: the reward only starts on the SECOND chained touch (that is AerialTouchReward's job). The ball starts with a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). Verified independently: a separate script that recomputes the streak from the exported on-ground and touched flags reproduces every step's reward to 1e-7.",
+  "description": "The car climbs at 45 degrees (900 uu/s along x and up, nose pitched 44.7) into a ball floating at (0, 0, 900) and hits it once: exactly one step (frame 8) registers a touch and the ball leaves. One touch of a ball at about z 813 adds ball-height credit (813-150)/1300 = 0.51 to the effective streak: Phi(0.51) = 0, so nothing is paid on the touch or after. The reward only starts once the chain's credit exceeds 1 (that is AerialTouchReward's job for a single strike). The ball starts with a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). Verified independently: a separate script that recomputes the effective streak from the exported on-ground, touched and ball-height values reproduces every step's reward to 1e-7.",
   "tags": [
     "consec_air",
     "golden",

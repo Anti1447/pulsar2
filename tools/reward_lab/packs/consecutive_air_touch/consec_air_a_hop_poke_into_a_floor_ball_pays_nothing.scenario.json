@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "name": "consec_air_a_hop_poke_into_a_floor_ball_pays_nothing",
+  "description": "The car drives at 1400 uu/s toward a ball resting on the floor at (-1000, 0, 93) and hops at decision step 8 with boost held, so it is a few tens of uu off the ground when it pushes the ball (touch frames 10-14, car z 57-116, measured). The push lifts the ball: ball z is 112, 133, 151, 166, 178 on frames 10-14, so the ball-height credits are 0, 0, 0.0008, 0.0123, 0.0215 and the effective streak peaks at 0.0343, nowhere near 1: Phi = 0 throughout and the poke pays nothing. HISTORY: before 2026-11-03 all five contact steps counted (a chain of 5, peak +0.8564 = +34.3 weighted); with a plain 150 uu floor the lifted ball still chained for 3 steps (+0.6289 = +25.2). The car keeps boosting and stays airborne, so there is no landing refund inside the 45 frames shown. Verified independently: a separate script that recomputes the effective streak from the exported on-ground, touched and ball-height values reproduces every step's reward to 1e-7.",
+  "tags": [
+    "consec_air",
+    "gate",
+    "failing"
+  ],
+  "steps": 45,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2200,
+        0,
+        17
+      ],
+      "vel": [
+        1400,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -1000,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 8,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 9,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 0
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        10,
+        14
+      ],
+      "intent": "the hopping car pushes the ball on frames 10-14"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        45
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "a hop-poke that lifts a floor ball pays nothing (it paid up to +0.86 before the ball-height credit)"
+    }
+  ]
+}

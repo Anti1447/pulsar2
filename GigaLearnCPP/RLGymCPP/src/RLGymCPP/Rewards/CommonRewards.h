@@ -803,35 +803,44 @@ namespace RLGC {
 	// negligible, standard telescoping leak). Per-arena instance -> no cross-arena
 	// state.
 	//
-	// 2026-11-03 audit fix: a touch only COUNTS while the ball is above AerialTouchReward::BALL_MIN_Z (150 uu, the
-	// same floor AerialTouch uses). Before, any airborne contact counted: a hop into a ball resting on the floor
-	// (car 14-140 uu up, ball z 93) built a chain of 3-5 steps (+15..+34 weighted, refunded on landing). A touch with
-	// the ball at or below the floor is treated like no touch: the streak is unchanged (it bleeds, it is not reset).
+	// 2026-11-03 audit fix: every touch is weighted by HOW HIGH THE BALL IS, with AerialTouchReward's own scale:
+	// credit = clamp((ball.z - 150) / (1450 - 150), 0, 1) (0 at or below 150 uu, 1 at 1450 uu and above). The state is
+	// now an EFFECTIVE streak, the running sum of that credit over the chain (a float, 0 on the ground), and
+	// Phi(e) = 1 - exp(-max(0, e - 1) / TAU) as before, so the potential stays an exact function of state and the
+	// telescoping proof is unchanged. A touch at 1450 uu or higher counts as 1 (the old behaviour); a touch with the ball
+	// on the floor counts as 0 (before: any airborne contact counted, so a hop into a floor ball built a chain of 3-5
+	// steps, +15..+34 weighted, refunded on landing; and with a plain 150 uu floor the hop-poke's own lift of the ball
+	// still chained for 3 steps). Low touches now add almost nothing: the ball sits at z 112-178 in a hop-poke, so the
+	// whole poke adds about 0.035 and pays 0.
 	class ConsecutiveAirTouchReward : public Reward {
 	public:
 		constexpr static float TAU = 2.0f; // touches past the first to reach ~63% saturation
-		constexpr static float BALL_MIN_Z = AerialTouchReward::BALL_MIN_Z; // a touch counts only above this ball height
+		constexpr static float BALL_MIN_Z = AerialTouchReward::BALL_MIN_Z;   // credit 0 at or below this ball height
+		constexpr static float BALL_FULL_Z = AerialTouchReward::BALL_FULL_Z; // credit 1 at or above this ball height
 		float gamma;
 		ConsecutiveAirTouchReward(float gamma = 0.99f) : gamma(gamma) {}
 
-		std::vector<int> streak; // per player.index
+		std::vector<float> streak; // per player.index: the EFFECTIVE streak (sum of ball-height credit of the chain's touches)
 
-		static float Phi(int streak) {
-			int chained = streak - 1; // 0 and 1 -> no chain yet
-			if (chained <= 0)
+		// What one touch of a ball at height z adds to the chain
+		static float TouchCredit(float ballZ) { return RS_CLAMP((ballZ - BALL_MIN_Z) / (BALL_FULL_Z - BALL_MIN_Z), 0.f, 1.f); }
+
+		static float Phi(float streak) {
+			float chained = streak - 1.f; // 0 and 1 -> no chain yet
+			if (chained <= 0.f)
 				return 0.f;
-			return 1.f - expf(-(float)chained / TAU);
+			return 1.f - expf(-chained / TAU);
 		}
 
 		virtual void Reset(const GameState& initialState) override {
-			streak.assign(initialState.players.size(), 0);
+			streak.assign(initialState.players.size(), 0.f);
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if ((size_t)player.index >= streak.size())
-				streak.resize(player.index + 1, 0);
-			int& s = streak[player.index];
-			int prevStreak = s;
+				streak.resize(player.index + 1, 0.f);
+			float& s = streak[player.index];
+			float prevStreak = s;
 
 			// Demo/respawn teleport is not the player's action: drop the chain, don't charge it
 			if (player.isDemoed || (player.prev && player.prev->isDemoed)) {
@@ -841,8 +850,8 @@ namespace RLGC {
 
 			if (player.isOnGround) {
 				s = 0; // supported (ground OR wall): the airborne chain ends
-			} else if (player.ballTouchedStep && state.ball.pos.z > BALL_MIN_Z) {
-				s = prevStreak + 1; // another airborne touch of a ball above the floor extends the chain
+			} else if (player.ballTouchedStep) {
+				s = prevStreak + TouchCredit(state.ball.pos.z); // another airborne touch extends the chain by its ball-height credit
 			}
 			// else: airborne, no touch -> streak unchanged (Phi bleeds by (gamma-1)*Phi)
 

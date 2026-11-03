@@ -22,7 +22,7 @@ using namespace RewardTest;
 namespace {
 	constexpr float G = 0.9969f; // TRAIN_GAMMA
 
-	struct CT { bool ground = false, touch = false, demoed = false; float ballZ = 500; };
+	struct CT { bool ground = false, touch = false, demoed = false; float ballZ = 1450; };   // 1450 uu = full ball-height credit (1.0 per touch), so the older hand values hold
 	CT A(bool touch) { CT c; c.touch = touch; return c; }           // airborne, touch or not
 	CT Gr() { CT c; c.ground = true; return c; }                    // on the ground or a wall
 	CT Gt() { CT c; c.ground = true; c.touch = true; return c; }    // a touch while supported
@@ -139,7 +139,7 @@ TEST(ConsecAir2_a_demo_mid_chain_keeps_the_banked_credit) {
 TEST(ConsecAir2_each_player_has_its_own_streak) {
 	GameState a, b, c; a.deltaTime = b.deltaTime = c.deltaTime = STEP_DT;
 	auto fill = [](GameState& g, bool t0, bool g1) {
-		g.ball.pos = Vec(0, 0, 500);
+		g.ball.pos = Vec(0, 0, 1450);
 		g.players.push_back(MakePlayer(1, 0, Team::BLUE, Vec(0, 0, 500))); g.players[0].isOnGround = false; g.players[0].ballTouchedStep = t0;
 		g.players.push_back(MakePlayer(2, 1, Team::ORANGE, Vec(0, 0, 500))); g.players[1].isOnGround = g1; g.players[1].ballTouchedStep = false;
 	};
@@ -158,7 +158,7 @@ TEST(ConsecAir2_each_player_has_its_own_streak) {
 TEST(ConsecAir2_zero_sum_2v2_values_at_team_spirit_0p3) {
 	GameState a, b; a.deltaTime = b.deltaTime = STEP_DT;
 	for (GameState* g : { &a, &b }) {
-		g->ball.pos = Vec(0, 0, 500);
+		g->ball.pos = Vec(0, 0, 1450);
 		for (int i = 0; i < 4; i++) {
 			Player p = MakePlayer(1 + i, i, i < 2 ? Team::BLUE : Team::ORANGE, Vec(i * 100.f, 0, 500));
 			p.isOnGround = false; p.ballTouchedStep = (i == 0);
@@ -178,33 +178,72 @@ TEST(ConsecAir2_zero_sum_2v2_values_at_team_spirit_0p3) {
 	delete zs;
 }
 
-// BALL FLOOR (added 2026-11-03, the same 150 uu as AerialTouchReward): a touch counts only with the ball above it.
-TEST(ConsecAir2_a_touch_counts_only_with_the_ball_above_150uu) {
-	auto second = [](float ballZ) {
-		ConsecutiveAirTouchReward r(1.0f);
-		CT t1 = A(true), t2 = A(true); t1.ballZ = 500; t2.ballZ = ballZ;
-		return Run(r, { A(false), t1, t2 })[2];
-	};
-	CHECK_EQ(second(93), 0.0f);                       // a ball on the floor: not a touch
-	CHECK_EQ(second(150), 0.0f);                      // exactly the floor does not count (strict, like AerialTouch's heightFrac <= 0)
-	CHECK_NEAR(second(150.5f), 0.393469f, 1e-5f);     // just above counts
-	CHECK_NEAR(second(900), 0.393469f, 1e-5f);
-	CHECK_EQ(ConsecutiveAirTouchReward::BALL_MIN_Z, AerialTouchReward::BALL_MIN_Z);   // locked to AerialTouch's floor
+// BALL-HEIGHT CREDIT (2026-11-03, AerialTouchReward's scale): each touch adds clamp((ball.z - 150) / 1300, 0, 1) to an EFFECTIVE streak,
+// and Phi(e) = 1 - exp(-max(0, e - 1) / 2). Hand values: credit(93) = 0, credit(150) = 0, credit(151) = 1/1300 = 0.000769, credit(800) = 0.5,
+// credit(1450) = 1, credit(2000) = 1.   Phi(1.5) = 0.221199, Phi(2) = 0.393469, Phi(2.5) = 0.527633, Phi(3) = 0.632121.
+TEST(ConsecAir2_touch_credit_is_AerialTouchs_ball_height_scale) {
+	CHECK_EQ(ConsecutiveAirTouchReward::TouchCredit(93), 0.0f);
+	CHECK_EQ(ConsecutiveAirTouchReward::TouchCredit(150), 0.0f);
+	CHECK_NEAR(ConsecutiveAirTouchReward::TouchCredit(151), 1.0f / 1300.f, 1e-6f);
+	CHECK_NEAR(ConsecutiveAirTouchReward::TouchCredit(800), 0.5f, 1e-6f);
+	CHECK_EQ(ConsecutiveAirTouchReward::TouchCredit(1450), 1.0f);
+	CHECK_EQ(ConsecutiveAirTouchReward::TouchCredit(2000), 1.0f);
+	CHECK_EQ(ConsecutiveAirTouchReward::BALL_MIN_Z, AerialTouchReward::BALL_MIN_Z);     // locked to AerialTouch's constants
+	CHECK_EQ(ConsecutiveAirTouchReward::BALL_FULL_Z, AerialTouchReward::BALL_FULL_Z);
+	float ballFracAerialTouch = RS_CLAMP((800.f - AerialTouchReward::BALL_MIN_Z) / (AerialTouchReward::BALL_FULL_Z - AerialTouchReward::BALL_MIN_Z), 0, 1);
+	CHECK_EQ(ConsecutiveAirTouchReward::TouchCredit(800), ballFracAerialTouch);         // literally the same formula
 }
 
-// A hop into a ball resting on the floor (airborne car, ball z 93, 4 contact steps) used to build a chain of 4 (+0.777 = +31 weighted at
-// the peak, refunded on landing); it now pays nothing.
-TEST(ConsecAir2_a_hop_into_a_floor_ball_pays_nothing) {
+TEST(ConsecAir2_a_mid_height_chain_needs_two_touches_before_it_pays_anything) {
+	auto mid = [] { CT c = A(true); c.ballZ = 800; return c; };   // credit 0.5 each
+	ConsecutiveAirTouchReward r(1.0f);
+	auto v = Run(r, { A(false), mid(), mid(), mid(), mid(), mid() });
+	CHECK_EQ(v[1], 0.0f);                                  // e = 0.5, Phi 0
+	CHECK_EQ(v[2], 0.0f);                                  // e = 1.0, Phi 0
+	CHECK_NEAR(v[3], 0.221199f, 1e-5f);                    // e = 1.5
+	CHECK_NEAR(v[4], 0.393469f - 0.221199f, 1e-5f);        // e = 2.0
+	CHECK_NEAR(v[5], 0.527633f - 0.393469f, 1e-5f);        // e = 2.5
+	CHECK_NEAR(Sum(v), 0.527633f, 1e-5f);
+}
+
+TEST(ConsecAir2_full_height_touches_behave_exactly_as_before_and_mixed_heights_add_up) {
+	auto at = [](float z) { CT c = A(true); c.ballZ = z; return c; };
+	ConsecutiveAirTouchReward r(1.0f);
+	auto v = Run(r, { A(false), at(1450), at(800), at(1450) });   // e = 1, 1.5, 2.5
+	CHECK_EQ(v[1], 0.0f);
+	CHECK_NEAR(v[2], 0.221199f, 1e-5f);
+	CHECK_NEAR(v[3], 0.527633f - 0.221199f, 1e-5f);
+}
+
+// The hop-poke of the audit: the car's push lifts the floor ball through z = 112, 133, 151, 166, 178 on five contact steps. Credits
+// 0, 0, 0.00077, 0.01231, 0.02154 add up to 0.035, far below 1, so nothing is paid (a plain 150 uu floor still paid 0.629 for it).
+TEST(ConsecAir2_a_hop_poke_that_lifts_a_floor_ball_pays_nothing) {
 	ConsecutiveAirTouchReward r(G);
-	auto v = Run(r, { A(false), Low(), Low(), Low(), Low(), Gr() });
+	std::vector<CT> fr = { A(false) };
+	for (float z : { 112.f, 133.f, 151.f, 166.f, 178.f }) { CT c = A(true); c.ballZ = z; fr.push_back(c); }
+	fr.push_back(Gr());
+	auto v = Run(r, fr);
 	for (float x : v) CHECK_EQ(x, 0.0f);
 }
 
-// A low touch in the middle of a chain is like no touch: the streak is unchanged (it bleeds), it is not reset, and the chain resumes
-TEST(ConsecAir2_a_low_touch_mid_chain_neither_extends_nor_resets_it) {
+TEST(ConsecAir2_the_discounted_sum_still_telescopes_with_varied_ball_heights_and_landing_refunds_the_partial_streak) {
+	std::vector<CT> fr = { A(false) };
+	for (float z : { 900.f, 700.f, 1200.f, 400.f, 1450.f, 1000.f, 600.f }) { CT c = A(true); c.ballZ = z; fr.push_back(c); }
+	fr.push_back(A(false)); fr.push_back(Gr());
+	ConsecutiveAirTouchReward r(G);
+	auto v = Run(r, fr);
+	double sum = 0, disc = 1; for (float x : v) { sum += disc * x; disc *= G; }
+	CHECK_NEAR((float)sum, 0.0f, 1e-5f);                   // starts and ends on the ground: Phi 0 at both ends
+	CHECK(v[v.size() - 1] < -0.3f);                         // the landing refund of the banked chain
+	ConsecutiveAirTouchReward r1(1.0f);
+	CHECK_NEAR(Sum(Run(r1, fr)), 0.0f, 1e-5f);
+}
+
+// A low touch mid-chain adds (almost) nothing and never resets: it is just a touch worth ~0
+TEST(ConsecAir2_a_low_touch_mid_chain_adds_nothing_and_does_not_reset_it) {
 	ConsecutiveAirTouchReward r(1.0f);
 	auto v = Run(r, { A(true), A(true), Low(), A(true) });
-	CHECK_NEAR(v[1], 0.393469f, 1e-5f);               // streak 2
-	CHECK_EQ(v[2], 0.0f);                              // gamma 1: the low touch changes nothing
-	CHECK_NEAR(v[3], 0.632121f - 0.393469f, 1e-5f);   // the next high touch is the THIRD: the chain resumed
+	CHECK_NEAR(v[1], 0.393469f, 1e-5f);               // e = 2
+	CHECK_EQ(v[2], 0.0f);                              // gamma 1: a floor-level touch adds credit 0
+	CHECK_NEAR(v[3], 0.632121f - 0.393469f, 1e-5f);   // the next full-height touch is e = 3: the chain resumed
 }
