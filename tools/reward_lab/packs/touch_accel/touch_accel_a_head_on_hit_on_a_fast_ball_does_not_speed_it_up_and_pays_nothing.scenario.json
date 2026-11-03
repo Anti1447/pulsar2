@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "name": "touch_accel_a_head_on_hit_on_a_fast_ball_does_not_speed_it_up_and_pays_nothing",
+  "description": "1v1: a ball rolling at 2300 uu/s toward blue, blue driving at it at 2300 uu/s with boost. The collision reverses the ball but does not leave it faster than 2300 uu/s, so the speed fraction does not increase and TouchAccel pays 0 for the whole run, however violent the hit is.",
+  "tags": [
+    "touch_accel",
+    "gate",
+    "failing"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        2300,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      1500,
+      93
+    ],
+    "vel": [
+      0,
+      -2300,
+      0
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TouchAccelReward",
+      "weight": 10.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "no speed gained, no pay"
+    }
+  ]
+}

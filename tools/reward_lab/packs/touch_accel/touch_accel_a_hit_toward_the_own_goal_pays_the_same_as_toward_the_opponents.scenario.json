@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "name": "touch_accel_a_hit_toward_the_own_goal_pays_the_same_as_toward_the_opponents",
+  "description": "D5 (direction-blind): the same run mirrored. Blue drives from (0, +1500) toward -y, the way blue's OWN goal is (blue defends y = -5120), and hits the resting ball into it. The payment is identical to the hit toward the opponents' goal: 0.3191 raw on frame 14. The reward looks only at the speed gained, never at where the ball is sent.",
+  "tags": [
+    "touch_accel",
+    "gate",
+    "direction"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        1500,
+        17
+      ],
+      "vel": [
+        0,
+        -1500,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TouchAccelReward",
+      "weight": 10.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        13
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "nothing before the contact"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        14,
+        14
+      ],
+      "min": 0.31707,
+      "max": 0.32107,
+      "intent": "the same 0.3191 as the forward hit: direction is not looked at"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 0.31707,
+      "max": 0.32107,
+      "intent": "paid once"
+    }
+  ]
+}

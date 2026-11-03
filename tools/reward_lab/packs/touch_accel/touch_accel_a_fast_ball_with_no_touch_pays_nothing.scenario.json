@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "name": "touch_accel_a_fast_ball_with_no_touch_pays_nothing",
+  "description": "1v1: the ball rolls at 1500 uu/s past an idle blue car 800 uu to the side. Nobody touches it, so nothing is paid however fast it is moving.",
+  "tags": [
+    "touch_accel",
+    "gate",
+    "failing"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        800,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      -1500,
+      93
+    ],
+    "vel": [
+      0,
+      1500,
+      0
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "TouchAccelReward",
+      "weight": 10.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "no touch, no pay"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "no touch, no pay"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "name": "touch_accel_a_slow_nudge_pays_the_small_gain_then_a_trickle_for_the_re_touches",
+  "description": "1v1: blue creeps at 500 uu/s at the resting ball. The first contact (frame 11) sends the ball off at 819 uu/s: 0.2267 raw. The car then keeps pushing and re-touching the slowing ball on frames 18 to 21, each re-touch regaining a few uu/s of speed the ball lost between touches: 0.0080 + 0.0016 + 0.0016 + 0.0010 = 0.0121. Total 0.2387. That trickle is the ratchet (see TouchAccel_FINDING_speed_lost_between_touches_is_paid_again): small here, but speed lost and re-gained is paid again.",
+  "tags": [
+    "touch_accel",
+    "golden",
+    "ratchet"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -700,
+        17
+      ],
+      "vel": [
+        0,
+        500,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TouchAccelReward",
+      "weight": 10.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        10
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "nothing before the contact"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        11,
+        11
+      ],
+      "min": 0.22469,
+      "max": 0.22869,
+      "intent": "first contact: 818.6 uu/s / 3611.1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        12,
+        17
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "no payment while the ball rolls away and nobody touches"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        18,
+        40
+      ],
+      "min": 0.01011,
+      "max": 0.01411,
+      "intent": "the trickle of small re-touch payments on frames 18-21"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0.2348,
+      "max": 0.24280000000000002,
+      "intent": "total for the run"
+    }
+  ]
+}

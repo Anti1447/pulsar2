@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "name": "touch_accel_drive_into_a_resting_ball_pays_the_speed_fraction",
+  "description": "1v1: blue drives straight at the resting ball at 1500 uu/s (no boost, no flip). The ball leaves at 1152 uu/s on the single contact step (frame 14), and TouchAccel pays that step 1152.2 / 3611.1 = 0.3191 raw, once. Through ZeroSum 0.3 in 1v1 blue is +0.3191 and orange -0.3191; weighted at 10 that is +3.19 / -3.19. Nothing is paid before the contact.",
+  "tags": [
+    "touch_accel",
+    "golden",
+    "1v1"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        1500,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TouchAccelReward",
+      "weight": 10.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        13
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "nothing before the contact"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        14,
+        14
+      ],
+      "min": 0.31707,
+      "max": 0.32107,
+      "intent": "the contact step pays the speed gained: 1152 uu/s / 3611.1 = 0.3191"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 0.31707,
+      "max": 0.32107,
+      "intent": "paid once for the whole run"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the idle orange car has nothing raw"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 0.31707,
+      "max": 0.32107,
+      "intent": "ZeroSum 1v1: the toucher +x"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.32107,
+      "max": -0.31707,
+      "intent": "ZeroSum 1v1: the opponent -x"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 3.1707,
+      "max": 3.2107,
+      "intent": "+3.19 at weight 10"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "weighted",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -3.2107,
+      "max": -3.1707,
+      "intent": "-3.19 at weight 10"
+    }
+  ]
+}

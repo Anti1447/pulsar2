@@ -1,0 +1,187 @@
+{
+  "schema": 1,
+  "name": "touch_accel_2v2_wrapped_values_share_with_the_team_and_charge_both_opponents",
+  "description": "2v2 (cars blue0, orange0, blue1, orange1): blue0 drives at the ball as in the first scenario; the others idle far away. Raw 0.3191 for blue0 only. Through ZeroSum 0.3: blue0 0.85 x 0.3191 = 0.2712, its teammate 0.15 x 0.3191 = 0.0479, each orange car -0.5 x 0.3191 = -0.1595; weighted at 10: +2.71 / +0.48 / -1.60 / -1.60.",
+  "tags": [
+    "touch_accel",
+    "golden",
+    "2v2"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -1500,
+        17
+      ],
+      "vel": [
+        0,
+        1500,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    },
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        -3500,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        4000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TouchAccelReward",
+      "weight": 10.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 0.31707,
+      "max": 0.32107,
+      "intent": "blue0 raw"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "raw",
+      "car": 2,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the teammate has nothing raw"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 0.2692095,
+      "max": 0.2732095,
+      "intent": "0.7 x + 0.3 x / 2"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "wrapped",
+      "car": 2,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 0.0458605,
+      "max": 0.0498605,
+      "intent": "0.3 x / 2"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.161535,
+      "max": -0.157535,
+      "intent": "each opponent -x/2"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "wrapped",
+      "car": 3,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.161535,
+      "max": -0.157535,
+      "intent": "each opponent -x/2"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TouchAccelReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": 2.692095,
+      "max": 2.732095,
+      "intent": "+2.71"
+    }
+  ]
+}
