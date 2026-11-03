@@ -14,7 +14,7 @@ Started 2026-11-02. Tick items as they are finished. Sizes are rough (S/M/L). Fa
   - For 0: the comment at `ExampleMain.cpp:835` records why 0 was chosen: max action-effect correlation for precision mechanics ("revisit only if RLBot sim-to-real matters").
   - If it changes: fresh run needed anyway; update the comment there, `CLAUDE.md` lines 26/120/139/515, `docs/6.0.md` line 53 and `docs/PULSAR5.md`; the engine requires `actionDelay <= tickSkip`; the Reward Lab scenarios default to 0 (set `action_delay` per scenario or leave as is, since rewards do not read it).
 - [ ] **Push** the new commits and, if wanted, the `cpp-interface` branch to a fork (see item 6). Remotes: `origin` = lucamignatti/pulsar2, `fork` = Anti1447/pulsar2.
-- [ ] Restore point: tag the commit the run starts from (precedent: `pre-strip-20260725`), and record the `*.lt` hashes (weights are git-ignored).
+- [x] (tag pre-6.0-20261102, hashes in docs/6.0_RESTORE_POINT.md) Restore point: tag the commit the run starts from (precedent: `pre-strip-20260725`), and record the `*.lt` hashes (weights are git-ignored).
 - [ ] Final go/no-go: all tests green (2026-11-02: GigaLearnTests 207/207 incl. Lab, built with -DGGL_BUILD_TESTS=ON, run from the repo root; receiver tests not yet run), clean `checkpoints_6.0`, a short smoke run.
 
 ## 1. Chronos and Galactus verified in training (M-L)
