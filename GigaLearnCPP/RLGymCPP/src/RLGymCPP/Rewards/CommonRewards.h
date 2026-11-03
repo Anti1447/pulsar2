@@ -849,10 +849,11 @@ namespace RLGC {
 	// aerial (so the full wall-to-ball flight is shaped, not just the launch tick),
 	// and cleared on any ground/wall contact or demo. It is intentionally NOT
 	// cleared on the ball touch: clearing mid-air would drop Phi without charging
-	// the refund and reopen a farm. A wall = world contact whose normal is closer
-	// to horizontal than the engine's own ground/wall split (|normal.z| < 1/sqrt(2),
-	// the autoflip NORM_Z_THRESH): flat ground (normal.z~1) and ceiling (normal.z~-1)
-	// are excluded, side/back/corner walls (normal.z~0) included. Being a plain state
+	// the refund and reopen a farm. A wall = the car is supported (isOnGround) with its roof
+	// pointing closer to horizontal than the engine's own ground/wall split (|up.z| < 1/sqrt(2), the autoflip
+	// NORM_Z_THRESH): flat ground (up.z~1) and ceiling (up.z~-1) are excluded, side/back/corner walls (up.z~0)
+	// included. (The first version used the body-contact flag worldContact.hasContact, which wheels on a wall never
+	// set; replaced 2026-11-02, see REWARD_CHANGE_LOG.) Being a plain state
 	// latch, Phi stays a function of (augmented) state, so telescoping holds.
 	// Per-arena instance -> no cross-arena state.
 	class WallJumpToBallReward : public Reward {
@@ -864,9 +865,12 @@ namespace RLGC {
 
 		std::vector<char> launched; // per player.index (char = bool latch)
 
+		// Wheels on a wall: supported by the surface and the car's roof pointing sideways (|up.z| < 1/sqrt(2), the engine's
+		// ground/wall split). Flat ground (up.z ~ 1) and a ceiling or turtled car (up.z ~ -1) are excluded. NOT worldContact:
+		// that flag is a BODY collision, cleared every tick, and a car riding a wall on its wheels never sets it
+		// (2026-11-02 audit: the previous detector fired on 1 step of a 40-step wall drive and never while up the wall).
 		static bool OnWall(const Player& p) {
-			return p.isOnGround && p.worldContact.hasContact
-				&& fabsf(p.worldContact.contactNormal.z) < WALL_NORMAL_Z_MAX;
+			return p.isOnGround && fabsf(p.rotMat.up.z) < WALL_NORMAL_Z_MAX;
 		}
 
 		virtual void Reset(const GameState& initialState) override {

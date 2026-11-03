@@ -42,6 +42,8 @@ static std::vector<float> RunSingle(Reward& r, const std::vector<Frame>& frames)
 		p.isOnGround = f.onGround;
 		p.worldContact.hasContact = f.hasContact;
 		p.worldContact.contactNormal = f.normal;
+		p.rotMat = RotMat::GetIdentity();
+		if (f.onGround) p.rotMat.up = f.normal; // supported: the roof points along the surface normal (a wall has a horizontal normal)
 		p.ballTouchedStep = f.touched;
 		p.isDemoed = f.demoed;
 		gs.players.push_back(p);
@@ -164,6 +166,8 @@ TEST(WallJump_onwall_detection) {
 		p.isOnGround = onGround;
 		p.worldContact.hasContact = hasContact;
 		p.worldContact.contactNormal = normal;
+		p.rotMat = RotMat::GetIdentity();
+		p.rotMat.up = normal; // OnWall reads the car's roof direction (wheels on the surface), not the body-contact flag
 		return p;
 	};
 	// Flat ground: normal up -> not a wall

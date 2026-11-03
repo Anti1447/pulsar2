@@ -37,6 +37,8 @@ namespace {
 	void Fill(GameState& g, const WJ& f, int idx = 0, Team team = Team::BLUE) {
 		Player p = MakePlayer(1 + idx, idx, team, f.car);
 		p.isOnGround = f.ground; p.worldContact.hasContact = f.wallContact; p.worldContact.contactNormal = f.normal; p.isDemoed = f.demoed; p.ballTouchedStep = f.touch;
+		p.rotMat = RotMat::GetIdentity();
+		if (f.ground) p.rotMat.up = f.normal; // supported: the roof points along the surface normal
 		g.players.push_back(p); g.ball.pos = f.ball;
 	}
 
@@ -54,7 +56,7 @@ namespace {
 }
 
 TEST(WallJump2_wall_boundary_is_exactly_the_engine_split) {
-	auto mk = [](float nz) { Player p = {}; p.isOnGround = true; p.worldContact.hasContact = true; p.worldContact.contactNormal = Vec(sqrtf(1 - nz * nz), 0, nz); return p; };
+	auto mk = [](float nz) { Player p = {}; p.isOnGround = true; p.rotMat = RotMat::GetIdentity(); p.rotMat.up = Vec(sqrtf(1 - nz * nz), 0, nz); return p; };
 	CHECK(WallJumpToBallReward::OnWall(mk(0.70f)));     // steeper than 45 degrees from vertical: a wall
 	CHECK(!WallJumpToBallReward::OnWall(mk(0.72f)));    // shallower: still ground (a ramp)
 	CHECK(WallJumpToBallReward::OnWall(mk(-0.70f)));    // the test uses |nz|, so a slightly overhanging wall counts
@@ -185,10 +187,9 @@ TEST(WallJump2_zero_sum_2v2_values_at_team_spirit_0p3) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
-// ENGINE FACT, measured 2026-11-02 (a defect in the detector, see docs/REWARD_CHANGE_LOG.md): OnWall() needs
-// worldContact.hasContact, which the engine sets only when the car's BODY collides with the world (Arena.cpp:421) and clears every
-// tick. A car riding a wall on its wheels reports isOnGround true and hasContact false, so the latch never opens for the
-// wall-read aerial the reward is meant for. These two tests PIN the current behaviour; when OnWall is fixed they should change.
+// ENGINE FACTS behind the 2026-11-02 fix (docs/REWARD_CHANGE_LOG.md). The first OnWall() needed worldContact.hasContact, which the
+// engine sets only when the car's BODY collides with the world (Arena.cpp:421) and clears every tick; a car riding a wall on its
+// wheels never sets it, so the latch practically never opened. OnWall() now reads the car's roof direction.
 // ---------------------------------------------------------------------------------------------------------------------------
 namespace {
 	void InitRocketSimWJ() {
@@ -198,45 +199,58 @@ namespace {
 			if (std::filesystem::exists(std::filesystem::path(path) / "soccar")) { RocketSim::Init(path); break; }
 		done = true;
 	}
+	bool EngineOnWall(const CarState& st) {
+		Player p = {}; p.isOnGround = st.isOnGround; p.rotMat = st.rotMat;
+		return WallJumpToBallReward::OnWall(p);
+	}
 }
 
-TEST(WallJump2_engine_a_car_resting_on_a_wall_by_its_wheels_reports_no_wall_contact) {
+TEST(WallJump2_engine_a_car_resting_on_a_wall_by_its_wheels_is_on_a_wall_every_step) {
 	InitRocketSimWJ();
 	Arena* arena = Arena::Create(GameMode::SOCCAR);
 	Car* car = arena->AddCar(Team::BLUE);
 	CarState cs; cs.pos = Vec(4079, 0, 500); cs.rotMat = Angle(1.5708f, 0, 1.5708f).ToRotMat(); cs.boost = 0; car->SetState(cs);
 	BallState bs; bs.pos = Vec(0, 3000, 500); bs.vel = Vec(0, 0, 1); arena->ball->SetState(bs);
-	int onGround = 0, contact = 0, wall = 0;
+	int contact = 0, wall = 0;
 	for (int s = 0; s < 20; s++) {
 		arena->Step(8);
 		auto st = car->GetState();
-		if (st.isOnGround) onGround++;
 		if (st.worldContact.hasContact) contact++;
-		Player p = {}; p.isOnGround = st.isOnGround; p.worldContact.hasContact = st.worldContact.hasContact; p.worldContact.contactNormal = st.worldContact.contactNormal;
-		if (WallJumpToBallReward::OnWall(p)) wall++;
+		if (EngineOnWall(st)) wall++;
 	}
-	CHECK_EQ(onGround, 20);   // it is supported by the wall the whole time (wheels)
-	CHECK_EQ(contact, 0);     // but no body contact is ever reported
-	CHECK_EQ(wall, 0);        // so OnWall() is never true
+	CHECK_EQ(contact, 0);   // why the old detector never fired: no body contact while on wheels
+	CHECK(wall >= 18);     // the roof-direction test sees the wall nearly every step (it slides down to the floor ramp at the end)
 	delete arena;
 }
 
-TEST(WallJump2_engine_driving_up_a_side_wall_reports_a_wall_for_at_most_one_step) {
+TEST(WallJump2_engine_driving_up_a_side_wall_is_on_a_wall_while_up_it_and_never_on_the_floor) {
 	InitRocketSimWJ();
 	Arena* arena = Arena::Create(GameMode::SOCCAR);
 	Car* car = arena->AddCar(Team::BLUE);
 	CarState cs; cs.pos = Vec(2500, -1500, 17); cs.vel = Vec(1300, 600, 0); cs.rotMat = Angle(0.43f, 0, 0).ToRotMat(); cs.boost = 100; car->SetState(cs);
 	car->controls.throttle = 1; car->controls.boost = true;
-	int wall = 0, highOnWall = 0, atWall = 0;
+	int wallUp = 0, wallOnFloor = 0, ridingUp = 0;
 	for (int s = 0; s < 40; s++) {
 		arena->Step(8);
 		auto st = car->GetState();
-		if (st.isOnGround && st.pos.x > 4060 && st.pos.z > 200) atWall++;   // really riding the wall above the ramp
-		Player p = {}; p.isOnGround = st.isOnGround; p.worldContact.hasContact = st.worldContact.hasContact; p.worldContact.contactNormal = st.worldContact.contactNormal;
-		if (WallJumpToBallReward::OnWall(p)) { wall++; if (st.pos.z > 200) highOnWall++; }
+		bool wall = EngineOnWall(st);
+		if (st.isOnGround && st.pos.x > 4060 && st.pos.z > 200) { ridingUp++; if (wall) wallUp++; }
+		if (wall && st.pos.x < 3700) wallOnFloor++;
 	}
-	CHECK(atWall >= 5);        // the car spends several steps riding the wall (z above 200)
-	CHECK(wall <= 1);          // yet OnWall() fires on at most one step (the ramp bump, z about 128)
-	CHECK_EQ(highOnWall, 0);   // never while it is actually up the wall
+	CHECK(ridingUp >= 5);        // the car spends several steps up the wall
+	CHECK_EQ(wallUp, ridingUp);  // and is detected on every one of them
+	CHECK_EQ(wallOnFloor, 0);    // never while still driving on the floor
+	delete arena;
+}
+
+TEST(WallJump2_engine_driving_on_the_floor_is_never_a_wall) {
+	InitRocketSimWJ();
+	Arena* arena = Arena::Create(GameMode::SOCCAR);
+	Car* car = arena->AddCar(Team::BLUE);
+	CarState cs; cs.pos = Vec(0, -3000, 17); cs.vel = Vec(0, 1400, 0); cs.rotMat = Angle(1.5708f, 0, 0).ToRotMat(); cs.boost = 100; car->SetState(cs);
+	car->controls.throttle = 1; car->controls.boost = true;
+	int wall = 0;
+	for (int s = 0; s < 30; s++) { arena->Step(8); if (EngineOnWall(car->GetState())) wall++; }
+	CHECK_EQ(wall, 0);
 	delete arena;
 }

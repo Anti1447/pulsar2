@@ -1,12 +1,11 @@
 {
   "schema": 1,
-  "name": "wall_jump_intended_exit_away_from_the_ball",
-  "description": "INTENDED BEHAVIOUR (checklist item 3): this scenario FAILS on the current reward and passes with a wheel-based wall test (see the DEFECT scenario in packs/wall_jump and docs/REWARD_CHANGE_LOG.md). Measured with the fix applied as a throwaway: exit frame 0.6265, weighted 37.59 (hand 0.627 / 37.6). The same wall exit with the ball far across the field at (-3000, 0, 100): about 7050 uu away, so Phi = exp(-7050/1410) = 0.0067 and the exit pays at most about 0.007 (0.4 at weight 60). The reward only pays for exits TOWARD the ball. The ball has a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md).",
+  "name": "wall_jump_exit_away_from_the_ball",
+  "description": "The same wall exit with the ball far across the field at (-3000, 0, 100): about 7050 uu away, so Phi = exp(-7050/1410) = 0.0067 and the exit pays at most about 0.007 (0.4 at weight 60). The reward only pays for exits TOWARD the ball. The ball has a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). History: same fix as wall_jump_exit_toward_the_ball.",
   "tags": [
     "wall_jump",
     "gate",
-    "failing",
-    "intended"
+    "failing"
   ],
   "steps": 30,
   "cars": [

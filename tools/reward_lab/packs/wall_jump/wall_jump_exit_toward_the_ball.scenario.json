@@ -1,11 +1,10 @@
 {
   "schema": 1,
-  "name": "wall_jump_intended_exit_toward_the_ball",
-  "description": "INTENDED BEHAVIOUR (checklist item 3): this scenario FAILS on the current reward and passes with a wheel-based wall test (see the DEFECT scenario in packs/wall_jump and docs/REWARD_CHANGE_LOG.md). Measured with the fix applied as a throwaway: exit frame 0.6265, weighted 37.59 (hand 0.627 / 37.6). The blue car sits on the side wall x = 4096 (rolled 90 degrees, centre 17 uu off the wall, at z 500; it slides slowly down the wall and stays on it) and jumps at decision step 2, leaving the wall at frame 3 with about 390 uu/s away from it. The ball floats at (3400, 0, 500). Hand calc: on frame 3 the car is near (4055, 0, 487) and the ball near (3400, 0, 487), 655 uu apart, so the latch opens with Phi = exp(-655/1410) = 0.6285 and the step pays gamma * Phi = 0.627 at once (about +37.6 at weight 60). Nothing is paid on frames 1-2 (still on the wall). After the exit the car falls away from the wall and lands; landing refunds the approach, so over the whole run the sum is only the small discount leak. The ball has a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md).",
+  "name": "wall_jump_exit_toward_the_ball",
+  "description": "The blue car sits on the side wall x = 4096 (rolled 90 degrees, centre 17 uu off the wall, at z 500; it slides slowly down the wall and stays on it) and jumps at decision step 2, leaving the wall at frame 3 with about 390 uu/s away from it. The ball floats at (3400, 0, 500). Hand calc: on frame 3 the car is near (4055, 0, 487) and the ball near (3400, 0, 487), 655 uu apart, so the latch opens with Phi = exp(-655/1410) = 0.6285 and the step pays gamma * Phi = 0.627 at once (about +37.6 at weight 60). Nothing is paid on frames 1-2 (still on the wall). After the exit the car falls away from the wall and lands; landing refunds the approach, so over the whole run the sum is only the small discount leak. The ball has a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). History: the first detector paid 0 here (it needed a body-contact flag that wheels on a wall never set); fixed 2026-11-02, measured after the fix: exit frame 0.6265 (hand 0.627), weighted 37.59 (hand 37.6).",
   "tags": [
     "wall_jump",
-    "golden",
-    "intended"
+    "golden"
   ],
   "steps": 30,
   "cars": [
