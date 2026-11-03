@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "name": "time_cost_every_car_pays_one_per_step_whatever_it_does",
+  "description": "1v1: blue drives and boosts, orange sits idle, 30 steps (2 s at 15 Hz). Each car is -1 raw every step regardless of what it does: -30 raw each, -0.3 weighted at 0.01. The reward is NOT wrapped in ZeroSum (both cars pay, the pair sums to -0.6 weighted).",
+  "tags": [
+    "time_cost",
+    "golden",
+    "1v1"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -3000,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TimeCostReward",
+      "weight": 0.01
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -30.000001,
+      "max": -29.999999,
+      "intent": "driving"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -30.000001,
+      "max": -29.999999,
+      "intent": "idle"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.30000099999999996,
+      "max": -0.299999,
+      "intent": "-0.01 per step"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "weighted",
+      "car": 1,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.30000099999999996,
+      "max": -0.299999,
+      "intent": "-0.01 per step"
+    }
+  ]
+}

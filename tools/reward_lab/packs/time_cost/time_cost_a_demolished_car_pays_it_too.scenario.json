@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "name": "time_cost_a_demolished_car_pays_it_too",
+  "description": "1v1: blue rams and demolishes orange (DemoReward shows it, frame about 19); orange is demolished for 45 steps and still pays -1 raw on each, like every other step: -110 over the 110-step run for both cars. The cost does not look at the demolished flag.",
+  "tags": [
+    "time_cost",
+    "golden",
+    "respawn"
+  ],
+  "steps": 110,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -3000,
+        500,
+        17
+      ],
+      "vel": [
+        2300,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 180
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      -1000,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "TimeCostReward",
+      "weight": 0.01
+    },
+    {
+      "name": "DemoReward",
+      "weight": 0.0,
+      "zero_sum": 0.3
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -110.0001,
+      "max": -109.9999,
+      "intent": "orange pays through its respawn"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": -110.0001,
+      "max": -109.9999,
+      "intent": "blue pays too"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        19,
+        63
+      ],
+      "min": -45.0001,
+      "max": -44.9999,
+      "intent": "the 45 demolished steps"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "DemoReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        110
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "proof the demolition happened (DemoReward)"
+    }
+  ]
+}

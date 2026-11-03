@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "name": "time_cost_a_30_second_episode_costs_4p5",
+  "description": "1v1: both cars idle for 450 steps = 30 s at 15 Hz (tickSkip 8): -450 raw, -4.5 weighted each, 3% of a Goal (150). This is the header's 'keep 450w much less than 150' arithmetic measured in the engine.",
+  "tags": [
+    "time_cost",
+    "golden",
+    "episode"
+  ],
+  "steps": 450,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -3000,
+        17
+      ],
+      "vel": [
+        0,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        3000,
+        3500,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [],
+  "rewards": [
+    {
+      "name": "TimeCostReward",
+      "weight": 0.01
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        450
+      ],
+      "min": -450.0001,
+      "max": -449.9999,
+      "intent": "450 steps"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        450
+      ],
+      "min": -4.5001,
+      "max": -4.4999,
+      "intent": "-4.5 at weight 0.01"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "TimeCostReward",
+      "of": "weighted",
+      "car": 1,
+      "steps": [
+        1,
+        450
+      ],
+      "min": -4.5001,
+      "max": -4.4999,
+      "intent": "the same for orange"
+    }
+  ]
+}
