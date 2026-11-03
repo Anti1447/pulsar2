@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "name": "opposed_save_a_shot_that_is_not_saved_pays_nothing",
+  "description": "The same shot with the keeper standing 2500 uu to the side: the ball runs straight into the net (goal on frame 51), nobody saves it and nothing is paid. The orange shooter drives at 2300 uu/s, jumps on decision step 4 and front-flips on step 6 (jump + pitch -1), hitting the resting ball on frame 9: an unflipped ground hit at the same speed leaves the ball at 1789 uu/s decaying under the engine's 1750 uu/s shot threshold within 0.3 s and is NOT registered as a shot (measured), so the flip is what makes a real shot here. After the flip the ball leaves at about 2170 uu/s straight at the blue goal.",
+  "tags": [
+    "opposed_save",
+    "gate",
+    "failing"
+  ],
+  "steps": 70,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        2500,
+        -4300,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1500,
+        17
+      ],
+      "vel": [
+        0,
+        -2300,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 4,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 5,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 0
+      }
+    },
+    {
+      "car": 1,
+      "from": 6,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 1,
+        "pitch": -1
+      }
+    },
+    {
+      "car": 1,
+      "from": 7,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 0,
+        "pitch": 0
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "OpposedSaveReward",
+      "weight": 25.0,
+      "zero_sum": 0.3
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        70
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "no save, no payment"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        70
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "and no charge for the shooter"
+    }
+  ]
+}

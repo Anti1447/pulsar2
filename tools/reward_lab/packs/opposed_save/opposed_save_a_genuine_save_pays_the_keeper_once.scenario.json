@@ -1,0 +1,213 @@
+{
+  "schema": 1,
+  "name": "opposed_save_a_genuine_save_pays_the_keeper_once",
+  "description": "1v1: the shot described below flies at the blue keeper standing in the goal mouth at (0, -4300); the keeper touches it on frame 41 (and again on frame 42 as the contact continues), the ball slows to 444 uu/s and is no longer going in, and the engine raises a save event for the keeper on frame 41, the first touch step. The last ball touch strictly before that step was the orange shooter's (frames 9-11), so OpposedSaveReward pays +1 raw (+25 at weight 25; through ZeroSum 0.3 in 1v1 the keeper is +1 and the shooter -1, a 50 swing). The event arrived on the FIRST touch step, so the 'second touch step' block did not apply. The orange shooter drives at 2300 uu/s, jumps on decision step 4 and front-flips on step 6 (jump + pitch -1), hitting the resting ball on frame 9: an unflipped ground hit at the same speed leaves the ball at 1789 uu/s decaying under the engine's 1750 uu/s shot threshold within 0.3 s and is NOT registered as a shot (measured), so the flip is what makes a real shot here. After the flip the ball leaves at about 2170 uu/s straight at the blue goal.",
+  "tags": [
+    "opposed_save",
+    "golden"
+  ],
+  "steps": 70,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        0,
+        -4300,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        0,
+        1500,
+        17
+      ],
+      "vel": [
+        0,
+        -2300,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 100
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      93
+    ]
+  },
+  "actions": [
+    {
+      "car": 1,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 4,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 1
+      }
+    },
+    {
+      "car": 1,
+      "from": 5,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 0
+      }
+    },
+    {
+      "car": 1,
+      "from": 6,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 1,
+        "pitch": -1
+      }
+    },
+    {
+      "car": 1,
+      "from": 7,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 0,
+        "pitch": 0
+      }
+    }
+  ],
+  "rewards": [
+    {
+      "name": "OpposedSaveReward",
+      "weight": 25.0,
+      "zero_sum": 0.3
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        38,
+        44
+      ],
+      "intent": "the keeper touches the ball around frame 41"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "nothing before the save"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        70
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "one save, +1 raw on frame 41"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "raw",
+      "car": 1,
+      "steps": [
+        1,
+        70
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "the shooter's raw reward is 0"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "wrapped",
+      "car": 0,
+      "steps": [
+        1,
+        70
+      ],
+      "min": 0.9999,
+      "max": 1.0001,
+      "intent": "wrapped: the keeper +1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "wrapped",
+      "car": 1,
+      "steps": [
+        1,
+        70
+      ],
+      "min": -1.0001,
+      "max": -0.9999,
+      "intent": "wrapped: the shooter -1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        70
+      ],
+      "min": 24.99,
+      "max": 25.01,
+      "intent": "+25 weighted"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "OpposedSaveReward",
+      "of": "weighted",
+      "car": 1,
+      "steps": [
+        1,
+        70
+      ],
+      "min": -25.01,
+      "max": -24.99,
+      "intent": "-25 weighted: a 50 swing"
+    }
+  ]
+}
