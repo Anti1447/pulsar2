@@ -16,6 +16,28 @@
 
 #include <RLGymCPP/Rewards/CommonRewards.h>
 #include <RLGymCPP/Rewards/ZeroSumReward.h>
+// RLGymBot_v3 ports (see the block of commented-out entries in BuildRewards). Headers only compile in; nothing
+// below is registered until its entry is uncommented.
+#include <RLGymCPP/Rewards/KickoffOutcomeReward.h>
+#include <RLGymCPP/Rewards/KickoffStandoffPenalty.h>
+#include <RLGymCPP/Rewards/OffsidePenalty.h>
+#include <RLGymCPP/Rewards/TooFarFromTheBallPenalty.h>
+#include <RLGymCPP/Rewards/TeammateSpacingPenalty.h>
+#include <RLGymCPP/Rewards/GoalSpeedReward.h>
+#include <RLGymCPP/Rewards/TouchBallToGoalAccelReward.h>
+#include <RLGymCPP/Rewards/RotationRewards.h>
+#include <RLGymCPP/Rewards/InstantSpacingTransitionReward.h>
+#include <RLGymCPP/Rewards/RoleCycleTransitionReward.h>
+#include <RLGymCPP/Rewards/ActiveSupportingPositionReward.h>
+#include <RLGymCPP/Rewards/PassingSetupRewards.h>
+#include <RLGymCPP/Rewards/DribbleRewards.h>
+#include <RLGymCPP/Rewards/CatchBallOnCarReward.h>
+#include <RLGymCPP/Rewards/FlickRewards.h>
+#include <RLGymCPP/Rewards/SupersonicReward.h>
+#include <RLGymCPP/Rewards/RolvWavedashReward.h>
+#include <RLGymCPP/Rewards/PitchControlAerialReward.h>
+#include <RLGymCPP/Rewards/MultiAirTouchReward.h>
+#include <RLGymCPP/Rewards/UnifiedAirDribbleReward.h>
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
 #include <RLGymCPP/ObsBuilders/AdvancedObs.h>
@@ -270,6 +292,47 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// Player/Wall Drive Frac - if it's ~0 the bot never reaches the walls and this term
 		// cannot fire. NEVER gate (breaks telescoping).
 		{ new ZeroSumReward(new WallJumpToBallReward(gamma), TEAM_SPIRIT), 60.f },
+
+		// ======================================================================================
+		// PORTED FROM RLGymBot_v3 (branch v3-reward-port) - ALL DISABLED. Do not enable any of these without
+		// the pre-registered test pass this repo requires (none has been run against a game state in this
+		// repo except PassingSetupReward's 7-scenario harness). Weights/spirits are v3's PHASE_3_GOLD live
+		// block (v3 CURRENT_PHASE) unless noted. v3 ran ~40 rewards at once; pulsar's stack is ~12 with a
+		// zero-sum invariant, so these weights are a starting reference, not a recommendation.
+		// Notes: "team" = returns 0 / meaningless in 1v1 (needs 2v2+). "static metrics" = the class keeps
+		// static atomic counters that nothing in pulsar reads yet.
+		// ======================================================================================
+		// -- Kickoff
+		// { new KickoffOutcomeReward(), 12.f },                    // v3 Gold 12 (Silver 20). static metrics. Overlaps KickoffRaceReward.
+		// { new KickoffStandoffPenalty(), 70.f },                  // v3 Gold 70 (Diamond 300). terminal-step only; static metrics.
+		// -- Positioning penalties. Offside and TooFar apply in 1v1 too (no teammate => offside is never "covered", so the full penalty applies; TooFar has a 1v1 threshold). Only TeammateSpacing is team-only.
+		// { new OffsidePenalty(), 0.3f },                          // v3 Gold 0.3. raw range [-6,0] so worst case -1.8/step.
+		// { new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.3f },  // v3 Gold 0.3 (thresholds 1v1/2v2/3v3, ramp half-width).
+		// { new TeammateSpacingPenalty(1000.f, 1500.f), 3.f },     // v3 Gold 3.0 (thresholds 2v2/3v3). Team only: returns 0 in 1v1.
+		// -- Scoring / touch
+		// { new ZeroSumReward(new GoalSpeedReward(), 0.3f), 300.f },  // v3 Gold 300 (Plat 120, Diamond 70, spirit 1.0). Needs eventState.goal from the GameEventTracker facade - unverified. static metrics.
+		// { new ZeroSumReward(new TouchBallToGoalAccelReward(), 0.3f), 30.f },  // v3 Gold 30; v3 used it INSTEAD OF TouchAccelReward - pulsar has TouchAccel (10) live, so they overlap.
+		// -- Rotation (team). ProgressiveRotation wraps Retreat + InstantSpacing + RoleAwareness, so it overlaps the three below it; v3 Gold ran all at 3.
+		// { new ActiveSupportingPositionReward(), 3.f },           // v3 Gold 3 (Plat 7). 2v2+ only (game size >= 4). static metrics shared across instances.
+		// { new RetreatAfterTouchReward(RotationPhase::CHAMPION_PLUS), 3.f },
+		// { new InstantSpacingTransitionReward(RotationPhase::CHAMPION_PLUS), 3.f },
+		// { new RoleCycleTransitionReward(RotationPhase::CHAMPION_PLUS), 3.f },
+		// { new ProgressiveRotationReward(RotationPhase::CHAMPION_PLUS), 3.f },
+		// -- Passing (team). Need ObsBuilder ballPredSlices > 0 (state.ballPred); PassingSetup pays 0 without it. v3 had both DISABLED in Gold (live in Plat: 45 / 22).
+		// { new ZeroSumReward(new PassingSetupReward(), 0.5f), 15.f },
+		// { new ZeroSumReward(new ReceivingPassReward(), 0.5f), 15.f },
+		// -- Dribble / flick. v3 Gold: Dribble and CatchBallOnCar DISABLED (live in Plat: 2.0 / 0.8); DribbleMastery, Flick, AdvancedFlick live.
+		// { new ZeroSumReward(new DribbleReward(), 0.0f), 1.5f },
+		// { new ZeroSumReward(new DribbleMasteryReward(), 0.3f), 0.5f },
+		// { new ZeroSumReward(new CatchBallOnCarReward(), 0.0f), 0.5f },
+		// { new ZeroSumReward(new FlickReward(), 0.3f), 10.f },
+		// { new ZeroSumReward(new AdvancedFlickReward(), 0.3f), 5.f },
+		// -- Movement / aerial
+		// RETIRED 2026-11-01: SupersonicReward - speed/energy is already priced by CarEnergyPotentialReward. Do not re-enable (bare positive income term; see docs/reward_scenarios/SupersonicReward_2026-11-01.md).
+		// { new RolvWavedashReward(), 20.f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
+		// { new ZeroSumReward(new PitchControlAerialReward(), 0.3f), 12.f },   // v3 Gold 12. needs a jump/pitch/second-jump sequence within 0.55s: check at tickSkip 8.
+		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live.
+		// { new ZeroSumReward(new UnifiedAirDribbleReward(), 0.3f), 40.f },    // v3 Plat 40 (not in Gold). Needs state.ballPred; 2.0s horizon (v3: 4s). UNTESTED.
 
 		// The objective. Scorer +150 / conceder -150, exactly zero-sum.
 		{ new GoalReward(), 150 }
