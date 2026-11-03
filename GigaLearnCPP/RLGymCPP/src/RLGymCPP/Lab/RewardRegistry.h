@@ -13,6 +13,7 @@
 #include "../Rewards/PassingSetupRewards.h"
 #include "../Rewards/ZeroSumReward.h"
 #include "../Rewards/KickoffOutcomeReward.h"
+#include "../Rewards/MultiAirTouchReward.h"
 #include <functional>
 #include <map>
 
@@ -34,6 +35,7 @@ namespace Lab {
 			{ "KickoffRaceReward",         [](const RewardSpec&) -> Reward* { return new KickoffRaceReward(); } },
 			{ "KickoffOutcomeReward",      [](const RewardSpec&) -> Reward* { return new KickoffOutcomeReward(); } },
 			{ "ConsecutiveAirTouchReward", [](const RewardSpec& s) -> Reward* { return new ConsecutiveAirTouchReward(s.gamma); } },
+			{ "MultiAirTouchReward",       [](const RewardSpec&) -> Reward* { return new MultiAirTouchReward(); } },
 		};
 		return reg;
 	}

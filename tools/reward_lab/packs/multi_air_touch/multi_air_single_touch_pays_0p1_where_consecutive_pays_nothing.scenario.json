@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "name": "multi_air_single_touch_pays_0p1_where_consecutive_pays_nothing",
+  "description": "The car climbs at 45 degrees into a ball floating at (0, 0, 900) and hits it once (touch on frame 8, the only touch). Frame 8 is 8 steps = 0.533 s into the episode, past the 0.5 s start-up, the ball is above 150 and the car above 300, so MultiAirTouch counts it: the first-touch tier 0.1 (+5.0 at the v3 weight 50). ConsecutiveAirTouch pays nothing for a lone air touch. The ball starts with a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). Verified independently: a separate script that re-implements the touch counting (ball above 150, car above 300, 0.5 s spacing, 1.0 s timeout, ball landing reset) on the exported flags reproduces every Multi payment exactly. The car has no boost, so the boost multiplier removes every bonus and only the base tiers 0.1 / 0.4 / 0.7 are paid.",
+  "tags": [
+    "multi_air",
+    "comparison"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -600,
+        0,
+        400
+      ],
+      "vel": [
+        900,
+        0,
+        900
+      ],
+      "angle_deg": {
+        "yaw": 0,
+        "pitch": 44.7
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      900
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "MultiAirTouchReward",
+      "weight": 50.0
+    },
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        40
+      ],
+      "intent": "one touch (frame 8)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0.0999,
+      "max": 0.1001,
+      "intent": "Multi pays the first-touch tier 0.1 for a lone air touch"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 4.99,
+      "max": 5.01,
+      "intent": "+5.0 weighted at weight 50"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "Consecutive pays nothing for a lone air touch"
+    }
+  ]
+}

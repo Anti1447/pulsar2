@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "name": "multi_air_ground_touches_pay_nothing_in_both",
+  "description": "The car drives on the floor into a ball resting on the floor and pushes it for two steps: Multi needs the ball above 150 and the car above 300, Consecutive needs the car airborne: both pay nothing.",
+  "tags": [
+    "multi_air",
+    "comparison",
+    "gate",
+    "failing"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2200,
+        0,
+        17
+      ],
+      "vel": [
+        1400,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -1000,
+      0,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "MultiAirTouchReward",
+      "weight": 50.0
+    },
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        1,
+        40
+      ],
+      "intent": "the car does touch the ball"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "Multi pays nothing"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "Consecutive pays nothing"
+    }
+  ],
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    }
+  ]
+}

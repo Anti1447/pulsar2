@@ -1,0 +1,174 @@
+{
+  "schema": 1,
+  "name": "multi_air_carry_pays_two_discrete_touches_where_consecutive_pays_per_step",
+  "description": "The car flies level at 1500 uu/s into the floating ball and pushes it: contact on 18 consecutive steps (frames 8-25). MultiAirTouch counts a touch at most once per 0.5 s: frame 8 is the 1st (0.1), frames 9-15 are inside 0.5 s and pay nothing, frame 16 is the 2nd (0.4), and by the time a 3rd would fall due (frame 24) the pushed ball has sunk under 150 uu, which ends the chain, so the whole carry pays 0.1 + 0.4 = 0.5 (+25.0 at weight 50), in two lumps and never refunded. ConsecutiveAirTouch pays smoothly per contact step (cumulative 0.2027 by frame 10, 0.4768 by frame 12, peak +0.80 = +32 weighted at 40) and gives it back on landing, netting -0.0418. The ball starts with a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). Verified independently: a separate script that re-implements the touch counting (ball above 150, car above 300, 0.5 s spacing, 1.0 s timeout, ball landing reset) on the exported flags reproduces every Multi payment exactly. The car has no boost, so the boost multiplier removes every bonus and only the base tiers 0.1 / 0.4 / 0.7 are paid.",
+  "tags": [
+    "multi_air",
+    "comparison"
+  ],
+  "steps": 40,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -900,
+        0,
+        900
+      ],
+      "vel": [
+        1500,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      0,
+      0,
+      900
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "MultiAirTouchReward",
+      "weight": 50.0
+    },
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        8,
+        25
+      ],
+      "intent": "the car keeps touching the ball from frame 8 to 25"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        8
+      ],
+      "min": 0.0999,
+      "max": 0.1001,
+      "intent": "frame 8: the first counted touch pays 0.1"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        15
+      ],
+      "min": 0.0999,
+      "max": 0.1001,
+      "intent": "frames 9-15 are inside the 0.5 s minimum spacing and pay nothing"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        16
+      ],
+      "min": 0.4999,
+      "max": 0.5001,
+      "intent": "frame 16: the 2nd counted touch pays 0.4 (cumulative 0.5)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 0.4999,
+      "max": 0.5001,
+      "intent": "no third touch: the ball sank under 150 uu, which ends the chain"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "weighted",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": 24.99,
+      "max": 25.01,
+      "intent": "+25.0 weighted at 50, never refunded"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        12
+      ],
+      "min": 0.4763,
+      "max": 0.4773,
+      "intent": "Consecutive: cumulative 0.4768 by frame 12 (per contact step)"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        40
+      ],
+      "min": -0.0423,
+      "max": -0.0413,
+      "intent": "Consecutive: the whole carry nets -0.0418 after the landing refund"
+    }
+  ]
+}

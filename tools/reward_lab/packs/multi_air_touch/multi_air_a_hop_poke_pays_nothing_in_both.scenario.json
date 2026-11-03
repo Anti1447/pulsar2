@@ -1,0 +1,133 @@
+{
+  "schema": 1,
+  "name": "multi_air_a_hop_poke_pays_nothing_in_both",
+  "description": "The car hops into a ball resting on the floor (touch frames 10-14, car z 57-116, ball lifted from 93 to 178). MultiAirTouch needs the CAR above 300 uu, so the low hop pays nothing; ConsecutiveAirTouch (after its ball-height credit) pays nothing too. Verified independently: a separate script that re-implements the touch counting (ball above 150, car above 300, 0.5 s spacing, 1.0 s timeout, ball landing reset) on the exported flags reproduces every Multi payment exactly. The car has no boost, so the boost multiplier removes every bonus and only the base tiers 0.1 / 0.4 / 0.7 are paid.",
+  "tags": [
+    "multi_air",
+    "comparison",
+    "gate"
+  ],
+  "steps": 45,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        -2200,
+        0,
+        17
+      ],
+      "vel": [
+        1400,
+        0,
+        0
+      ],
+      "angle_deg": {
+        "yaw": 0
+      },
+      "boost": 100
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -1000,
+      0,
+      93
+    ]
+  },
+  "rewards": [
+    {
+      "name": "MultiAirTouchReward",
+      "weight": 50.0
+    },
+    {
+      "name": "ConsecutiveAirTouchReward",
+      "weight": 40.0,
+      "gamma": 0.9969
+    },
+    {
+      "name": "PassingSetupReward",
+      "weight": 1.0
+    }
+  ],
+  "expect": [
+    {
+      "kind": "gate",
+      "reward": "PassingSetupReward",
+      "car": 0,
+      "gate": "touched_ball",
+      "passed": true,
+      "mode": "any",
+      "steps": [
+        10,
+        14
+      ],
+      "intent": "the hopping car pushes the ball"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "MultiAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        45
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "car under 300 uu: Multi pays nothing"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "ConsecutiveAirTouchReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        45
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "Consecutive pays nothing (ball-height credit)"
+    }
+  ],
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "throttle": 1,
+        "boost": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 8,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 9,
+      "action": {
+        "throttle": 1,
+        "boost": 1,
+        "jump": 0
+      }
+    }
+  ]
+}
