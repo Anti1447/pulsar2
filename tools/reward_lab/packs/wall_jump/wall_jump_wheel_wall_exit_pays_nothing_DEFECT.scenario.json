@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "wall_jump_wheel_wall_exit_pays_nothing_DEFECT",
+  "description": "DEFECT, current behaviour: The blue car sits on the side wall x = 4096 (rolled 90 degrees, centre 17 uu off the wall, at z 500; it slides slowly down the wall and stays on it) and jumps at decision step 2, leaving the wall at frame 3 with about 390 uu/s away from it. The ball floats at (3400, 0, 500). Hand calc: on frame 3 the car is near (4055, 0, 487) and the ball near (3400, 0, 487), 655 uu apart, so the latch opens with Phi = exp(-655/1410) = 0.6285 and the step pays gamma * Phi = 0.627 at once (about +37.6 at weight 60). Nothing is paid on frames 1-2 (still on the wall). After the exit the car falls away from the wall and lands; landing refunds the approach, so over the whole run the sum is only the small discount leak. The ball has a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md). BUT in the engine the car rides the wall on its wheels and `worldContact.hasContact` (a body-collision flag, cleared every tick) stays false, so `OnWall()` is false, the latch never opens, and the exit pays NOTHING. Measured: resting on the wall for 20 steps reports isOnGround true and hasContact false every step; driving up the side wall at 25 degrees reports OnWall on 1 step of 40 (a ramp bump at z 128) and a jump sweep over steps 12-25 never paid. These expectations pin the current (inert) behaviour; the intended ones are in packs/wall_jump_intended.",
+  "tags": [
+    "wall_jump",
+    "defect"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        4079,
+        0,
+        500
+      ],
+      "angle_deg": {
+        "yaw": 90,
+        "roll": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      3400,
+      0,
+      500
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "WallJumpToBallReward",
+      "weight": 60.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "WallJumpToBallReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "DEFECT: leaving a wall by the wheels 655 uu from the ball pays 0 because OnWall() needs a body-contact flag the wheels never set (intended: +0.627 on the exit step)"
+    }
+  ],
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "jump": 0
+      }
+    },
+    {
+      "car": 0,
+      "from": 2,
+      "action": {
+        "jump": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 3,
+      "action": {
+        "jump": 0
+      }
+    }
+  ]
+}

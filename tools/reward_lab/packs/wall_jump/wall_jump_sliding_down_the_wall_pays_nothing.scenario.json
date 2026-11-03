@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "name": "wall_jump_sliding_down_the_wall_pays_nothing",
+  "description": "The same car on the same wall slides down it without ever jumping. It stays supported the whole time, so the latch never opens and nothing is paid. The ball has a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md).",
+  "tags": [
+    "wall_jump",
+    "gate",
+    "failing"
+  ],
+  "steps": 20,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        4079,
+        0,
+        500
+      ],
+      "angle_deg": {
+        "yaw": 90,
+        "roll": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      3400,
+      0,
+      500
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "WallJumpToBallReward",
+      "weight": 60.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "WallJumpToBallReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        20
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "a car that never leaves the wall is paid nothing"
+    }
+  ]
+}

@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "name": "wall_jump_intended_exit_away_from_the_ball",
+  "description": "INTENDED BEHAVIOUR (checklist item 3): this scenario FAILS on the current reward and passes with a wheel-based wall test (see the DEFECT scenario in packs/wall_jump and docs/REWARD_CHANGE_LOG.md). Measured with the fix applied as a throwaway: exit frame 0.6265, weighted 37.59 (hand 0.627 / 37.6). The same wall exit with the ball far across the field at (-3000, 0, 100): about 7050 uu away, so Phi = exp(-7050/1410) = 0.0067 and the exit pays at most about 0.007 (0.4 at weight 60). The reward only pays for exits TOWARD the ball. The ball has a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md).",
+  "tags": [
+    "wall_jump",
+    "gate",
+    "failing",
+    "intended"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        4079,
+        0,
+        500
+      ],
+      "angle_deg": {
+        "yaw": 90,
+        "roll": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      -3000,
+      0,
+      100
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "WallJumpToBallReward",
+      "weight": 60.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "WallJumpToBallReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        3,
+        3
+      ],
+      "min": 0.003,
+      "max": 0.009,
+      "intent": "leaving the wall far from the ball pays under 0.01"
+    },
+    {
+      "kind": "reward_sum",
+      "reward": "WallJumpToBallReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -0.01,
+      "max": 0.0001,
+      "intent": "and the whole run nets about zero"
+    }
+  ],
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "jump": 0
+      }
+    },
+    {
+      "car": 0,
+      "from": 2,
+      "action": {
+        "jump": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 3,
+      "action": {
+        "jump": 0
+      }
+    }
+  ]
+}

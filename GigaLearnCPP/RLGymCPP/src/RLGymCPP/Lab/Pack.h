@@ -143,6 +143,7 @@ namespace Lab {
 			{ "AerialTouchReward", "Rewards/CommonRewards.h" },           // shared with the other CommonRewards
 			{ "BallToGoalPotentialReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards
 			{ "AirInterceptPotentialReward", "Rewards/CommonRewards.h" }, // shared with the other CommonRewards
+			{ "WallJumpToBallReward", "Rewards/CommonRewards.h" },       // shared with the other CommonRewards
 		};
 		return m;
 	}

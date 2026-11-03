@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "wall_jump_floor_jump_pays_nothing",
+  "description": "The identical hop, with the ball in the same place, but from the FLOOR (the car is at (3800, 0, 17), well away from any wall). A jump off flat ground never opens the latch. The ball has a 1 uu/s upward velocity on purpose (a ball set with exactly zero velocity in the air floats: see tools/reward_lab/README.md).",
+  "tags": [
+    "wall_jump",
+    "gate",
+    "failing"
+  ],
+  "steps": 30,
+  "cars": [
+    {
+      "team": "blue",
+      "pos": [
+        3800,
+        0,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 90
+      },
+      "boost": 0
+    },
+    {
+      "team": "orange",
+      "pos": [
+        -3000,
+        3000,
+        17
+      ],
+      "angle_deg": {
+        "yaw": 270
+      },
+      "boost": 0
+    }
+  ],
+  "ball": {
+    "pos": [
+      3400,
+      0,
+      500
+    ],
+    "vel": [
+      0,
+      0,
+      1
+    ]
+  },
+  "rewards": [
+    {
+      "name": "WallJumpToBallReward",
+      "weight": 60.0,
+      "gamma": 0.9969
+    }
+  ],
+  "expect": [
+    {
+      "kind": "reward_sum",
+      "reward": "WallJumpToBallReward",
+      "of": "raw",
+      "car": 0,
+      "steps": [
+        1,
+        30
+      ],
+      "min": -1e-09,
+      "max": 1e-09,
+      "intent": "a floor jump is paid nothing, even next to the ball"
+    }
+  ],
+  "actions": [
+    {
+      "car": 0,
+      "from": 0,
+      "action": {
+        "jump": 0
+      }
+    },
+    {
+      "car": 0,
+      "from": 2,
+      "action": {
+        "jump": 1
+      }
+    },
+    {
+      "car": 0,
+      "from": 3,
+      "action": {
+        "jump": 0
+      }
+    }
+  ]
+}
