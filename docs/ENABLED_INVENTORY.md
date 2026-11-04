@@ -123,13 +123,12 @@ smoke: trunk 927/1152, policy 88/90, 0 dead units.
 
 BallToGoal **75**, TouchAccel 10, Demo 37.5, BallProximity 4, GuardedPickupBoost 6,
 AerialTouch **120**, AirIntercept **75**, ConsecutiveAirTouch **40**, WallJumpToBall **30** (was 60; lowered 2026-11-02 after the detector fix),
-OpposedSave 25, **CarEnergy 75**, TimeCost 0.01, TeamPressure 0.15, KickoffRace 60 (OFF since 2026-11-03, see the log), Goal 150.
+OpposedSave 25, **CarEnergy 25** (was 75; lowered 2026-11-04 after the audit), TimeCost 0.01, TeamPressure 0.15, KickoffRace 60 (OFF since 2026-11-03, see the log), Goal 150.
 (Re-read from `ExampleMain.cpp` 2026-10-27; FlipReset and AirReward are no longer in the stack.
 ConsecutiveAirTouch/WallJumpToBall were raised from 30/30 and are unmeasured at the new weights -
 `REWARD_SHAPING.md` section 3.4 reflects 30/30.)
 
-**Open (two):** `CarEnergy 15 → 75` is recorded but unmeasured on this lineage — extrapolation
-from `REWARD_SHAPING.md` puts it near 60% of per-step credit density. And six SCAFFOLD weights
+**Open (two):** `CarEnergy` was `15 → 75` (unmeasured; extrapolation from `REWARD_SHAPING.md` put it near 60% of per-step credit density) and was set to 25 on 2026-11-04 as a cautious baseline; its measured credit share is still to be checked. And six SCAFFOLD weights
 totalling ~260 (vs Goal 150) name `mechanic_census` as their anneal trigger; that metric measures
 none of the relevant mechanics and cannot load the live checkpoints, so "anneal later" currently
 means "never".

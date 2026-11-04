@@ -252,7 +252,9 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// which would make tempo the dominant shaping term - that is an extrapolation, not
 		// a measurement. OPEN: re-measure per-term credit share on the resid lineage and
 		// either justify 75 or walk it back. See research/reports/DEAD_CODE_AUDIT.md Q11.
-		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 75.f },
+		// 75 -> 25 (2026-11-04, user-directed, after the reward audit: one big-pad pickup from empty was worth +73 weighted, half a Goal;
+		// at 25 it is +24). Lower again if its measured credit share is too high; the formula is unchanged.
+		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 25.f },
 
 		// ESCALATE-1 (2026-07-16, user-directed): small time cost - urgency vs the
 		// measured stall/hover pathology. 0.01 -> ~4.5 per 30s episode (15Hz steps

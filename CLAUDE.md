@@ -250,7 +250,7 @@ no ZeroSum wrapper, that would double it), TouchAccel **10**, Demo **37.5**,
 BallProximityPotential **4** (spacing-aware team potential since 2026-11-03: rank weights 1, 1/2, 1/4 cut by a 500-1600uu crowding discount; far-field linear term added in 5.0),
 GuardedPickupBoost **6**, AerialTouch **120**, AirInterceptPotential **75**,
 ConsecutiveAirTouch **40**, WallJumpToBall **30**, OpposedSave **25**,
-CarEnergyPotential **75** (tempo credit), TimeCost **0.01** (not PBRS, not
+CarEnergyPotential **25** (tempo credit; was 75, lowered 2026-11-04 after the audit), TimeCost **0.01** (not PBRS, not
 zero-sum-wrapped; ~3% of a goal per 30s episode), TeamPressure **0.15**,
 KickoffRace **60 (commented out 2026-11-03 until the bot hits the ball and scores)**, Goal **150** (the objective, exactly ±150). All the
 ZeroSum-wrapped terms carry `TEAM_SPIRIT`. (2026-10-27: re-read from ExampleMain
@@ -268,9 +268,9 @@ it understated AirIntercept 40→75 and CarEnergy 15→75 and omitted five terms
   which measures none of the relevant mechanics and cannot load the live
   checkpoints — so "anneal later" currently means "never". Either implement it or
   delete the promise.
-- **CarEnergyPotential 75** rode uncommitted through two cold starts and is
-  recorded but UNMEASURED on this lineage; extrapolation from `REWARD_SHAPING.md`
-  puts it near 60% of per-step credit density. Re-measure before trusting it.
+- **CarEnergyPotential** was 75 (rode uncommitted through two cold starts, UNMEASURED
+  on this lineage; extrapolated near 60% of per-step credit density) and is now 25
+  (2026-11-04). Re-measure its credit share before raising it.
 - **`TEAM_SPIRIT` = 0.3 (PHASE A / 1v1-dominant) → 0.6 (PHASE B onward)**, set
   from the `PHASE_B` marker file in `main()`. It's an algebraic no-op in 1v1
   (teamMean == own); it only shapes 2v2/3v3 credit.

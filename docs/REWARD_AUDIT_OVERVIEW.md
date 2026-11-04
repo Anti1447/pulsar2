@@ -12,7 +12,7 @@ How each reward was audited: (1) read the code and derive expected values by han
 | AerialTouch | 120 | ZeroSum 0.3 | no defect, 2 notes | no | 14 / 5 |
 | BallToGoal | 75 | none (already zero-sum) | no defect, 3 findings | no | 13 / 5 |
 | AirIntercept | 75 | ZeroSum 0.3 | no defect, 3 findings | no | 12 / 3 |
-| CarEnergy | 75 | ZeroSum 0.3 | no defect, magnitude question open | no | 12 / 4 |
+| CarEnergy | 75 -> 25 | ZeroSum 0.3 | no defect, magnitude question | weight lowered | 12 / 4 |
 | WallJumpToBall | 60 -> 30 | ZeroSum 0.3 | **defect: could never fire** | **fixed**, weight halved | 15 / 4 |
 | ConsecutiveAirTouch | 40 | ZeroSum 0.3 | **5 findings + floor-ball chain** | **reworked (3 fixes)** | 21 / 4 |
 | Demo | 37.5 | ZeroSum 0.3 | logic fine, 1 naming issue | name only | 7 / 5 |
@@ -53,11 +53,11 @@ State at the last commit (`36e5907`, pushed to `fork`): GigaLearnTests 453/453, 
 **Issues.** No defect. (1) The potential reads the BALL, so when a touch knocks the ball away the car gives back part of its climb credit (AerialTouch pays the touch, AirIntercept refunds part of the approach). (2) A resting grounded car is not exactly 0 (a few 1e-6). (3) An engine quirk found while writing the pack (see "Engine facts").
 **After.** Unchanged. A 0.53 s ballistic climb pays +18.2 weighted (hand +18.25); a grounded car pays under 1e-5; a hop and landing nets about 0.
 
-## 5. CarEnergyPotential (75)
+## 5. CarEnergyPotential (75 -> 25)
 
 **Before.** Potential on kinetic energy, height and boost; raised 15 -> 75 earlier without being measured.
 **Issues.** No defect; the open point is magnitude. A big-pad pickup from empty is worth +73 weighted (half a Goal); the potential reaches 2.5 (187 weighted, above a Goal); holding a full tank costs -3.5 weighted per second (the discount leak). The loop is closed (burning the tank pays back), so it is a magnitude question, not an exploit.
-**After.** Unchanged. **Still open, needs a run:** the credit share of this term at 75 (compare with BallToGoal 75 and AerialTouch 120 in the first 100M steps of 6.0 before deciding to keep 75).
+**After.** Formula unchanged; weight lowered 75 -> 25 on 2026-11-04 (your decision; a pickup from empty is now +24 weighted). **Still open, needs a run:** its credit share at 25 (compare with BallToGoal 75 and AerialTouch 120 in the first 100M steps of 6.0).
 
 ## 6. WallJumpToBall (60 -> 30)
 
