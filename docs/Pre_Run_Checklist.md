@@ -14,7 +14,7 @@ Started 2026-11-02. Tick items as they are finished. Sizes are rough (S/M/L). Fa
   - For 0: the comment at `ExampleMain.cpp:835` records why 0 was chosen: max action-effect correlation for precision mechanics ("revisit only if RLBot sim-to-real matters").
   - If it changes: fresh run needed anyway; update the comment there, `CLAUDE.md` lines 26/120/139/515, `docs/6.0.md` line 53 and `docs/PULSAR5.md`; the engine requires `actionDelay <= tickSkip`; the Reward Lab scenarios default to 0 (set `action_delay` per scenario or leave as is, since rewards do not read it).
 - [ ] **Push** the new commits and, if wanted, the `cpp-interface` branch to a fork (see item 6). Remotes: `origin` = lucamignatti/pulsar2, `fork` = Anti1447/pulsar2.
-- [x] (tag pre-6.0-20261102, hashes in docs/6.0_RESTORE_POINT.md) Restore point: tag the commit the run starts from (precedent: `pre-strip-20260725`), and record the `*.lt` hashes (weights are git-ignored).
+- [x] (tag pre-6.0-20261104, re-tagged after the reward audit; the first tag pre-6.0-20261102 is kept for history; hashes in docs/6.0_RESTORE_POINT.md) Restore point: tag the commit the run starts from (precedent: `pre-strip-20260725`), and record the `*.lt` hashes (weights are git-ignored).
 - [x] Final go/no-go: all tests green (2026-11-02: GigaLearnTests 207/207 incl. Lab, built with -DGGL_BUILD_TESTS=ON, run from the repo root; receiver tests tools/reward_lab/test_stream.py 20/20 and test_serve.py 8/8 passed 2026-11-02), clean checkpoints_6.0 (re-clean after the smoke), short smoke run DONE 2026-11-02 (CPU GGL_SMOKE, 21 iterations, 843k steps, no errors).
 
 ## 1. Chronos and Galactus verified in training (M-L)
@@ -37,7 +37,7 @@ Scope: the 14 active rewards in `BuildRewards()` (KickoffRace was the 15th: comm
 ## 3. Improve and fix rewards (M, after 2)
 - [ ] Per reward: keep, fix, disable, or enable-from-the-ports, with evidence from the audit.
 - [ ] One lever per change; no weight change above +-50%; a line in `docs/REWARD_CHANGE_LOG.md`; a pre-registered "working" signal before enabling anything.
-- [ ] Record the stack's total count and weight mass (gradient dilution was RLGymBot_v3's main problem).
+- [x] Record the stack's total count and weight mass (gradient dilution was RLGymBot_v3's main problem). 2026-11-04: 14 rewards, total weight 597.66 (Goal 150 = 25.1%; shaping 447.66 = 2.98x Goal); breakdown in `docs/REWARD_AUDIT_OVERVIEW.md` (Stack weight mass). Was 647.66 with CarEnergy at 75.
 
 ## 4. Ball prediction confirmed (M)
 Existing: `tests/test_ballpred_cache.cpp`, `tests/test_advanced_obs_padded.cpp`, and the claims in `docs/6.0.md`.

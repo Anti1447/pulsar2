@@ -114,6 +114,19 @@ State at the last commit (`36e5907`, pushed to `fork`): GigaLearnTests 453/453, 
 
 ---
 
+## Stack weight mass (2026-11-04, from `BuildRewards()`)
+
+14 rewards, total weight **597.66**. Goal 150 is 25.1% of it; everything else (shaping) is 447.66, 2.98x the Goal weight.
+
+| Group | Rewards (weight) | Sum |
+|---|---|---|
+| Objective | Goal 150 | 150 |
+| Potentials (exact PBRS) | BallToGoal 75, AirIntercept 75, ConsecutiveAirTouch 40, WallJumpToBall 30, CarEnergy 25, BallProximity 4 | 249 |
+| Events and touches | AerialTouch 120, Demo 37.5, OpposedSave 25, TouchAccel 10, GuardedPickupBoost 6 | 198.5 |
+| Rates | TeamPressure 0.15, TimeCost 0.01 | 0.16 |
+
+Weights are not credit: realised share depends on how often each fires (measure it in the first 100M steps). Before the audit the sum was 647.66 (CarEnergy 75). The old inventory's open item about six scaffold weights (~260) is separate and still open.
+
 ## Appendix: audited but not in the 14
 
 - **KickoffRace (was 60, now OFF).** Audit found a window shorter than a real kickoff (now 45 steps) and a same-step tie that paid only the lower player index (now all are paid); all 85 kickoff layouts tested. Commented out until the bot hits the ball and scores. Commits `a294118`, `ab5c239`, `b0318cb`.
@@ -130,7 +143,7 @@ State at the last commit (`36e5907`, pushed to `fork`): GigaLearnTests 453/453, 
 
 ## Open items
 
-- Sign the packs (below). Re-tag the restore point `pre-6.0-20261102` after the last reward change; it is stale.
+- Sign the packs (below). Restore point re-tagged 2026-11-04 as `pre-6.0-20261104`; re-tag again after any later reward change.
 - OpposedSave: the two-touch miss and the comment/wiring mismatch.
 - CarEnergy 75: measure credit share in the first 100M steps of 6.0.
 - BallProximity and TeamPressure: tune the TODO constants from real results; striker credit tuning.
