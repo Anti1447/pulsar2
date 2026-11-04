@@ -378,20 +378,32 @@ void GGL::GGLBotOpponent::Act(const std::vector<GameState>& states,
 	};
 	g_ThreadPool.StartBatchedJobsChunked(fnBuildArena, numArenas, false);
 
+	std::vector<int> pickVec = Pick(obsBuf, maskBuf, numRows);
+
+	for (int row = 0; row < numRows; row++)
+		outActionIdx[rowPlayer[row]] = ToOurAction(pickVec[row], rowMirrored[row]);
+}
+
+std::vector<int> GGL::GGLBotOpponent::Pick(const std::vector<float>& obs, const std::vector<uint8_t>& masks, int numRows) {
+	RG_NO_GRAD;
+	int numActions = (int)actions.size();
 	torch::Tensor picks;
 	try {
-		auto tObs = torch::from_blob(obsBuf.data(), { numRows, obsSize }, torch::kFloat32).to(device);
-		auto tMasks = torch::from_blob(maskBuf.data(), { numRows, numActions }, torch::kUInt8).to(device);
+		auto tObs = torch::from_blob((void*)obs.data(), { numRows, obsSize }, torch::kFloat32).to(device);
+		auto tMasks = torch::from_blob((void*)masks.data(), { numRows, numActions }, torch::kUInt8).to(device);
 		PPOLearner::InferActionsFromModels(models, tObs, tMasks, /*deterministic=*/true, 1.f, /*halfPrec=*/false, &picks, nullptr);
 	} catch (const std::exception& e) {
-		RG_ERR_CLOSE("GGLBotOpponent(" << name << ")::Act: inference failed (" << numRows << " rows): " << e.what());
+		RG_ERR_CLOSE("GGLBotOpponent(" << name << ")::Pick: inference failed (" << numRows << " rows): " << e.what());
 	}
-	auto pickVec = TENSOR_TO_VEC<int>(picks.cpu());
+	return TENSOR_TO_VEC<int>(picks.cpu());
+}
 
-	for (int row = 0; row < numRows; row++) {
-		int theirs = pickVec[row];
-		if (rowMirrored[row])
-			theirs = mirrorMap[theirs];
-		outActionIdx[rowPlayer[row]] = actionMap[theirs];
-	}
+int GGL::GGLBotOpponent::ToOurAction(int theirs, bool mirrored) const {
+	if (mirrored)
+		theirs = mirrorMap[theirs];
+	return actionMap[theirs];
+}
+
+bool GGL::GGLBotOpponent::MirroredForChronos(const RLGC::Player& player) {
+	return ShouldMirrorX(player);
 }

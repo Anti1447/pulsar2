@@ -61,9 +61,27 @@ Verdicts: **EXACT** (checked against the source), **ON PURPOSE** (differs, accep
 | Mask | same `DefaultAction` | same | EXACT |
 | Live flip availability | from RLBot's `dodge_timeout` | sim's real value | live-only difference (1.6 only) |
 
+## Golden results (checklist 1.2, 2026-11-05)
+Same 192 sim-recorded states (768 player observations: 1v1/2v2/3v3, both teams, every kickoff layout, drives, aerials, walls, flips,
+demolished cars, spent pads, corners and nets) through the original code and the port.
+
+| Bot | Reference | Observation | Mask | 90 action rows | Network (logits, pick) | Pick on CUDA (TF32 on) |
+|---|---|---|---|---|---|---|
+| Nexto | its own `nexto_obs.py` + `nexto-model.pt` (Python) | worst 4.95e-6 | n/a (all zero) | n/a | logits within 5e-5, 0 differences | 0 differences |
+| GalactusV2 | its own C++ obs builder, `DefaultAction`, `Models.h` | worst 2.4e-7 | identical | identical | logits identical, 0 differences | 0 differences |
+| ChronosV2 | same, with its x-mirror | worst 2.4e-7 | identical | identical (mirrored) | logits identical, 0 differences | 0 differences |
+
+**Slot shuffle matters.** Galactus and Chronos shuffle their padded player slots with a random engine on every observation, as the
+originals do. Measured here with 8 random orders per observation: the pick changes for about 200 of 768 observations for Galactus (26%) and
+about 100 of 768 for Chronos (13%) (varies a little run to run). So their play has a random component and two runs of the same state can differ (not a port bug).
+
+**Not covered by the golden test:** the ball-prediction source for Galactus (the port feeds RocketSim predictions; the golden
+test hands the original the very same samples), live-only differences (1.6), and the RLBot packet conversions inside the two
+bots' live clients.
+
 ## What this changes in the checklist
 1. **1.2 golden test, Nexto:** compare in one fixed entity order and add a permutation test; the "first differing index" rule only makes sense after that.
 2. **1.2 golden test, Galactus and Chronos:** the shuffle must be seeded or the comparison done per slot permutation; otherwise it is flaky by construction.
 3. **1.3 "deterministic across repeats":** only true for Nexto; Galactus and Chronos can vary because of the slot shuffle (it is part of the original behaviour, not a port bug).
 4. **Missing tooling:** the WSL python has no `torch` or `rlgym_compat`, so the Nexto Python reference needs an environment (`rlbot-run/nexto/requirements.txt`: `rlgym_compat` from JPK314, torch 2.4.1 cpu, numpy 1). Installing it is a download and needs your go-ahead. Galactus and Chronos have no Python reference; their reference is their C++ obs builders, which can be compiled from the pinned commits.
-5. **No ACCIDENT found.** The three open Nexto questions are closed (see the VERIFIED rows). Result of the Nexto golden run (`tools/opponent_golden`, 192 recorded states, 768 observations, 1v1/2v2/3v3, both teams): worst observation difference 4.95e-6 (limit 1e-5), logits within 5e-5, 0 argmax differences on CPU and CUDA, `Act()` returns the net's argmax every time. Galactus and Chronos are still to do.
+5. **No ACCIDENT found.** The three open Nexto questions are closed (see the VERIFIED rows). Result of the Nexto golden run (`tools/opponent_golden`, 192 recorded states, 768 observations, 1v1/2v2/3v3, both teams): worst observation difference 4.95e-6 (limit 1e-5), logits within 5e-5, 0 argmax differences on CPU and CUDA, `Act()` returns the net's argmax every time. Galactus and Chronos: see the golden results above (also PASS).

@@ -25,3 +25,20 @@ packet was checked by reading (docs/EXTERNAL_OPPONENTS.md). Golden JSON (about 9
 
 Mutation check (2026-11-05): a negated orange velocity, reversed orange pad flags, and a dropped previous action in the
 port's output were each caught, with the exact entity row and feature named.
+
+## Galactus and Chronos
+```bash
+tools/opponent_golden/run_ggl.sh        # from the repo root; needs `make -C build OpponentGoldenGGL`
+```
+No Python here: the references are the bots' OWN C++ sources (GalactusV2 @ 217324c, Chronos @ 4f8fdd2), fetched as text into
+`~/opponent_ref_src` (outside the repo, `fetch_ref_src.py`) and compiled by `build_ref.sh` into `build/ref_galactus`,
+`build/ref_chronos` (observation builder, action mask, action parser) and `build/ref_model_*` (their `Models.h` /
+`InferenceModels.cpp` loading the same `.lt` weights). `golden_ggl.cpp` (`OpponentGoldenGGL gen|judge`) records the states, builds
+what the PORT builds, and compares: observation, mask, all 90 parsed action rows, the network's logits and pick, CUDA picks.
+
+Notes: the originals shuffle their padded player slots with a random engine, so slots are compared as sets and the net runs on
+slot-sorted copies; the shuffle's effect on the pick is printed as informational. Galactus's reference gets the same five
+ball-prediction samples the port builds (its training tracker is stubbed: `ref_stubs/`), so the ball-prediction SOURCE is not
+tested here (see EXTERNAL_OPPONENTS.md). Mutation check 2026-11-05: six seeded port faults (Chronos timers without the original's
+typo, Galactus big-pad gate, a changed prediction tick, Chronos never mirroring, mirrored action not mapped back, wrong activation
+function) were each caught.

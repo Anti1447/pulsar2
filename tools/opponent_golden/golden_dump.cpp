@@ -7,7 +7,7 @@
 // (GGL_GOLDEN_TF32=0 turns CUDA TF32 off; the default matches the trainer)
 #include <GigaLearnCPP/NextoOpponent.h>
 
-#include <RLGymCPP/Gamestates/GameState.h>
+#include "states_common.h"
 #include <RLGymCPP/CommonValues.h>
 
 #include <ATen/Context.h>
@@ -20,70 +20,21 @@
 #include <random>
 
 using namespace RLGC;
+using golden::Rand;
+using golden::RandInt;
 using json = nlohmann::json;
 
-static std::mt19937_64 g_rng;
-static float Rand(float lo, float hi) { return std::uniform_real_distribution<float>(lo, hi)(g_rng); }
-static int RandInt(int lo, int hi) { return std::uniform_int_distribution<int>(lo, hi)(g_rng); }
-
 static json V(const Vec& v) { return json::array({ v.x, v.y, v.z }); }
-
-static void RandomizeCar(Car* car, bool aerial) {
-	CarState s = car->GetState();
-	s.pos = Vec(Rand(-3500, 3500), Rand(-4500, 4500), aerial ? Rand(300, 1800) : 17.f);
-	s.vel = Vec(Rand(-1500, 1500), Rand(-1500, 1500), aerial ? Rand(-800, 800) : 0.f);
-	s.angVel = aerial ? Vec(Rand(-4, 4), Rand(-4, 4), Rand(-4, 4)) : Vec(0, 0, 0);
-	s.rotMat = Angle(Rand(-3.14f, 3.14f), aerial ? Rand(-1.2f, 1.2f) : 0.f, aerial ? Rand(-3.14f, 3.14f) : 0.f).ToRotMat();
-	s.boost = Rand(0, 100);
-	car->SetState(s);
-}
-
-static void RandomizeBall(Arena* arena, int kind) {
-	BallState b = arena->ball->GetState();
-	switch (kind) {
-	case 0: b.pos = Vec(Rand(-3500, 3500), Rand(-4500, 4500), Rand(100, 1800)); break;
-	case 1: b.pos = Vec(Rand(0, 1) < 0.5f ? -3900.f : 3900.f, Rand(0, 1) < 0.5f ? -4800.f : 4800.f, 150.f); break; // corner
-	case 2: b.pos = Vec(Rand(-700, 700), Rand(0, 1) < 0.5f ? -5200.f : 5200.f, 150.f); break;                       // in a net
-	default: b.pos = Vec(Rand(-3000, 3000), Rand(-4000, 4000), 93.f); break;
-	}
-	b.vel = Vec(Rand(-2000, 2000), Rand(-2000, 2000), Rand(-500, 900));
-	b.angVel = Vec(Rand(-5, 5), Rand(-5, 5), Rand(-5, 5));
-	arena->ball->SetState(b);
-}
-
-static void ScrambleControls(Arena* arena) {
-	for (Car* car : arena->_cars) {
-		CarControls c = {};
-		c.throttle = (float)RandInt(-1, 1);
-		c.steer = (float)RandInt(-1, 1);
-		c.pitch = (float)RandInt(-1, 1);
-		c.yaw = (float)RandInt(-1, 1);
-		c.roll = (float)RandInt(-1, 1);
-		c.jump = RandInt(0, 3) == 0;
-		c.boost = RandInt(0, 1);
-		c.handbrake = RandInt(0, 4) == 0;
-		car->controls = c;
-	}
-}
 
 int main(int argc, char** argv) {
 	if (argc < 2) {
 		std::cerr << "usage: OpponentGolden <out.json> [seed]\n";
 		return 2;
 	}
-	g_rng.seed(argc > 2 ? std::stoull(argv[2]) : 20261105);
+	golden::Rng().seed(argc > 2 ? std::stoull(argv[2]) : 20261105);
 
-	bool meshes = false;
-	for (const char* path : { "collision_meshes", "../collision_meshes", "build/collision_meshes" })
-		if (std::filesystem::exists(std::filesystem::path(path) / "soccar")) {
-			RocketSim::Init(path);
-			meshes = true;
-			break;
-		}
-	if (!meshes) {
-		std::cerr << "no collision_meshes folder found\n";
+	if (!golden::InitRocketSim())
 		return 2;
-	}
 
 	// The trainer runs CUDA matmuls with TF32 on (LearnerConfig::allowTF32 = true); GGL_GOLDEN_TF32=0 for strict fp32
 	{
@@ -177,53 +128,7 @@ int main(int argc, char** argv) {
 		out["snapshots"].push_back(std::move(snap));
 	};
 
-	for (int perTeam = 1; perTeam <= 3; perTeam++) {
-		Arena* arena = Arena::Create(GameMode::SOCCAR);
-		for (int i = 0; i < perTeam; i++) {
-			arena->AddCar(Team::BLUE);
-			arena->AddCar(Team::ORANGE);
-		}
-		std::string mode = std::to_string(perTeam) + "v" + std::to_string(perTeam);
-
-		// Every spawn layout the kickoff picker can produce
-		for (int seed = 0; seed < 14; seed++) {
-			arena->ResetToRandomKickoff(seed);
-			Snapshot(arena, mode + " kickoff seed " + std::to_string(seed));
-		}
-
-		// Random drives: ground, wall/ceiling, aerials, flips, spent pads, demos, ball in corners and nets
-		for (int scenario = 0; scenario < 50; scenario++) {
-			arena->ResetToRandomKickoff(100 + scenario);
-			bool aerial = scenario % 3 == 0;
-			RandomizeBall(arena, scenario % 4);
-			for (Car* car : arena->_cars)
-				if (RandInt(0, 3) != 0)
-					RandomizeCar(car, aerial && RandInt(0, 1));
-			if (scenario % 5 == 1) // a few spent pads
-				for (auto* pad : arena->_boostPads)
-					if (RandInt(0, 2) == 0) {
-						BoostPadState ps = pad->GetState();
-						ps.isActive = false;
-						ps.cooldown = Rand(0.5f, 10.f);
-						pad->SetState(ps);
-					}
-			if (scenario % 7 == 2) // a demolished car
-			{
-				Car* car = *arena->_cars.begin();
-				CarState cs = car->GetState();
-				cs.isDemoed = true;
-				cs.demoRespawnTimer = 2.f;
-				car->SetState(cs);
-			}
-			int windows = RandInt(0, 6);
-			for (int w = 0; w < windows; w++) {
-				ScrambleControls(arena);
-				arena->Step(8);
-			}
-			Snapshot(arena, mode + " drive " + std::to_string(scenario));
-		}
-		delete arena;
-	}
+	golden::GenerateStates(Snapshot);
 
 	std::ofstream f(argv[1]);
 	f << out.dump();

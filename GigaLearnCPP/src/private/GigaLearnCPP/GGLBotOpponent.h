@@ -60,10 +60,17 @@ namespace GGL {
 			const std::vector<uint8_t>& prevArenaTerminals,
 			std::vector<int>& outActionIdx) override;
 
-	private:
+		// The pieces Act is made of, public so tools/opponent_golden can test each against the original bot
 		void BuildGalactusObs(float* out, const RLGC::Player& player, const RLGC::GameState& state,
 			const RLGC::BallPredictor& pred);
 		void BuildChronosObs(float* out, const RLGC::Player& player, const RLGC::GameState& state);
 		void BuildMask(uint8_t* out, const RLGC::Player& player);
+
+		// Their net's argmax for each row of obs/masks (numRows x obsSize / x actions.size())
+		std::vector<int> Pick(const std::vector<float>& obs, const std::vector<uint8_t>& masks, int numRows);
+		// Their action row -> our DefaultAction row (x-mirrored first for a mirrored Chronos car)
+		int ToOurAction(int theirs, bool mirrored) const;
+		// Chronos plays every car on the left half: true when this car's obs and action are mirrored
+		static bool MirroredForChronos(const RLGC::Player& player);
 	};
 }
