@@ -37,6 +37,10 @@ namespace GGL {
 
 		NextoOpponent(const std::string& modelPath, torch::Device device);
 
+		// Player `o`'s net input as Act builds it: kvOut = (n + 1 + 34) x 24 floats (arena order), qOut = 32 floats
+		static void BuildObs(const RLGC::GameState& gs, int o, const std::array<float, 8>& prevAction,
+			float* kvOut, float* qOut);
+
 		// Zero all previous-action memory (call once when a serve iteration begins:
 		// Nexto picks up arenas mid-episode, same cold start its RLBot boot has)
 		void BeginServe(int numPlayers) override;

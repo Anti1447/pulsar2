@@ -28,13 +28,13 @@ Verdicts: **EXACT** (checked against the source), **ON PURPOSE** (differs, accep
 | `q` | self row + previous **parsed** action (8 floats) | same; `prevActions` per player | EXACT |
 | Mask | all zeros (no padding) | zeros | EXACT |
 | Pick | argmax at beta 1 | argmax | EXACT |
-| Entity order | `[self, teammates, opponents]` (the live bot re-orders the players) | arena order, self wherever it sits | ON PURPOSE only if the net is permutation-invariant over entities (attention with no positions); VERIFY in 1.2 with a shuffle test; the golden compare must put both sides in the same order |
+| Entity order | `[self, teammates, opponents]` (the live bot re-orders the players) | arena order, self wherever it sits | **VERIFIED 2026-11-05**: the live order [self, mates, opponents] changes the logits by at most 2.3e-5 and never the argmax (192 states, 768 observations); the golden compare uses arena order on both sides |
 | Scripted kickoff (`hardcoded_kickoffs`) | 168 ticks of fixed controls for the kickoff taker (the closer car; the left one on a tie) | none | ON PURPOSE (decision 2026-11-05, option a); revisit after 1.4/1.5 |
 | Stochastic kickoff (`stochastic_kickoffs`, beta 0.5 = softmax sampling) | during `MatchPhase.Kickoff` | none | ON PURPOSE (same decision) |
 | Celebration (beta 0) | random actions after the match ends | none | ON PURPOSE (never happens in training) |
 | Latency | obs at tick 1 of the window, applied at tick 7: 6 ticks | obs at tick 0, applied at tick 7: 7 ticks | ON PURPOSE, off by 1 tick; Nexto's own training latency is unknown to us |
-| `has_flip`, `on_ground`, `boost_amount` scale, rotation convention, `boost_pads` order/meaning | `rlgym_compat` `V1GameState` | our `HasFlipOrJump()`, `isOnGround`, `boost / 100`, `rotMat`, `boostPads` | VERIFY in 1.2 (the library is not installed here, so reading cannot settle it) |
-| CUDA | CPU float32 | CUDA with a rewritten baked-in device constant; trainer enables TF32 | VERIFY in 1.2: the boot probe only demands 95% argmax agreement and 5e-2 relative deviation, far looser than the 1.2 gate |
+| `has_flip`, `on_ground`, `boost_amount` scale, rotation convention, `boost_pads` order/meaning | `rlgym_compat` `V1GameState` | our `HasFlipOrJump()`, `isOnGround`, `boost / 100`, `rotMat`, `boostPads` | **VERIFIED by reading `rlgym_compat` 2.3.6**: `has_flip` = not flipped, not double-jumped, air time since jump < 1.25 s (ours also says true on the ground, where RocketSim clears the flags, so they agree); `boost_amount` = boost / 100; `boost_pads` = timer == 0 (1 = available); rotation is a proper matrix, forward = column 0, up = column 2. Numerically confirmed by the golden run |
+| CUDA | CPU float32 | CUDA with a rewritten baked-in device constant; trainer enables TF32 | **VERIFIED 2026-11-05**: 0 argmax differences from the original on CUDA, with TF32 on (as in training) and off |
 
 ## GalactusV2
 | Item | Original | Port | Verdict |
@@ -66,4 +66,4 @@ Verdicts: **EXACT** (checked against the source), **ON PURPOSE** (differs, accep
 2. **1.2 golden test, Galactus and Chronos:** the shuffle must be seeded or the comparison done per slot permutation; otherwise it is flaky by construction.
 3. **1.3 "deterministic across repeats":** only true for Nexto; Galactus and Chronos can vary because of the slot shuffle (it is part of the original behaviour, not a port bug).
 4. **Missing tooling:** the WSL python has no `torch` or `rlgym_compat`, so the Nexto Python reference needs an environment (`rlbot-run/nexto/requirements.txt`: `rlgym_compat` from JPK314, torch 2.4.1 cpu, numpy 1). Installing it is a download and needs your go-ahead. Galactus and Chronos have no Python reference; their reference is their C++ obs builders, which can be compiled from the pinned commits.
-5. **No ACCIDENT found** in this pass. The three real open questions are the three VERIFY rows above (Nexto's `rlgym_compat` semantics, Nexto's entity-order invariance, CUDA/TF32 argmax flips).
+5. **No ACCIDENT found.** The three open Nexto questions are closed (see the VERIFIED rows). Result of the Nexto golden run (`tools/opponent_golden`, 192 recorded states, 768 observations, 1v1/2v2/3v3, both teams): worst observation difference 4.95e-6 (limit 1e-5), logits within 5e-5, 0 argmax differences on CPU and CUDA, `Act()` returns the net's argmax every time. Galactus and Chronos are still to do.

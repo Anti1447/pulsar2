@@ -222,6 +222,94 @@ static constexpr int F_SELF = 0, F_MATE = 1, F_OPP = 2, F_BALL = 3, F_BOOST = 4;
 static constexpr int F_POS = 5, F_VEL = 8, F_FW = 11, F_UP = 14, F_ANGVEL = 17;
 static constexpr int F_BOOSTAMT = 20, F_DEMO = 21, F_GROUND = 22, F_FLIP = 23;
 
+// The observation of player `o` in `gs`, exactly as Act feeds the net (kvOut: (n + 1 + 34) x 24 floats in arena
+// order, qOut: 32 floats). Split out of Act so the golden test (tools/opponent_golden) can dump what the port builds.
+void GGL::NextoOpponent::BuildObs(const RLGC::GameState& gs, int o, const std::array<float, 8>& prevAction,
+	float* kvOut, float* qOut) {
+
+	using namespace RLGC;
+	const int n = (int)gs.players.size();
+	const int nEnt = n + 1 + CommonValues::BOOST_LOCATIONS_AMOUNT;
+	std::fill(kvOut, kvOut + (size_t)nEnt * KV_W, 0.f);
+	std::fill(qOut, qOut + Q_W, 0.f);
+
+	const Player& self = gs.players[o];
+	// Orange observers see the mirrored field (negate x, y of every vector)
+	const float inv = (self.team == Team::ORANGE) ? -1.f : 1.f;
+
+	float* K = kvOut;
+
+	auto fnVec3 = [&](float* row, int at, const Vec& v, float norm) {
+		row[at + 0] = inv * v.x / norm;
+		row[at + 1] = inv * v.y / norm;
+		row[at + 2] = v.z / norm;
+	};
+
+	// Player rows (arena order)
+	for (int j = 0; j < n; j++) {
+		const Player& p = gs.players[j];
+		float* R = K + (size_t)j * KV_W;
+		R[F_SELF] = (j == o) ? 1.f : 0.f;
+		// Post-swap semantics of nexto_obs: mate = same team (self included),
+		// opp = other team
+		R[F_MATE] = (p.team == self.team) ? 1.f : 0.f;
+		R[F_OPP] = (p.team != self.team) ? 1.f : 0.f;
+		fnVec3(R, F_POS, p.pos, 2300.f);
+		fnVec3(R, F_VEL, p.vel, 2300.f);
+		fnVec3(R, F_FW, p.rotMat.forward, 1.f);
+		fnVec3(R, F_UP, p.rotMat.up, 1.f);
+		fnVec3(R, F_ANGVEL, p.angVel, 5.5f);
+		R[F_BOOSTAMT] = p.boost / 100.f;
+		R[F_DEMO] = p.isDemoed ? 1.f : 0.f;
+		R[F_GROUND] = p.isOnGround ? 1.f : 0.f;
+		R[F_FLIP] = p.HasFlipOrJump() ? 1.f : 0.f;
+	}
+
+	// Ball row
+	{
+		float* R = K + (size_t)n * KV_W;
+		R[F_BALL] = 1.f;
+		fnVec3(R, F_POS, gs.ball.pos, 2300.f);
+		fnVec3(R, F_VEL, gs.ball.vel, 2300.f);
+		fnVec3(R, F_ANGVEL, gs.ball.angVel, 5.5f);
+	}
+
+	// Pad rows: absolute list order; flags stay absolute-order even for the
+	// mirrored orange view (nexto_obs ships this pairing; replicate exactly)
+	for (int b = 0; b < CommonValues::BOOST_LOCATIONS_AMOUNT; b++) {
+		float* R = K + (size_t)(n + 1 + b) * KV_W;
+		const Vec& loc = CommonValues::BOOST_LOCATIONS[b];
+		R[F_BOOST] = 1.f;
+		fnVec3(R, F_POS, loc, 2300.f);
+		R[F_BOOSTAMT] = 0.12f + 0.88f * (loc.z > 72.f);
+		R[F_DEMO] = gs.boostPads[b] ? 1.f : 0.f;
+	}
+
+	// q = self row + previous parsed action
+	float* Q = qOut;
+	std::copy(K + (size_t)o * KV_W, K + (size_t)o * KV_W + KV_W, Q);
+	for (int d = 0; d < 8; d++)
+		Q[KV_W + d] = prevAction[d];
+
+	// Relative frame: subtract self pos from every kv row, then rotate all
+	// (x, y) pairs of pos/vel/fw/up/angvel by theta = atan2(fw.x, fw.y) of
+	// self. q itself stays un-rotated (nexto_obs only transforms kv).
+	const float sx = Q[F_POS], sy = Q[F_POS + 1], sz = Q[F_POS + 2];
+	const float theta = atan2f(Q[F_FW], Q[F_FW + 1]);
+	const float ct = cosf(theta), st = sinf(theta);
+	for (int e = 0; e < nEnt; e++) {
+		float* R = K + (size_t)e * KV_W;
+		R[F_POS] -= sx;
+		R[F_POS + 1] -= sy;
+		R[F_POS + 2] -= sz;
+		for (int at : { F_POS, F_VEL, F_FW, F_UP, F_ANGVEL }) {
+			float x = R[at], y = R[at + 1];
+			R[at] = ct * x - st * y;
+			R[at + 1] = st * x + ct * y;
+		}
+	}
+}
+
 void GGL::NextoOpponent::Act(const std::vector<RLGC::GameState>& states,
 	const std::vector<bool>& isOld,
 	const std::vector<uint8_t>& prevArenaTerminals,
@@ -252,87 +340,13 @@ void GGL::NextoOpponent::Act(const std::vector<RLGC::GameState>& states,
 			if (freshEpisode)
 				prevActions[g] = {};
 
-			const Player& self = gs.players[o];
-			// Orange observers see the mirrored field (negate x, y of every vector)
-			const float inv = (self.team == Team::ORANGE) ? -1.f : 1.f;
-
 			auto& kv = kvBuf[mode];
 			size_t base = kv.size();
 			kv.resize(base + (size_t)nEnt * KV_W, 0.f);
-			float* K = kv.data() + base;
-
-			auto fnVec3 = [&](float* row, int at, const Vec& v, float norm) {
-				row[at + 0] = inv * v.x / norm;
-				row[at + 1] = inv * v.y / norm;
-				row[at + 2] = v.z / norm;
-			};
-
-			// Player rows (arena order)
-			for (int j = 0; j < n; j++) {
-				const Player& p = gs.players[j];
-				float* R = K + (size_t)j * KV_W;
-				R[F_SELF] = (j == o) ? 1.f : 0.f;
-				// Post-swap semantics of nexto_obs: mate = same team (self included),
-				// opp = other team
-				R[F_MATE] = (p.team == self.team) ? 1.f : 0.f;
-				R[F_OPP] = (p.team != self.team) ? 1.f : 0.f;
-				fnVec3(R, F_POS, p.pos, 2300.f);
-				fnVec3(R, F_VEL, p.vel, 2300.f);
-				fnVec3(R, F_FW, p.rotMat.forward, 1.f);
-				fnVec3(R, F_UP, p.rotMat.up, 1.f);
-				fnVec3(R, F_ANGVEL, p.angVel, 5.5f);
-				R[F_BOOSTAMT] = p.boost / 100.f;
-				R[F_DEMO] = p.isDemoed ? 1.f : 0.f;
-				R[F_GROUND] = p.isOnGround ? 1.f : 0.f;
-				R[F_FLIP] = p.HasFlipOrJump() ? 1.f : 0.f;
-			}
-
-			// Ball row
-			{
-				float* R = K + (size_t)n * KV_W;
-				R[F_BALL] = 1.f;
-				fnVec3(R, F_POS, gs.ball.pos, 2300.f);
-				fnVec3(R, F_VEL, gs.ball.vel, 2300.f);
-				fnVec3(R, F_ANGVEL, gs.ball.angVel, 5.5f);
-			}
-
-			// Pad rows: absolute list order; flags stay absolute-order even for the
-			// mirrored orange view (nexto_obs ships this pairing; replicate exactly)
-			for (int b = 0; b < CommonValues::BOOST_LOCATIONS_AMOUNT; b++) {
-				float* R = K + (size_t)(n + 1 + b) * KV_W;
-				const Vec& loc = CommonValues::BOOST_LOCATIONS[b];
-				R[F_BOOST] = 1.f;
-				fnVec3(R, F_POS, loc, 2300.f);
-				R[F_BOOSTAMT] = 0.12f + 0.88f * (loc.z > 72.f);
-				R[F_DEMO] = gs.boostPads[b] ? 1.f : 0.f;
-			}
-
-			// q = self row + previous parsed action
 			auto& q = qBuf[mode];
 			size_t qBase = q.size();
 			q.resize(qBase + Q_W, 0.f);
-			float* Q = q.data() + qBase;
-			std::copy(K + (size_t)o * KV_W, K + (size_t)o * KV_W + KV_W, Q);
-			for (int d = 0; d < 8; d++)
-				Q[KV_W + d] = prevActions[g][d];
-
-			// Relative frame: subtract self pos from every kv row, then rotate all
-			// (x, y) pairs of pos/vel/fw/up/angvel by theta = atan2(fw.x, fw.y) of
-			// self. q itself stays un-rotated (nexto_obs only transforms kv).
-			const float sx = Q[F_POS], sy = Q[F_POS + 1], sz = Q[F_POS + 2];
-			const float theta = atan2f(Q[F_FW], Q[F_FW + 1]);
-			const float ct = cosf(theta), st = sinf(theta);
-			for (int e = 0; e < nEnt; e++) {
-				float* R = K + (size_t)e * KV_W;
-				R[F_POS] -= sx;
-				R[F_POS + 1] -= sy;
-				R[F_POS + 2] -= sz;
-				for (int at : { F_POS, F_VEL, F_FW, F_UP, F_ANGVEL }) {
-					float x = R[at], y = R[at + 1];
-					R[at] = ct * x - st * y;
-					R[at + 1] = st * x + ct * y;
-				}
-			}
+			BuildObs(gs, o, prevActions[g], kv.data() + base, q.data() + qBase);
 
 			who[mode].push_back(g);
 		}
