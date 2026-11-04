@@ -23,8 +23,8 @@ Existing: `GGLBotOpponent` (Galactus, Chronos) and `NextoOpponent` port each bot
 
 ### 1.0 Decisions first (they change the work)
 - [x] **Is Nexto in the 6.0 pool?** Decided 2026-11-05: YES. `ExampleMain.cpp` now serves Nexto, Galactus and Chronos on the main lineage (uniform pick per serve iteration, 15% total, so 5% each); `--gco` still serves Nexto only. Share kept at 15% total; raise it later if the Nexto panels need more exposure.
-- [ ] Pick the thresholds before running anything: max observation difference (suggest 1e-5 per float), action agreement (suggest 100% of unmasked argmax on the golden set, any miss investigated), sim head-to-head N and tolerance, the sim-vs-live N and tolerance.
-- [ ] Decide how scripted/random behaviour is handled (see 1.1: Nexto's live kickoff script and stochastic kickoffs). Training uses pure argmax with no script.
+- [x] **Thresholds** (decided 2026-11-05): observation difference <= 1e-5 per float; masked argmax agrees on 100% of the golden set, except near-ties (top-2 logit gap < 1e-4), which are listed, not counted as failures; sim round robin N = 200 games per ordered pair, plausibility only (all three beat the random-weight floor by a wide margin, Nexto weakest, no large one-sided-seat effect); sim vs live (1.6, optional) N = 200, win rate within 10 points.
+- [x] **Nexto scripted/random behaviour** (decided 2026-11-05): (a) accept pure argmax everywhere and document it; keeps the new Nexto numbers comparable with the older Nexto panels (5.3/GCO, also pure argmax). Condition: in 1.4/1.5 inspect Nexto's net-only kickoffs; if it hesitates, stalls or loses the first touch every time, switch to porting the scripted kickoff exactly (option c). Celebration randomness is ignored.
 
 ### 1.1 Read the originals and list every difference (S, by reading)
 - [ ] For each bot, open the original inference path and write down: observation builder (size, ordering, mirroring), action mask rules, action table, argmax vs sampling, anything after the net (scripted kickoffs, celebration/random actions, throttling), tick skip and action delay, boost-pad ordering/timers, ball prediction source.
