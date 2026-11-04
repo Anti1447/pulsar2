@@ -17,14 +17,50 @@ Started 2026-11-02. Tick items as they are finished. Sizes are rough (S/M/L). Fa
 - [x] (tag pre-6.0-20261104, re-tagged after the reward audit; the first tag pre-6.0-20261102 is kept for history; hashes in docs/6.0_RESTORE_POINT.md) Restore point: tag the commit the run starts from (precedent: `pre-strip-20260725`), and record the `*.lt` hashes (weights are git-ignored).
 - [x] Final go/no-go: all tests green (2026-11-02: GigaLearnTests 207/207 incl. Lab, built with -DGGL_BUILD_TESTS=ON, run from the repo root; receiver tests tools/reward_lab/test_stream.py 20/20 and test_serve.py 8/8 passed 2026-11-02), clean checkpoints_6.0 (re-clean after the smoke), short smoke run DONE 2026-11-02 (CPU GGL_SMOKE, 21 iterations, 843k steps, no errors).
 
-## 1. Chronos and Galactus verified in training (M-L)
-Existing: `GGLBotOpponent` ports each bot's observations and action masks; a random-weight smoke run loses heavily to both. The render viewer can choose the agent on each side.
-- [x] No delay emulation needed: `actionDelay` is 7, matching their training.
-- [ ] **Golden test:** same recorded states into the original repos' inference code and into `GGLBotOpponent`; compare observation vectors and chosen actions.
-- [ ] **Watch them in RocketSimVis:** kickoffs, boost use, speed at touch, Chronos' x-mirroring.
-- [ ] **Sim vs live:** N head-to-head games (Chronos vs Galactus, optionally Nexto) in the sim and the same N live through RLBot; compare win rates, goals, touches. Choose N and the tolerance up front.
-- [ ] Resolve the live ball-prediction mismatch (RLBot supplies its own prediction; the sim uses RocketSim's).
-**Gate:** observation and action agreement above a chosen threshold, and a sim-vs-live result within a pre-set tolerance.
+## 1. Chronos, Galactus and Nexto verified in training (M-L)
+Scoped 2026-11-04. Goal: the in-training opponents behave as the original bots do, so the 15% external share trains against what we think it does, and the Goals For/Against panels mean something.
+Existing: `GGLBotOpponent` (Galactus, Chronos) and `NextoOpponent` port each bot's observations, action masks/lookup and argmax; `tests/test_opponent_pool.cpp` covers only the pool cascade, not the ports; a random-weight smoke run lost 574-4,531 to Galactus and 627-7,333 to Chronos (`docs/6.0.md`); the render viewer can choose the agent on each side. Sources: Galactus SoldierDoge/GalactusV2 @ 217324c, Chronos KingJake3113/Chronos @ 4f8fdd2 (weights `rlbot-run/*_v2/`, hashes in `docs/6.0_RESTORE_POINT.md`), Nexto `rlbot-run/nexto/` (`nexto-model.pt`, `nexto_obs.py`, `bot.py`, `agent.py` are the reference).
+
+### 1.0 Decisions first (they change the work)
+- [ ] **Is Nexto in the 6.0 pool?** Today it is not: `ExampleMain.cpp` (~line 1486) puts Nexto on the `--gco` lineage only and gives 6.0 Galactus + Chronos (one picked per serve iteration, 15% share). Options: (a) verify Nexto but keep it GCO-only; (b) add it to 6.0 as a third bot (a uniform pick makes it 5% of iterations; or keep Galactus/Chronos at 15% total and carve Nexto out of it; decide the share). Nexto is weaker (the 5.3 lineage beat it about 10:1) but plays the air constantly and is a fixed yardstick.
+- [ ] Pick the thresholds before running anything: max observation difference (suggest 1e-5 per float), action agreement (suggest 100% of unmasked argmax on the golden set, any miss investigated), sim head-to-head N and tolerance, the sim-vs-live N and tolerance.
+- [ ] Decide how scripted/random behaviour is handled (see 1.1: Nexto's live kickoff script and stochastic kickoffs). Training uses pure argmax with no script.
+
+### 1.1 Read the originals and list every difference (S, by reading)
+- [ ] For each bot, open the original inference path and write down: observation builder (size, ordering, mirroring), action mask rules, action table, argmax vs sampling, anything after the net (scripted kickoffs, celebration/random actions, throttling), tick skip and action delay, boost-pad ordering/timers, ball prediction source.
+- [ ] **Nexto known gaps to settle:** the live bot (`bot.py`) has `hardcoded_kickoffs = True` (a scripted kickoff control sequence), `stochastic_kickoffs = True` (beta 0.5 sampling during kickoff), and random actions while celebrating (beta 0); `NextoOpponent` uses pure argmax of the net everywhere. Decide whether training should reproduce the scripted kickoff (it changes how Nexto kicks off, the situation our KickoffRace/KickoffOutcome rewards care about) or document it as accepted.
+- [ ] **Galactus/Chronos known gaps:** ball prediction (Galactus: ours every step vs its training tracker refreshing every 32 ticks; the live bot uses RLBot's), Chronos' x-mirroring and its original `GetBoostPadTimers` typo (ported verbatim); confirm both original `bot.py`/inference files have no scripted kickoff or sampling.
+- [ ] Action delay: Galactus and Chronos were trained with 7 and 6.0 now uses 7 (the `GGLBotOpponent.h` comment still says "this run uses 0": fixed 2026-11-04). Find what Nexto was trained with and whether `NextoOpponent` should match.
+- [ ] Output: a table in `docs/6.0.md` (or a new `docs/EXTERNAL_OPPONENTS.md`) of "ported exactly / differs on purpose / differs by accident".
+
+### 1.2 Golden tests: same states, original vs port (M)
+- [ ] Record a state set from the sim (not hand-made): kickoffs for every spawn layout, a ground drive, boost low/full, a boost-pad-timer variety, an aerial, a car on a wall and ceiling, a demolished car, the ball in each corner and net, **both teams (blue and orange)**, and **1v1, 2v2, 3v3** (Nexto's attention net and the GigaLearn bots take any team size; check padding). Include prior-action state for Nexto (its q vector wants the PARSED previous action).
+- [ ] Run each state through the original code (Nexto: `nexto_obs.py` + `agent.py` in Python; Galactus/Chronos: their repos' inference code) and through the port; dump observation vectors and logits for both.
+- [ ] Compare: first differing observation index named (not just "mismatch"), max abs difference under the threshold, argmax of masked logits identical. Run on CPU and GPU (`NextoOpponent` already checks CPU/CUDA argmax agreement at construction).
+- [ ] Keep the golden files and the comparison script in the repo (`tests/` or `tools/`) so the check can be rerun after any change to the obs builders.
+- [ ] Add a compiled test per port that loads a small golden file (no weights in git: use random-weight fixtures for structure, the real-weight comparison stays a tool).
+**Gate 1:** zero observation differences above threshold and 100% argmax agreement on the golden set, for all three bots, or every difference explained in the 1.1 table.
+
+### 1.3 Behaviour inside the training loop (M)
+- [ ] The opponent really acts: log a few hundred steps of served iterations; actions are not the zero/no-op index, are deterministic across repeats, and differ between kickoff, midfield and aerial states.
+- [ ] Serve mechanics: `BeginServe` cold start (Nexto picks arenas up mid-episode; its previous-action memory is zeroed, as its RLBot boot does), the reset detection from `prevArenaTerminals` zeroes previous actions for that arena, rows of the opponent are excluded from training.
+- [ ] Share: with the chosen split, the realised serve fraction over 100+ iterations matches (`<Bot>/Serve Iters` metrics), per bot.
+- [ ] Teams: the external bot plays blue in some arenas and orange in others, and its obs is correct on both (Chronos mirrors, Nexto's orange pad quirk is ported on purpose).
+- [ ] Performance: collection cost with the external bot active (inference per step) against self-play only.
+
+### 1.4 Watch them (S-M)
+- [ ] In RocketSimVis: kickoffs (Nexto's scripted vs net kickoff if reproduced), boost use and pickups, speed at touch, aerial attempts, recoveries, Chronos' x-mirrored play on both sides.
+- [ ] Note anything that looks broken (spinning in place, driving into walls, never boosting, ignoring the ball): that is a port bug until shown otherwise.
+
+### 1.5 Strength in the sim (M)
+- [ ] Round robin in the sim, 1v1, fixed seeds, N games per ordered pair so each bot plays both sides (suggest N >= 200; choose with the tolerance above): Chronos, Galactus, Nexto, and a random-weight 6.0 policy as the floor. Record goals for/against, touches, average speed, boost.
+- [ ] Sanity bounds: all three beat the random policy by a wide margin (the smoke numbers above are the floor); the ordering is plausible (Nexto weaker than Galactus/Chronos, consistent with ~10:1 against the 5.3 lineage); no bot wins or loses more than expected from one side only.
+- [ ] Optionally 3v3 mixed teams to exercise team-size handling.
+
+### 1.6 Sim vs live (L, optional gate)
+- [ ] The same N matches through RLBot (`rlbot-run/match*.toml`, `run_match.sh`), compare win rates, goals and touches with 1.5 within the tolerance chosen up front. The live ball prediction mismatch (RLBot supplies its own, the sim uses RocketSim's) is part of this and may explain a Galactus gap; the cpp-interface packaging (item 6) is not needed for it and stays tabled.
+
+**Gate:** 1.2 passes (or every difference is explained and accepted), 1.3 shows the opponents acting correctly in the real loop, 1.5 is plausible, and, if run, 1.6 is within the pre-set tolerance. Log the outcome in this file and in `docs/6.0.md`.
 
 ## 2. Audit the rewards (L)
 Overview of every audited reward (before, issues, after) and the sign-off steps: `docs/REWARD_AUDIT_OVERVIEW.md`.

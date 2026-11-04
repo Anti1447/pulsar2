@@ -31,8 +31,8 @@ namespace GGL {
 	//     x-mirrored car's action with steer/yaw/roll negated, mapped back onto our table.
 	// Inference is deterministic (argmax), as both bots play in RLBot.
 	//
-	// Not ported: both were trained with actionDelay 7 (the new action takes effect on the last
-	// tick of the 8); this run uses 0, so they act ~58 ms sooner than they were trained to.
+	// Action delay: both were trained with actionDelay 7 (the new action takes effect on the last
+	// tick of the 8); the 6.0 run also uses 7 (decided 2026-11-02), so they act as trained.
 	class GGLBotOpponent : public ExternalOpponent {
 	public:
 		GGLBotKind kind;
