@@ -1472,10 +1472,12 @@ int main(int argc, char* argv[]) {
 		// semantics unchanged). No automatic guard (the latch was removed
 		// 2026-07-25) - watch the Nexto panels. Expect to LOSE heavily at first -
 		// the goal-diff SLOPE is the signal, not the level. Revert = false.
-		// 6.0 (2026-11-01, user-directed): GalactusV2 + ChronosV2 from the RLBot v5 botpack REPLACE Nexto on the
-		// main lineage - stronger bots (the 5.3/GCO lineage was beating Nexto ~10:1), GigaLearn nets loaded verbatim
-		// (GGLBotOpponent.h). The 15% share is split between them by a uniform pick per serve iteration. Their
-		// weights: rlbot-run/galactus_v2 and rlbot-run/chronos_v2, from each repo's rlbot/ folder. GCO keeps Nexto.
+		// 6.0 (2026-11-01, user-directed): GalactusV2 + ChronosV2 from the RLBot v5 botpack joined the pool - stronger
+		// bots (the 5.3/GCO lineage was beating Nexto ~10:1), GigaLearn nets loaded verbatim (GGLBotOpponent.h).
+		// 2026-11-05 (user-directed): Nexto is back in the main 6.0 pool as the third bot (it plays the air constantly
+		// and is a fixed yardstick). The 15% share is split between the three by a uniform pick per serve iteration
+		// (5% each; total unchanged). Weights: rlbot-run/galactus_v2 and rlbot-run/chronos_v2, from each repo's
+		// rlbot/ folder, and rlbot-run/nexto. GCO serves Nexto only.
 		// All are optional: a missing model file only drops that bot (logged).
 		struct { ExternalBotKind kind; const char* path; } externalBots[] = {
 			{ ExternalBotKind::GALACTUS_V2, "../rlbot-run/galactus_v2" },
@@ -1483,7 +1485,7 @@ int main(int argc, char* argv[]) {
 			{ ExternalBotKind::NEXTO, "../rlbot-run/nexto/nexto-model.pt" },
 		};
 		for (auto& bot : externalBots) {
-			if ((bot.kind == ExternalBotKind::NEXTO) != gcoArg)
+			if (gcoArg && bot.kind != ExternalBotKind::NEXTO)
 				continue;
 			std::filesystem::path file = bot.kind == ExternalBotKind::NEXTO ? std::filesystem::path(bot.path)
 				: std::filesystem::path(bot.path) / "POLICY.lt";
