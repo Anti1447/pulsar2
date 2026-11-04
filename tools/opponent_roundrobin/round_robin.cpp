@@ -16,6 +16,7 @@
 #include <GigaLearnCPP/ExternalOpponent.h>
 #include <GigaLearnCPP/NextoOpponent.h>
 #include <GigaLearnCPP/GGLBotOpponent.h>
+#include <GigaLearnCPP/MatchLoop.h>
 
 #include <RLGymCPP/EnvSet/EnvSet.h>
 #include <RLGymCPP/Rewards/CommonRewards.h>
@@ -73,13 +74,7 @@ namespace {
 		std::shared_ptr<GGL::ExternalOpponent> asBlue, asOrange;
 	};
 
-	struct PairResult {
-		int games = 0, winsA = 0, winsB = 0, draws = 0;
-		double seconds = 0;
-		double touchStepsA = 0, touchStepsB = 0, speedA = 0, speedB = 0, boostA = 0, boostB = 0;
-		double stepsTotal = 0;
-		int firstTouchA = 0, firstTouchB = 0, firstTouchBoth = 0;
-	};
+	using PairResult = GGL::MatchResult; // shared with the in-trainer gauntlet (MatchLoop.h)
 
 	std::unique_ptr<EnvSet> MakeEnv(int numArenas, bool kickoffOnly) {
 		EnvSetConfig cfg = {};
@@ -118,81 +113,10 @@ namespace {
 		for (auto* c : { &A, &B })
 			if (auto* r = dynamic_cast<RandomController*>(c))
 				r->env = &env;
-		// Fresh arenas for a fresh seed: every arena restarts its episode
-		std::fill(env.state.terminals.begin(), env.state.terminals.end(), 1);
-		env.Reset();
-
-		const int numPlayers = env.state.numPlayers;
-		A.BeginServe(numPlayers);
-		B.BeginServe(numPlayers);
-		std::vector<bool> isBlue(numPlayers, false), isOrange(numPlayers, false);
-		{
-			int i = 0;
-			for (auto& gs : env.state.gameStates)
-				for (auto& p : gs.players) {
-					(p.team == Team::BLUE ? isBlue : isOrange)[i] = true;
-					i++;
-				}
-		}
-
-		struct G { bool done = false; int steps = 0, firstTouch = -1; double touch[2] = {}, speed[2] = {}, boost[2] = {}; };
-		std::vector<G> games(N);
-		PairResult res;
-		res.games = N;
-		int remaining = N;
-		const int maxSteps = (int)(MAX_SECONDS * 120.f / TICK_SKIP);
-
-		for (int step = 0; step < maxSteps + 5 && remaining > 0; step++) {
-			std::vector<uint8_t> prevTerminals = env.state.terminals;
-			env.Reset();
-			env.StepFirstHalf(false);
-
-			std::vector<int> ext(numPlayers, 0);
-			A.Act(env.state.gameStates, isBlue, prevTerminals, ext);
-			B.Act(env.state.gameStates, isOrange, prevTerminals, ext);
-			IList actions(ext.begin(), ext.end());
-			env.StepSecondHalf(actions, false);
-
-			for (int a = 0; a < N; a++) {
-				G& g = games[a];
-				if (g.done) continue;
-				auto& gs = env.state.gameStates[a];
-				g.steps++;
-				bool touched[2] = {};
-				for (auto& p : gs.players) {
-					int t = (int)p.team; // 0 = blue = A
-					g.speed[t] += p.vel.Length() / g_perTeam;
-					g.boost[t] += p.boost / g_perTeam;
-					if (p.ballTouchedStep) {
-						g.touch[t]++;
-						touched[t] = true;
-					}
-				}
-				if (g.firstTouch == -1 && (touched[0] || touched[1]))
-					g.firstTouch = (touched[0] && touched[1]) ? -2 : (touched[0] ? 0 : 1); // -2 = both in the same step
-				bool terminal = env.state.terminals[a] != 0;
-				if (terminal || g.steps >= maxSteps) {
-					g.done = true;
-					remaining--;
-					if (gs.goalScored) {
-						Team conceded = RS_TEAM_FROM_Y(gs.ball.pos.y);
-						if (conceded == Team::ORANGE) res.winsA++; else res.winsB++;
-					} else res.draws++;
-				}
-			}
-		}
-		for (auto& g : games) {
-			if (!g.done) { res.draws++; }
-			res.seconds += g.steps * TICK_SKIP / 120.0;
-			res.stepsTotal += g.steps;
-			res.touchStepsA += g.touch[0]; res.touchStepsB += g.touch[1];
-			res.speedA += g.speed[0]; res.speedB += g.speed[1];
-			res.boostA += g.boost[0]; res.boostB += g.boost[1];
-			if (g.firstTouch == 0) res.firstTouchA++;
-			if (g.firstTouch == 1) res.firstTouchB++;
-			if (g.firstTouch == -2) res.firstTouchBoth++;
-		}
-		return res;
+		GGL::MatchConfig mc;
+		mc.playersPerTeam = g_perTeam;
+		mc.maxSeconds = MAX_SECONDS;
+		return GGL::PlayMatch(env, A, B, N, mc); // A is blue everywhere
 	}
 
 	std::string Pct(double p, int n) { // "xx.x (+-y.y)" with the normal-approx 95% half width, in points

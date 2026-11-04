@@ -89,6 +89,24 @@ A kickoff is an episode that starts with the ball at rest on the centre spot (on
 sides in the same step counts for both. Episodes already running when a serve starts count for everything except kickoffs.
 Against the near-random early policy these read: the bot touches 91-97% of touch steps and wins first touch about 53-63% of kickoffs.
 
+## Gauntlet of our policy (added 2026-11-05)
+The play metrics above describe the serve iterations (a noisy, training-time stream). The gauntlet is the controlled counterpart: the SAME fixed
+games every time, so a change in the series is a change in the policy.
+- **What:** every `config.gauntlet.everyIterations` (50) iterations, 96 1v1 kickoff games (`gamesPerBot`) against each external bot in turn.
+  Our policy plays its argmax action (no sampling) as blue in the even arenas and orange in the odd ones. A game ends on a goal, 10 s without a touch or
+  `maxGameTime` (60 s); the last two are draws. Seed `config.gauntlet.seed` is set before each bot's games, so the kickoff layouts repeat run to run.
+- **Where:** `GauntletEval` (own arenas, torch side), `MatchLoop.h` (the match loop shared with `tools/opponent_roundrobin`), `Learner::RunGauntlet`
+  (called next to the exploiter eval at the barrier zone: the pipelined worker is idle there, so it may read the live weights and borrow the bots).
+- **Keys (W&B and console):** `Gauntlet/<Bot>/Win %`, `Draw %`, `Loss %`, `First Touch Us %`, `First Touch Bot %`, `First Touch Both %`, `Mean Game s`;
+  `Gauntlet/Mean Win %`, `Gauntlet/Mean First Touch Us %`, `Gauntlet/Games`. They appear only on the iterations the gauntlet runs.
+  First touch is who touched the ball first in the game (a touch by both in the same step is "Both").
+- **Stored:** `RUNNING_STATS.json` has the latest result per bot (`<bot>_gauntlet_wins|losses|draws|games|first_touch_us|first_touch_bot|first_touch_both|mean_seconds|iteration|timesteps`)
+  and `gauntlet_last_iter` (so a restart does not re-run it early); every run is also one line in `<checkpoints>/GAUNTLET_LOG.jsonl`.
+- **Reading it:** a deterministic bot against a deterministic policy replays the same few games (5 kickoff layouts x 2 sides = 10 distinct Nexto games), so
+  Nexto's win % moves in steps of about 10 points and the usual confidence band is too narrow; Galactus/Chronos vary a little (slot shuffle). It is a trend line,
+  not a precise rate. If it turns out too coarse, swapping `KickoffState` for `FuzzedKickoffState` in `GauntletEval.cpp` adds small random offsets (more distinct games, less like a real kickoff).
+- **Not in it:** 2v2 and 3v3 (the sim round robin has a 3v3 smoke), and the random-state / ball-near-car scrimmage mix.
+
 ## What this changes in the checklist
 1. **1.2 golden test, Nexto:** compare in one fixed entity order and add a permutation test; the "first differing index" rule only makes sense after that.
 2. **1.2 golden test, Galactus and Chronos:** the shuffle must be seeded or the comparison done per slot permutation; otherwise it is flaky by construction.

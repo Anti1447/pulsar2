@@ -116,6 +116,19 @@ namespace GGL {
 		// outcomes, touch/half/shot/demo shares. Parallel to externalOpps; persisted like the goal counters.
 		std::vector<std::shared_ptr<struct ExternalPlayStats>> externalPlay;
 
+		// Gauntlet of OUR policy against the external bots (config.gauntlet; GauntletEval.h). The latest result per bot
+		// (parallel to externalOpps) is persisted in RUNNING_STATS; the history is GAUNTLET_LOG.jsonl.
+		struct GauntletResult {
+			int64_t iteration = 0, timesteps = 0, games = 0, wins = 0, losses = 0, draws = 0;
+			int64_t firstTouchUs = 0, firstTouchBot = 0, firstTouchBoth = 0;
+			double meanSeconds = 0;
+		};
+		std::shared_ptr<struct GauntletEval> gauntlet;
+		std::vector<GauntletResult> gauntletLast;
+		int64_t gauntletLastIter = 0; // totalIterations at the last run
+		// Runs the gauntlet if it is due and writes its Gauntlet/* keys into `report`. Barrier zone only (no collection worker).
+		void RunGauntlet(Report& report);
+
 		// Exploiter stack (docs/EXPLOITERS.md; opaque here like the members above). exploiterRun: this process is an
 		// exploiter run (config.exploiter) - its frozen opponents and eval arenas. exploiterPool: this is the main run
 		// and imports finished exploiters (config.exploiterPool). At most one of the two is set.

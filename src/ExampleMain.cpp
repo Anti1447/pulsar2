@@ -1501,6 +1501,20 @@ int main(int argc, char* argv[]) {
 		// runs first and would be clobbered. Never set on the trainer.
 		if (const char* s2 = std::getenv("GGL_SMOKE"); s2 && s2[0] && std::string(s2) != "0")
 			cfg.externalOpponent.serveFrac = 0.75f;
+
+		// GAUNTLET (2026-11-05, user-directed; checklist item 8): our policy's fixed-seed deterministic kickoff games against
+		// each of those bots, a trend line that does not move with the training. About 15 s every 50 iterations.
+		cfg.gauntlet.enabled = true;
+		cfg.gauntlet.everyIterations = 50;
+		cfg.gauntlet.gamesPerBot = 96;
+		cfg.gauntlet.maxGameTime = 60.f;
+		cfg.gauntlet.envCreateFn = [](int) { return MakeEnv(1, false); };
+		// GGL_SMOKE: tiny and frequent, so a short smoke exercises the whole path
+		if (const char* s3 = std::getenv("GGL_SMOKE"); s3 && s3[0] && std::string(s3) != "0") {
+			cfg.gauntlet.everyIterations = 3;
+			cfg.gauntlet.gamesPerBot = 8;
+			cfg.gauntlet.maxGameTime = 20.f;
+		}
 	} else {
 		// Render must build the SAME architecture as the trainer or it loads the wrong
 		// shapes (the ba4f33a bug). With the wire gone the policy head is plain trunk

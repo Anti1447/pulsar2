@@ -67,6 +67,20 @@ namespace GGL {
 		float serveFrac = 0.15f;     // per-iteration serve probability, shared by all bots
 	};
 
+	// GAUNTLET (docs/Pre_Run_Checklist.md item 8; GauntletEval.h): every everyIterations iterations, fixed-seed 1v1 kickoff
+	// games of OUR current policy (deterministic actions) against each external bot in externalOpponent.bots, our side
+	// alternating by arena. Reports Gauntlet/<Bot>/Win %, Draw %, Loss %, First Touch Us/Bot/Both %, Mean Game s and the
+	// means over bots; the last result per bot is kept in RUNNING_STATS and every run is appended to
+	// <checkpointFolder>/GAUNTLET_LOG.jsonl. Needs at least one external bot. Off when the list is empty.
+	struct GauntletConfig {
+		bool enabled = false;
+		int everyIterations = 50;   // Run when this many iterations have passed since the last run (persisted)
+		int gamesPerBot = 96;       // 1v1 kickoff games per bot, half on each side (>= 2); the +-95% band at 96 games is about 10 points
+		unsigned seed = 20261105;   // Same seed for every run and bot = the same kickoff layouts, so only the policy moves the series
+		float maxGameTime = 60.f;   // A game still running after this many seconds is a draw (10 s without a touch is a draw too)
+		RLGC::EnvCreateFn envCreateFn = nullptr; // 1v1 arenas with the TRAINER's obs builder and action parser (ExampleMain: MakeEnv(1, ...))
+	};
+
 	// EXPLOITER RUN (ported from RLGymBot_v3, docs/EXPLOITERS.md): this process trains only against frozen opponents
 	// and reports how well it beats them. Set up by ConfigureExploiter() in ExampleMain.cpp; the launcher there fills
 	// role, leaguePool and the restart candidates.
@@ -333,6 +347,9 @@ namespace GGL {
 
 		// External fixed opponent (Nexto); additive and default-OFF
 		ExternalOpponentConfig externalOpponent = {};
+
+		// Deterministic kickoff gauntlet of our policy against the external bots (default OFF)
+		GauntletConfig gauntlet = {};
 
 		// Exploiter stack (docs/EXPLOITERS.md); both default-OFF
 		ExploiterConfig exploiter = {};

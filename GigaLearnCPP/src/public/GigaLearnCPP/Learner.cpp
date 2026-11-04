@@ -25,6 +25,7 @@
 #include <private/GigaLearnCPP/ExternalPlayMonitor.h>
 #include <private/GigaLearnCPP/ExploiterPool.h>
 #include <private/GigaLearnCPP/ExploiterEval.h>
+#include <private/GigaLearnCPP/GauntletEval.h>
 #include <GigaLearnCPP/ExploiterFiles.h>
 #include <GigaLearnCPP/Util/Timer.h>
 #include <private/GigaLearnCPP/Util/Plasticity.h>
@@ -333,6 +334,18 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 		externalStats = std::vector<ExternalOpponentStats>(externalOpps.size());
 		for (size_t i = 0; i < externalOpps.size(); i++)
 			externalPlay.push_back(std::make_shared<ExternalPlayStats>());
+
+		// Gauntlet of our policy against those bots: its own arenas, built now so a bad config fails at boot
+		if (config.gauntlet.enabled) {
+			if (externalOpps.empty()) {
+				RG_LOG("\tGauntlet: no external opponents are loaded, so there is nothing to play - disabled");
+			} else {
+				gauntlet = std::make_shared<GauntletEval>(envSet->config, config.gauntlet, obsSize);
+				gauntletLast.assign(externalOpps.size(), GauntletResult());
+				RG_LOG("\tGauntlet: " << config.gauntlet.gamesPerBot << " deterministic 1v1 kickoff games vs each of "
+					<< externalOpps.size() << " bots every " << config.gauntlet.everyIterations << " iterations (seed " << config.gauntlet.seed << ")");
+			}
+		}
 	}
 
 	if (config.skillTracker.enabled || config.trainAgainstOldVersions)
@@ -496,7 +509,21 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 		if (i < externalPlay.size())
 			for (int k = 0; k < ExternalPlayStats::NUM_COUNTERS; k++)
 				j[prefix + "_play_" + ExternalPlayStats::Name(k)] = (int64_t)externalPlay[i]->c[k];
+		if (i < gauntletLast.size()) {
+			const GauntletResult& g = gauntletLast[i];
+			j[prefix + "_gauntlet_iteration"] = g.iteration;
+			j[prefix + "_gauntlet_timesteps"] = g.timesteps;
+			j[prefix + "_gauntlet_games"] = g.games;
+			j[prefix + "_gauntlet_wins"] = g.wins;
+			j[prefix + "_gauntlet_losses"] = g.losses;
+			j[prefix + "_gauntlet_draws"] = g.draws;
+			j[prefix + "_gauntlet_first_touch_us"] = g.firstTouchUs;
+			j[prefix + "_gauntlet_first_touch_bot"] = g.firstTouchBot;
+			j[prefix + "_gauntlet_first_touch_both"] = g.firstTouchBoth;
+			j[prefix + "_gauntlet_mean_seconds"] = g.meanSeconds;
+		}
 	}
+	j["gauntlet_last_iter"] = gauntletLastIter;
 
 	if (versionMgr)
 		versionMgr->AddRunningStatsToJSON(j);
@@ -565,7 +592,21 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 		if (i < externalPlay.size())
 			for (int k = 0; k < ExternalPlayStats::NUM_COUNTERS; k++)
 				externalPlay[i]->c[k] = j.value(prefix + "_play_" + ExternalPlayStats::Name(k), (int64_t)0);
+		if (i < gauntletLast.size()) {
+			GauntletResult& g = gauntletLast[i];
+			g.iteration = j.value(prefix + "_gauntlet_iteration", (int64_t)0);
+			g.timesteps = j.value(prefix + "_gauntlet_timesteps", (int64_t)0);
+			g.games = j.value(prefix + "_gauntlet_games", (int64_t)0);
+			g.wins = j.value(prefix + "_gauntlet_wins", (int64_t)0);
+			g.losses = j.value(prefix + "_gauntlet_losses", (int64_t)0);
+			g.draws = j.value(prefix + "_gauntlet_draws", (int64_t)0);
+			g.firstTouchUs = j.value(prefix + "_gauntlet_first_touch_us", (int64_t)0);
+			g.firstTouchBot = j.value(prefix + "_gauntlet_first_touch_bot", (int64_t)0);
+			g.firstTouchBoth = j.value(prefix + "_gauntlet_first_touch_both", (int64_t)0);
+			g.meanSeconds = j.value(prefix + "_gauntlet_mean_seconds", 0.0);
+		}
 	}
+	gauntletLastIter = j.value("gauntlet_last_iter", (int64_t)0);
 
 	if (config.exploiter.enabled || config.gcoRun)
 		exploiterRampStartTs = j.value("exploiter_ramp_start_ts", (int64_t)-1);
@@ -575,6 +616,67 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 	lrWindowEV = j.value("lr_window_ev", std::vector<float>());
 	if (exploiterPool && j.contains("exploiter_pool"))
 		exploiterPool->FromJSON(j["exploiter_pool"]);
+}
+
+// Gauntlet: fixed-seed deterministic 1v1 kickoff games of the current policy (ppo->models) against each external bot.
+// Runs in the barrier zone (the collection worker is idle), borrowing the bots the serve iterations use: their per-run state
+// is reset by BeginServe, which both the match loop and the next serve call first.
+void GGL::Learner::RunGauntlet(Report& report) {
+	if (!gauntlet || config.renderMode || exitRequested)
+		return;
+	auto& gc = config.gauntlet;
+	if (totalIterations == 0 || (int64_t)totalIterations - gauntletLastIter < gc.everyIterations)
+		return;
+	gauntletLastIter = (int64_t)totalIterations;
+
+	RG_LOG("Running gauntlet (" << gc.gamesPerBot << " deterministic 1v1 kickoff games vs each of " << externalOpps.size() << " bots)...");
+	Timer timer = {};
+	nlohmann::json line = {};
+	line["total_timesteps"] = totalTimesteps;
+	line["iteration"] = totalIterations;
+	float winSum = 0, touchSum = 0;
+	for (size_t i = 0; i < externalOpps.size(); i++) {
+		MatchResult r = gauntlet->Run(ppo, *externalOpps[i]);
+		const std::string& name = externalOpps[i]->name;
+		float g = (float)RS_MAX(r.games, 1);
+		float win = 100.f * r.winsA / g, ftUs = 100.f * r.firstTouchA / g;
+		report["Gauntlet/" + name + "/Win %"] = win;
+		report["Gauntlet/" + name + "/Draw %"] = 100.f * r.draws / g;
+		report["Gauntlet/" + name + "/Loss %"] = 100.f * r.winsB / g;
+		report["Gauntlet/" + name + "/First Touch Us %"] = ftUs;
+		report["Gauntlet/" + name + "/First Touch Bot %"] = 100.f * r.firstTouchB / g;
+		report["Gauntlet/" + name + "/First Touch Both %"] = 100.f * r.firstTouchBoth / g;
+		report["Gauntlet/" + name + "/Mean Game s"] = (float)(r.seconds / g);
+		winSum += win;
+		touchSum += ftUs;
+
+		GauntletResult& last = gauntletLast[i];
+		last.iteration = (int64_t)totalIterations;
+		last.timesteps = (int64_t)totalTimesteps;
+		last.games = r.games;
+		last.wins = r.winsA;
+		last.losses = r.winsB;
+		last.draws = r.draws;
+		last.firstTouchUs = r.firstTouchA;
+		last.firstTouchBot = r.firstTouchB;
+		last.firstTouchBoth = r.firstTouchBoth;
+		last.meanSeconds = r.seconds / g;
+		line[name] = { {"games", r.games}, {"wins", r.winsA}, {"losses", r.winsB}, {"draws", r.draws},
+			{"first_touch_us", r.firstTouchA}, {"first_touch_bot", r.firstTouchB}, {"first_touch_both", r.firstTouchBoth},
+			{"mean_game_s", r.seconds / g} };
+		RG_LOG(" > " << name << ": " << r.winsA << "W " << r.winsB << "L " << r.draws << "D, first touch us " << ftUs
+			<< "% bot " << 100.f * r.firstTouchB / g << "% both " << 100.f * r.firstTouchBoth / g << "%");
+	}
+	float nb = (float)RS_MAX((int)externalOpps.size(), 1);
+	report["Gauntlet/Mean Win %"] = winSum / nb;
+	report["Gauntlet/Mean First Touch Us %"] = touchSum / nb;
+	report["Gauntlet/Games"] = (float)(gc.gamesPerBot * (int)externalOpps.size());
+	RG_LOG(" > mean win " << winSum / nb << "%, mean first touch " << touchSum / nb << "%, " << timer.Elapsed() << "s");
+
+	if (!config.checkpointFolder.empty()) {
+		std::filesystem::create_directories(config.checkpointFolder);
+		std::ofstream(config.checkpointFolder / "GAUNTLET_LOG.jsonl", std::ios::app) << line.dump() << "\n";
+	}
 }
 
 // Deterministic games of the current policy (ppo->models) against this exploiter role's target. Main role: the
@@ -2495,6 +2597,7 @@ void GGL::Learner::Start() {
 				if (versionMgr)
 					versionMgr->OnIteration(ppo, report, totalTimesteps, prevVersionTimesteps);
 				fnExploiterBarrier(report, prevVersionTimesteps);
+				RunGauntlet(report);
 				prevVersionTimesteps = totalTimesteps;
 				TrackEvalRatings(report); // feeds the best-checkpoint archives
 				// Freeze the current policy for the worker, then collect the next iteration
@@ -3418,6 +3521,7 @@ void GGL::Learner::Start() {
 					if (versionMgr)
 						versionMgr->OnIteration(ppo, report, totalTimesteps, prevTimesteps);
 					fnExploiterBarrier(report, prevTimesteps);
+					RunGauntlet(report);
 					TrackEvalRatings(report); // feeds the best-checkpoint archives
 				}
 
@@ -3555,6 +3659,12 @@ void GGL::Learner::Start() {
 						"ChronosV2/GD per 1k Steps (1v1)",
 						"ChronosV2/Kickoff Bot First Touch %",
 						"ChronosV2/Touch Share Bot %",
+						"",
+						"Gauntlet/Mean Win %",
+						"Gauntlet/Mean First Touch Us %",
+						"Gauntlet/Nexto/Win %",
+						"Gauntlet/GalactusV2/Win %",
+						"Gauntlet/ChronosV2/Win %",
 						"",
 						// Permanent reference set: the non-inflating skill read. Ref/Oldest Share is
 						// the headline - the oldest reference is never evicted, so that series is
