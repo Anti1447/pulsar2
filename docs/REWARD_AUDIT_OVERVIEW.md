@@ -139,6 +139,12 @@ State at the last commit (`36e5907`, pushed to `fork`): GigaLearnTests 453/453, 
 
 ---
 
+## Sign-off status (2026-11-04)
+
+The 14 audited active packs are signed as **PARTIAL approval**: approved by you on the audit results and findings, signed by Claude at your instruction, scenarios NOT individually read. The level is in the manifest (`reviewer`), so `reward_lab_pack check` prints it. CURRENT here means "unchanged since this partial approval", not "fully reviewed". To upgrade a pack to FULL: read its scenarios and expectations, then re-run `sign` with your own reviewer string.
+
+Not signed: `core`, `kickoff_race`, `kickoff_outcome`, `multi_air_touch` (rewards that are off, and the general pack). Decisions accepted at sign-off: OpposedSave two-touch miss skipped; TouchAccel direction-blind and same-step double pay kept; CarEnergy set to 25; ConsecutiveAirTouch terminal credit, contact-step chain and holding bleed kept.
+
 ## How to sign off on the audits
 
 Signing says: "I reviewed THESE scenarios, against THESE reward sources, on THIS engine behaviour, and they passed." The tool re-derives all of that on every `check`, so a pack is only **CURRENT** (verified) until something it depends on changes. Signing is your act; tooling never does it. All 18 packs are UNSIGNED today.
