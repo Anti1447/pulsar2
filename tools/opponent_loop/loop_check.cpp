@@ -9,6 +9,7 @@
 #include <GigaLearnCPP/ExternalOpponent.h>
 #include <GigaLearnCPP/NextoOpponent.h>
 #include <GigaLearnCPP/GGLBotOpponent.h>
+#include <GigaLearnCPP/ExternalPlayMonitor.h>
 
 #include <RLGymCPP/EnvSet/EnvSet.h>
 #include <RLGymCPP/Rewards/CommonRewards.h>
@@ -108,7 +109,8 @@ namespace {
 
 	// Drive one serve iteration with `bot` for `steps` steps; the bot's team is picked as the loop picks it
 	Recorded RunServe(EnvSet& env, GGL::ExternalOpponent& bot, int steps, Stats stats[NUM_CATS],
-		const std::vector<std::array<float, 8>>& ourTable, int& teamBlueCount, long& oldRowsWrong) {
+		const std::vector<std::array<float, 8>>& ourTable, int& teamBlueCount, long& oldRowsWrong,
+		GGL::ExternalPlayStats& play) {
 
 		Recorded rec;
 		int numPlayers = env.state.numPlayers;
@@ -126,16 +128,23 @@ namespace {
 					isOld[i++] = (p.team == oppTeam);
 		}
 		rec.isOld = isOld;
+		GGL::ExternalPlayMonitor monitor;
+		monitor.BeginServe((int)env.state.gameStates.size());
+		std::vector<uint8_t> startedFresh;
 
 		const int numActions = DefaultAction().GetActionAmount();
 		for (int step = 0; step < steps; step++) {
+			// As Learner.cpp: copy the previous step's terminal flags, THEN Reset() (which zeroes them), then step
+			std::vector<uint8_t> prevTerminals = env.state.terminals;
+			env.Reset();
 			env.StepFirstHalf(false);
 
 			std::vector<int> ext(numPlayers, -1);
-			bot.Act(env.state.gameStates, isOld, env.state.terminals, ext);
+			bot.Act(env.state.gameStates, isOld, prevTerminals, ext);
 			rec.states.push_back(env.state.gameStates);
-			rec.terminals.push_back(env.state.terminals);
+			rec.terminals.push_back(prevTerminals);
 			rec.acts.push_back(ext);
+			startedFresh = prevTerminals;
 
 			IList actions(numPlayers, 0);
 			for (int p = 0; p < numPlayers; p++) {
@@ -178,6 +187,7 @@ namespace {
 				}
 
 			env.StepSecondHalf(actions, false);
+			monitor.Step(env.state.gameStates, startedFresh, env.state.terminals, oppTeam, TICK_SKIP, play);
 		}
 		return rec;
 	}
@@ -278,6 +288,7 @@ int main(int argc, char** argv) {
 	auto env = MakeEnvSet();
 	std::cout << "players: " << env->state.numPlayers << std::endl;
 	for (int i = 0; i < 20; i++) { // warm-up: first steps include arena creation/reset work
+		env->Reset();
 		env->StepFirstHalf(false);
 		env->StepSecondHalf(IList(env->state.numPlayers, 0), false);
 	}
@@ -287,6 +298,7 @@ int main(int argc, char** argv) {
 		const int N = 60;
 		double t0 = Now();
 		for (int i = 0; i < N; i++) {
+			env->Reset();
 			env->StepFirstHalf(false);
 			env->StepSecondHalf(IList(env->state.numPlayers, 0), false);
 		}
@@ -298,6 +310,7 @@ int main(int argc, char** argv) {
 		auto bot = def.make(dev);
 
 		Stats stats[NUM_CATS];
+		GGL::ExternalPlayStats play;
 		int blueCount = 0;
 		long wrong = 0;
 		const int SERVES = 6, STEPS = 90;
@@ -306,11 +319,17 @@ int main(int argc, char** argv) {
 		double t0 = Now();
 		Recorded last;
 		for (int s = 0; s < SERVES; s++) {
-			Recorded r = RunServe(*env, *bot, STEPS, stats, ourTable, blueCount, wrong);
+			Recorded r = RunServe(*env, *bot, STEPS, stats, ourTable, blueCount, wrong, play);
 			if (s == SERVES - 1)
 				last = std::move(r);
 		}
 		double perStep = (Now() - t0) / (SERVES * STEPS);
+
+		std::cout << "  play monitor (against random-side actions):";
+		for (auto& kv : play.Report(TICK_SKIP))
+			std::cout << "  [" << kv.first << " " << kv.second << "]";
+		std::cout << std::endl;
+		Check(play.Get(GGL::ExternalPlayStats::KICKOFFS) > 0, "the monitor sees kickoff episodes in the production state mix");
 
 		// Acts
 		long total = 0, idle = 0;

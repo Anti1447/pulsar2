@@ -79,6 +79,16 @@ about 100 of 768 for Chronos (13%) (varies a little run to run). So their play h
 test hands the original the very same samples), live-only differences (1.6), and the RLBot packet conversions inside the two
 bots' live clients.
 
+## Play metrics from serve iterations (added 2026-11-05)
+`GGL::ExternalPlayMonitor` (`GigaLearnCPP/src/private/GigaLearnCPP/ExternalPlayMonitor.h`) counts what happens in the arenas a bot plays in.
+Cumulative counters are persisted in `RUNNING_STATS.json` as `<bot>_play_*`; the report derives ratios and sends them to W&B per bot:
+`<Bot>/GD per 1k Steps (1v1|2v2|3v3|Bot Blue|Bot Orange)` (goals we scored minus conceded per 1,000 served arena-steps),
+`Kickoff Count`, `Kickoff Bot First Touch %`, `Kickoff No Touch %`, `Kickoff Mean Touch Time s`, `Kickoff Goals For|Against 5s %`,
+`Touch Share Bot %`, `Ball In Bot Half %`, `Shots Bot|Us per 1k Steps`, `Demos Bot|Us per 1k Steps`.
+A kickoff is an episode that starts with the ball at rest on the centre spot (only about 10% of the training resets); a touch by both
+sides in the same step counts for both. Episodes already running when a serve starts count for everything except kickoffs.
+Against the near-random early policy these read: the bot touches 91-97% of touch steps and wins first touch about 53-63% of kickoffs.
+
 ## What this changes in the checklist
 1. **1.2 golden test, Nexto:** compare in one fixed entity order and add a permutation test; the "first differing index" rule only makes sense after that.
 2. **1.2 golden test, Galactus and Chronos:** the shuffle must be seeded or the comparison done per slot permutation; otherwise it is flaky by construction.

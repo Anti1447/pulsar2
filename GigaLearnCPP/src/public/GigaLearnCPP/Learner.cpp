@@ -22,6 +22,7 @@
 #include <private/GigaLearnCPP/PolicyVersionManager.h>
 #include <private/GigaLearnCPP/NextoOpponent.h>
 #include <private/GigaLearnCPP/GGLBotOpponent.h>
+#include <private/GigaLearnCPP/ExternalPlayMonitor.h>
 #include <private/GigaLearnCPP/ExploiterPool.h>
 #include <private/GigaLearnCPP/ExploiterEval.h>
 #include <GigaLearnCPP/ExploiterFiles.h>
@@ -330,6 +331,8 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 					? GGLBotKind::GALACTUS_V2 : GGLBotKind::CHRONOS_V2, spec.path, device));
 		}
 		externalStats = std::vector<ExternalOpponentStats>(externalOpps.size());
+		for (size_t i = 0; i < externalOpps.size(); i++)
+			externalPlay.push_back(std::make_shared<ExternalPlayStats>());
 	}
 
 	if (config.skillTracker.enabled || config.trainAgainstOldVersions)
@@ -490,6 +493,9 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 		j[prefix + "_goals_for"] = (int64_t)externalStats[i].goalsFor;
 		j[prefix + "_goals_against"] = (int64_t)externalStats[i].goalsAgainst;
 		j[prefix + "_serve_iters"] = (int64_t)externalStats[i].serveIters;
+		if (i < externalPlay.size())
+			for (int k = 0; k < ExternalPlayStats::NUM_COUNTERS; k++)
+				j[prefix + "_play_" + ExternalPlayStats::Name(k)] = (int64_t)externalPlay[i]->c[k];
 	}
 
 	if (versionMgr)
@@ -556,6 +562,9 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 		externalStats[i].goalsFor = j.value(prefix + "_goals_for", (int64_t)0);
 		externalStats[i].goalsAgainst = j.value(prefix + "_goals_against", (int64_t)0);
 		externalStats[i].serveIters = j.value(prefix + "_serve_iters", (int64_t)0);
+		if (i < externalPlay.size())
+			for (int k = 0; k < ExternalPlayStats::NUM_COUNTERS; k++)
+				externalPlay[i]->c[k] = j.value(prefix + "_play_" + ExternalPlayStats::Name(k), (int64_t)0);
 	}
 
 	if (config.exploiter.enabled || config.gcoRun)
@@ -1732,6 +1741,8 @@ void GGL::Learner::Start() {
 			std::vector<int> newPlayerIndices = {}, oldPlayerIndices = {};
 			torch::Tensor tNewPlayerIndices, tOldPlayerIndices;
 			Team oppTeam = Team::BLUE;
+			ExternalPlayMonitor extMonitor;           // serve iterations only
+			std::vector<uint8_t> extStartedFresh;     // terminals the PREVIOUS step left, copied when the bot acts
 
 			for (int i = 0; i < numPlayers; i++)
 				newPlayerIndices.push_back(i);
@@ -1767,6 +1778,7 @@ void GGL::Learner::Start() {
 						externalOppIdx = (int)pickBot(oppRng);
 						externalOpps[externalOppIdx]->BeginServe(numPlayers);
 						externalStats[externalOppIdx].serveIters++;
+						extMonitor.BeginServe((int)envSet->arenas.size());
 					} else if (roll < externalShare + poolShare) {
 						poolMemberIdx = exploiterPool->SampleTraining(oppRoll(oppRng));
 						if (poolMemberIdx >= 0)
@@ -1965,6 +1977,11 @@ void GGL::Learner::Start() {
 						// Drop any practice window whose arena is about to reset for a reason
 						// OTHER than the drill itself (terminals still hold the PREVIOUS step's
 						// flags here - Reset() only zeroes them for arenas that actually reset)
+						// EnvSet::Reset() zeroes every terminal flag, so the flags that say "this arena's episode just ended"
+						// (the external opponent's fresh-episode signal) must be read BEFORE it. They were read after it until
+						// 2026-11-05, i.e. always zero: Nexto's previous-action memory was never cleared at an episode boundary.
+						if (oppExternal)
+							extStartedFresh = envSet->state.terminals;
 						envSet->Reset();
 						envStepTime += stepTimer.Elapsed();
 
@@ -2066,7 +2083,7 @@ void GGL::Learner::Start() {
 								// exactly the fresh-episode signal Nexto's prev-action memory needs.
 								std::vector<int> extActions(numPlayers, 0);
 								externalOpps[externalOppIdx]->Act(envSet->state.gameStates, oldVersionPlayerMask,
-									envSet->state.terminals, extActions);
+									extStartedFresh, extActions);
 								auto tExt = torch::tensor(extActions);
 								tOldActions = tExt.index_select(0, tOldPlayerIndices);
 							} else {
@@ -2222,6 +2239,8 @@ void GGL::Learner::Start() {
 						// only pool-inflation-proof yardstick in the run and must not be diluted
 						// by arenas that exist to be unwinnable.
 						if (oppExternal) {
+							extMonitor.Step(envSet->state.gameStates, extStartedFresh, envSet->state.terminals, oppTeam,
+								config.tickSkip, *externalPlay[externalOppIdx]);
 							int nArenas = (int)envSet->state.gameStates.size();
 							for (int arenaIdx = 0; arenaIdx < nArenas; arenaIdx++) {
 								auto& gs = envSet->state.gameStates[arenaIdx];
@@ -3226,6 +3245,8 @@ void GGL::Learner::Start() {
 						report[name + "/Goals For"] = (float)(int64_t)externalStats[i].goalsFor;
 						report[name + "/Goals Against"] = (float)(int64_t)externalStats[i].goalsAgainst;
 						report[name + "/Serve Iters"] = (float)(int64_t)externalStats[i].serveIters;
+						for (auto& kv : externalPlay[i]->Report(config.tickSkip))
+							report[name + "/" + kv.first] = kv.second;
 					}
 
 					// ===== OPTIMISTIC-CRITIC LADDER (LADDER.md; full build 2026-07-18) =====
@@ -3519,12 +3540,21 @@ void GGL::Learner::Start() {
 						"Nexto/Goals For",
 						"Nexto/Goals Against",
 						"Nexto/Serve Iters",
+						"Nexto/GD per 1k Steps (1v1)",
+						"Nexto/Kickoff Bot First Touch %",
+						"Nexto/Touch Share Bot %",
 						"GalactusV2/Goals For",
 						"GalactusV2/Goals Against",
 						"GalactusV2/Serve Iters",
+						"GalactusV2/GD per 1k Steps (1v1)",
+						"GalactusV2/Kickoff Bot First Touch %",
+						"GalactusV2/Touch Share Bot %",
 						"ChronosV2/Goals For",
 						"ChronosV2/Goals Against",
 						"ChronosV2/Serve Iters",
+						"ChronosV2/GD per 1k Steps (1v1)",
+						"ChronosV2/Kickoff Bot First Touch %",
+						"ChronosV2/Touch Share Bot %",
 						"",
 						// Permanent reference set: the non-inflating skill read. Ref/Oldest Share is
 						// the headline - the oldest reference is never evicted, so that series is

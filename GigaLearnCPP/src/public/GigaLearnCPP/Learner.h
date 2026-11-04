@@ -112,6 +112,9 @@ namespace GGL {
 		};
 		std::vector<std::shared_ptr<class ExternalOpponent>> externalOpps;
 		std::vector<ExternalOpponentStats> externalStats; // Parallel to externalOpps
+		// Per-bot play statistics from serve iterations (ExternalPlayMonitor.h): GD per 1k steps by mode/side, kickoff
+		// outcomes, touch/half/shot/demo shares. Parallel to externalOpps; persisted like the goal counters.
+		std::vector<std::shared_ptr<struct ExternalPlayStats>> externalPlay;
 
 		// Exploiter stack (docs/EXPLOITERS.md; opaque here like the members above). exploiterRun: this process is an
 		// exploiter run (config.exploiter) - its frozen opponents and eval arenas. exploiterPool: this is the main run

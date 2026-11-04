@@ -24,6 +24,13 @@ target_include_directories(OpponentLoop PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearn
 target_include_directories(OpponentLoop PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(OpponentLoop GigaLearnCPP ${TORCH_LIBRARIES})
 
+# Checklist 1.5: sim round robin of the external bots (tools/opponent_roundrobin)
+add_executable(OpponentRoundRobin ../tools/opponent_roundrobin/round_robin.cpp)
+set_target_properties(OpponentRoundRobin PROPERTIES CXX_STANDARD 20)
+target_include_directories(OpponentRoundRobin PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearnCPP/src/private")
+target_include_directories(OpponentRoundRobin PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(OpponentRoundRobin GigaLearnCPP ${TORCH_LIBRARIES})
+
 # Galactus/Chronos golden test (our side; the reference programs are built by tools/opponent_golden/build_ref.sh)
 add_executable(OpponentGoldenGGL ../tools/opponent_golden/golden_ggl.cpp)
 set_target_properties(OpponentGoldenGGL PROPERTIES CXX_STANDARD 20)

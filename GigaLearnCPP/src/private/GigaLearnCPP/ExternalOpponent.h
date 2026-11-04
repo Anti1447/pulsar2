@@ -23,7 +23,8 @@ namespace GGL {
 		virtual void BeginServe(int numPlayers) {}
 
 		// Fill outActionIdx (OUR action-table indices) for every player marked in isOld.
-		// prevArenaTerminals = envSet->state.terminals at the loop top (the PREVIOUS step's flags):
+		// prevArenaTerminals = envSet->state.terminals as the PREVIOUS step left them, copied BEFORE EnvSet::Reset()
+		// (which zeroes them):
 		// a nonzero entry means that arena's current obs is a fresh episode.
 		virtual void Act(const std::vector<RLGC::GameState>& states,
 			const std::vector<bool>& isOld,
