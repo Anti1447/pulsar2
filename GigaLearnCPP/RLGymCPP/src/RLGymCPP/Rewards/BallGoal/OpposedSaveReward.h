@@ -25,7 +25,8 @@ namespace RLGC {
 	//
 	// Stateful: last-touch tracking updates in PreStep (RewardWrapper forwards
 	// PreStep/Reset to the child, so this works inside ZeroSumReward). Per-arena
-	// instance -> no cross-arena state. Wrap in ZeroSumReward(_, 0). Do NOT gate:
+	// instance -> no cross-arena state. Wrapped in ZeroSumReward(_, TEAM_SPIRIT) in BuildRewards (0.3): the saver
+	// gets 0.85 and a teammate 0.15 in 2v2 (1v1 is unaffected); the opponents are charged either way. Do NOT gate:
 	// the reachability gate's attack-oriented level is lowest exactly in the
 	// own-half states where saves fire.
 	class OpposedSaveReward : public Reward {

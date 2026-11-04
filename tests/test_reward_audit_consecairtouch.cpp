@@ -11,7 +11,7 @@ using namespace RewardTest;
 
 // Audit of ConsecutiveAirTouchReward (checklist item 2, weight 40, wrapped ZeroSum(TEAM_SPIRIT 0.3)), as changed on 2026-11-03.
 //   state          : an EFFECTIVE streak e per player: 0 whenever isOnGround (ground OR wall); + credit on each airborne touch step;
-//                    unchanged airborne without a touch; reset (not charged) on a demo; RESET when an opponent touches the ball on a
+//                    unchanged airborne without a touch; reset on a demo AND the banked potential charged back on the step it starts (2026-11-04); RESET when an opponent touches the ball on a
 //                    step this player does not (turnover)
 //   credit         = ballHeight * softness * carHeight
 //     ballHeight   = clamp((ball.z - 150) / 1300, 0, 1)                (AerialTouchReward's ballFrac)
@@ -180,17 +180,34 @@ TEST(ConsecAir2_any_cycle_nets_zero_undiscounted_and_the_discounted_sum_telescop
 	CHECK_NEAR((float)sum, 0.0f, 1e-4f);
 }
 
-// A demo drops the chain WITHOUT refunding it: a chain of 3 that ends in a demo keeps +Phi(3) = +0.632
-TEST(ConsecAir2_a_demo_mid_chain_keeps_the_banked_credit) {
+// A demolition refunds the banked chain on the step it starts (2026-11-04; before, a chain of 3 ended by a demo kept +Phi(3) = +0.632)
+TEST(ConsecAir2_a_demo_mid_chain_refunds_the_banked_credit) {
 	ConsecutiveAirTouchReward r(1.0f);
 	auto v = Run(r, { A(true), A(true), A(true), Dm(), Gr() });
-	CHECK_EQ(v[3], 0.0f);
-	CHECK_EQ(v[4], 0.0f);
-	CHECK_NEAR(Sum(v), 0.632121f, 1e-5f);
+	CHECK_NEAR(v[3], -0.632121f, 1e-5f);     // the demolition step: -Phi(3)
+	CHECK_EQ(v[4], 0.0f);                    // already 0
+	CHECK_NEAR(Sum(v), 0.0f, 1e-5f);         // the whole chain nets 0, as after a landing
 	ConsecutiveAirTouchReward r2(1.0f);
 	auto w = Run(r2, { A(true), A(true), Dm(), A(true), A(true) });
-	CHECK_EQ(w[3], 0.0f);
-	CHECK_EQ(w[4], 0.0f);
+	CHECK_NEAR(w[2], -0.393469f, 1e-5f);     // chain of 2: -Phi(2)
+	CHECK_EQ(w[3], 0.0f);                    // the respawn step
+	CHECK_EQ(w[4], 0.0f);                    // a lone touch after the respawn: a fresh chain of 1 pays 0
+}
+
+TEST(ConsecAir2_demo_refund_is_charged_once_and_scaled_by_the_control_gate) {
+	ConsecutiveAirTouchReward r(1.0f);
+	auto v = Run(r, { A(true), A(true), A(true), Dm(), Dm(), Dm(), Gr() });
+	CHECK_NEAR(v[3], -0.632121f, 1e-5f);
+	CHECK_EQ(v[4], 0.0f); CHECK_EQ(v[5], 0.0f); CHECK_EQ(v[6], 0.0f);   // no repeat while it stays demolished
+	// the refund is Phi(e) x g(previous distance): a chain whose ball sits 625 uu away on the last live step (g = 0.5) refunds half
+	CT far = A(false); far.dx = 625.f * 0.99999f;
+	ConsecutiveAirTouchReward r2(1.0f);
+	auto w = Run(r2, { A(true), A(true), A(true), far, Dm() });
+	CHECK_NEAR(w[3] + w[4], -0.632121f, 1e-4f);   // the gate fall on the far step plus the refund still net the banked chain to 0
+	// a demo with no chain banked pays nothing
+	ConsecutiveAirTouchReward r3(1.0f);
+	auto z = Run(r3, { A(false), Dm(), Gr() });
+	CHECK_EQ(z[1], 0.0f);
 }
 
 TEST(ConsecAir2_each_player_has_its_own_streak) {

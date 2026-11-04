@@ -30,9 +30,8 @@ namespace RLGC {
 	// The streak counts this player's airborne (isOnGround==false) ballTouchedStep
 	// touches and resets to 0 whenever the player is on the ground OR a wall (any
 	// isOnGround - "consecutive AIR touches" ends the instant you are supported).
-	// A demo/respawn is a teleport, not the player's action: the streak resets and
-	// the step is not charged (mirrors the other potentials' demo guard - a
-	// negligible, standard telescoping leak). Per-arena instance -> no cross-arena
+	// A demolition ends the chain: the streak resets and the banked potential is charged
+	// back on the step it starts, like a landing (2026-11-04); the demolished steps and the respawn step pay 0. Per-arena instance -> no cross-arena
 	// state.
 	//
 	// 2026-11-03 audit fix: every touch is weighted by HOW HIGH THE BALL IS, with AerialTouchReward's own scale:
@@ -132,9 +131,15 @@ namespace RLGC {
 			float& s = streak[player.index];
 			float prevStreak = s;
 
-			// Demo/respawn teleport is not the player's action: drop the chain, don't charge it
+			// Demolished: the chain ends. On the step the demolition starts the banked potential is charged back like a landing
+			// (2026-11-04: before, a demo kept the credit, up to about +25..+40 weighted). While the car stays demolished and on the
+			// respawn step the potential is already 0, so those steps pay 0.
 			if (player.isDemoed || (player.prev && player.prev->isDemoed)) {
 				s = 0;
+				if (player.isDemoed && !(player.prev && player.prev->isDemoed)) {
+					float distPrevD = (state.prev && player.prev) ? (state.prev->ball.pos - player.prev->pos).Length() : 0.f;
+					return -Phi(prevStreak) * ControlGate(distPrevD);
+				}
 				return 0;
 			}
 

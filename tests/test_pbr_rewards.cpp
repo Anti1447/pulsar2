@@ -144,14 +144,15 @@ TEST(ConsecAir_ground_and_wall_break_chain) {
 }
 
 TEST(ConsecAir_demo_guard) {
-	// A demoed step pays nothing and drops the chain (teleport, not the player's action).
+	// A demolition ends the chain: the step it starts charges the banked potential back (Phi(2) = 0.393469, car 60 uu from the ball),
+	// like a landing (2026-11-04); the respawn jump itself is not charged.
 	ConsecutiveAirTouchReward r(0.99f);
 	auto air = [](bool touch) { Frame f; f.onGround = false; f.touched = touch; f.ballPos = Vec(0, 0, 1450); f.carPos = Vec(0, 0, 1390); return f; };
 	Frame demoed; demoed.onGround = false; demoed.demoed = true; demoed.ballPos = Vec(0, 0, 1450); demoed.carPos = Vec(0, 0, 1390);
 
 	std::vector<Frame> frames = { air(true), air(true), demoed, air(true) };
 	auto rew = RunSingle(r, frames);
-	CHECK_NEAR(rew[2], 0.f, 1e-9f);          // demoed step: exactly 0, no refund charged
+	CHECK_NEAR(rew[2], -0.393469f, 1e-5f);   // demoed step: the banked Phi(2) is charged back
 	// After respawn the chain has been reset: the next lone air touch pays 0 again
 	CHECK_NEAR(rew[3], 0.f, 1e-6f);
 }
