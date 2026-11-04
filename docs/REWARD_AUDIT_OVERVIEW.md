@@ -143,7 +143,7 @@ State at the last commit (`36e5907`, pushed to `fork`): GigaLearnTests 453/453, 
 
 Signing says: "I reviewed THESE scenarios, against THESE reward sources, on THIS engine behaviour, and they passed." The tool re-derives all of that on every `check`, so a pack is only **CURRENT** (verified) until something it depends on changes. Signing is your act; tooling never does it. All 18 packs are UNSIGNED today.
 
-**Timing matters.** A pack goes STALE if any reward source it depends on changes, including a comment edit. The source hash covers every file reachable from the reward's header, and a reward in `CommonRewards.h` goes stale when ANY reward in that file changes, so one edit there stales every pack whose reward lives in it. Sign when item 3 is finished for the rewards you care about, not before. Docs, tests and other packs do not matter.
+**Timing matters.** A pack goes STALE if any reward source it depends on changes, including a comment edit. Since 2026-11-03 each audited reward lives in its own header (`Rewards/Events|BallGoal|Match|Player|PlayerBall/<Name>.h`), and the source hash covers only that header and what it includes (`Reward.h`, `RewardTrace.h`, `Math.h`, and for ConsecutiveAirTouch the AerialTouch and AirIntercept headers, for Demo the event base). Editing one reward stales only its own pack (checked on copies: editing TeamPressure left the TimeCost and Goal packs CURRENT). Editing `Reward.h`, `RewardTrace.h` or `Math.h` still stales all of them, correctly. `CommonRewards.h` is now only an umbrella include plus the older unaudited rewards. Docs, tests and other packs do not matter.
 
 **1. Run from WSL in the repo root, with the Lab built.**
 

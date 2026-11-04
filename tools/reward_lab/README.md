@@ -106,8 +106,7 @@ The manifest says "this person reviewed THESE scenarios, against THESE reward so
 scenario files (sha256), each reward's source (sha256 over every file reachable from its header through quoted `#include`s: a comment edit counts; the engine is outside),
 the engine (a 60-step probe compared within 0.1 uu; a different engine is REFUSED and the scenarios are not re-run), and the results (every scenario is re-run and must pass).
 The verdict names what changed ("reward OffsidePenalty changed after sign-off: Rewards/OffsidePenalty.h"). Only **CURRENT** may be called verified. The Lab harness changing is
-a warning, not a stale. Limits: the probe shows two engines agree on that probe, not that they are identical; a reward in `CommonRewards.h` goes stale when any reward in that
-file changes. `sign` refuses a failing pack, a scenario with no expectations, and a missing reviewer; it is never run by tooling on its own. The core pack ships unsigned.
+a warning, not a stale. Limits: the probe shows two engines agree on that probe, not that they are identical; audited rewards each have their own header (Rewards/<Group>/<Name>.h), so only an edit to that header or something it includes stales its pack. `sign` refuses a failing pack, a scenario with no expectations, and a missing reviewer; it is never run by tooling on its own. The core pack ships unsigned.
 
 ## Capture a frame as a scenario (P4-2)
 

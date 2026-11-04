@@ -137,24 +137,24 @@ namespace Lab {
 	inline const std::map<std::string, std::string>& RewardHeaders() {
 		static const std::map<std::string, std::string> m = {
 			{ "OffsidePenalty", "Rewards/OffsidePenalty.h" },
-			{ "CarEnergyPotentialReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards: an edit to any of them stales this one
+			{ "CarEnergyPotentialReward", "Rewards/Player/CarEnergyPotentialReward.h" },
 			{ "PassingSetupReward", "Rewards/PassingSetupRewards.h" },
-			{ "GoalReward", "Rewards/CommonRewards.h" },                  // shared with the other CommonRewards, like CarEnergyPotentialReward
-			{ "AerialTouchReward", "Rewards/CommonRewards.h" },           // shared with the other CommonRewards
-			{ "BallToGoalPotentialReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards
-			{ "AirInterceptPotentialReward", "Rewards/CommonRewards.h" }, // shared with the other CommonRewards
-			{ "WallJumpToBallReward", "Rewards/CommonRewards.h" },       // shared with the other CommonRewards
-			{ "KickoffRaceReward", "Rewards/CommonRewards.h" },          // shared with the other CommonRewards
+			{ "GoalReward", "Rewards/Events/GoalReward.h" },
+			{ "AerialTouchReward", "Rewards/PlayerBall/AerialTouchReward.h" },
+			{ "BallToGoalPotentialReward", "Rewards/BallGoal/BallToGoalPotentialReward.h" },
+			{ "AirInterceptPotentialReward", "Rewards/PlayerBall/AirInterceptPotentialReward.h" },
+			{ "WallJumpToBallReward", "Rewards/PlayerBall/WallJumpToBallReward.h" },
+			{ "KickoffRaceReward", "Rewards/PlayerBall/KickoffRaceReward.h" },
 			{ "KickoffOutcomeReward", "Rewards/KickoffOutcomeReward.h" },
-			{ "ConsecutiveAirTouchReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards
+			{ "ConsecutiveAirTouchReward", "Rewards/PlayerBall/ConsecutiveAirTouchReward.h" },
 			{ "MultiAirTouchReward", "Rewards/MultiAirTouchReward.h" },
-			{ "DemoReward", "Rewards/CommonRewards.h" },                  // shared with the other CommonRewards
-			{ "TouchAccelReward", "Rewards/CommonRewards.h" },                // shared with the other CommonRewards
-			{ "GuardedPickupBoostReward", "Rewards/CommonRewards.h" },        // shared with the other CommonRewards
-			{ "TimeCostReward", "Rewards/CommonRewards.h" },               // shared with the other CommonRewards
-			{ "TeamPressureReward", "Rewards/CommonRewards.h" },           // shared with the other CommonRewards
-			{ "BallProximityPotentialReward", "Rewards/CommonRewards.h" },   // shared with the other CommonRewards
-			{ "OpposedSaveReward", "Rewards/CommonRewards.h" },           // shared with the other CommonRewards
+			{ "DemoReward", "Rewards/Events/DemoReward.h" },
+			{ "TouchAccelReward", "Rewards/PlayerBall/TouchAccelReward.h" },
+			{ "GuardedPickupBoostReward", "Rewards/Player/GuardedPickupBoostReward.h" },
+			{ "TimeCostReward", "Rewards/Match/TimeCostReward.h" },
+			{ "TeamPressureReward", "Rewards/Match/TeamPressureReward.h" },
+			{ "BallProximityPotentialReward", "Rewards/PlayerBall/BallProximityPotentialReward.h" },
+			{ "OpposedSaveReward", "Rewards/BallGoal/OpposedSaveReward.h" },
 		};
 		return m;
 	}
