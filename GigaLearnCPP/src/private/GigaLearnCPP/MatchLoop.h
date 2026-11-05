@@ -13,6 +13,7 @@
 #include <RLGymCPP/EnvSet/EnvSet.h>
 
 #include <algorithm>
+#include <functional>
 #include <random>
 #include <vector>
 
@@ -24,6 +25,8 @@ namespace GGL {
 		// false: A is BLUE in every arena. true: A is blue in even arenas and orange in odd ones (a 50/50 split of the
 		// sides for any N >= 2); results are always from A's side.
 		bool alternateSides = false;
+		// Called after every step, once the actions have been applied (the round robin's watch mode streams the state to the viewer)
+		std::function<void(RLGC::EnvSet&)> onStep;
 	};
 
 	struct MatchResult {
@@ -91,6 +94,8 @@ namespace GGL {
 			B.Act(env.state.gameStates, isB, prevTerminals, ext);
 			IList actions(ext.begin(), ext.end());
 			env.StepSecondHalf(actions, false);
+			if (mc.onStep)
+				mc.onStep(env);
 
 			for (int a = 0; a < N; a++) {
 				G& g = games[a];

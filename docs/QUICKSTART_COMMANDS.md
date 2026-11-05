@@ -172,7 +172,7 @@ cd ~/pulsar2/build
 GGL_RENDER=1 GGL_DEVICE=cpu WANDB_MODE=offline OMP_NUM_THREADS=1 ./GigaLearnBot
 ```
 
-Then open **http://localhost:9275** in a browser on Windows.
+Then open **http://localhost:9275/visualizer/visualizer.html** in a browser on Windows (the bare `http://localhost:9275` only lists the folder). To watch the external bots (Nexto, GalactusV2, ChronosV2) instead of a checkpoint, use `./build/OpponentRoundRobin watch <A> <B>` (see `tools/opponent_roundrobin/README.md`).
 
 - `GGL_RENDER_TEAM_SIZE=1|2|3` picks 1v1, 2v2 or 3v3 (default 1v1).
 - `GGL_RENDER_RELOAD_SECS=30` sets how often it polls for a newer checkpoint. A value of 0 or less pins the checkpoint loaded at startup.
