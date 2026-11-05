@@ -119,6 +119,13 @@ Without it the pure-argmax port never won a first touch against Galactus or Chro
 - **Still not ported:** the beta .5 softmax sampling for non-takers during the kickoff, and the celebration randomness.
 - **Not checked:** the same kickoffs through RLBot (checklist 1.6).
 
+## Slot shuffle of Galactus and Chronos (switch added 2026-11-05)
+Both bots see 2 teammate and 3 opponent slots, padded with zero rows. The port shuffles each group with RocketSim's random engine on every observation (`AddOthers` in `GGLBotOpponent.cpp`, what the bots' own `AdvancedObsPadded` does by default), so their actions are not a function of the state alone.
+- **Measured (identical states replayed on a fresh instance, 21,600 rows):** shuffle on: Galactus 22.6% and Chronos 11.7% of rows differ, Nexto 0%. `GGL_BOT_SHUFFLE=0` (slots filled in arena order): 0% for all three.
+- **Strength:** unchanged. Scrimmage suite, win rate against the other three, shuffle on / off: Nexto 42.4 / 41.2, Galactus 70.7 / 69.1, Chronos 74.2 / 75.0, Random 0.5 / 0.5. The kickoff suite moves more (Chronos 77.0 -> 83.2) but a deterministic bot replays only about ten distinct games per pairing there (5 layouts x 2 sides), so read it as layout effects. First touches: same pattern.
+- **Default:** shuffle ON, as before. The reason to turn it off is to match the live bots IF they do not shuffle, which is not established (their source is not in this repo). To find out: watch a live match and the sim side by side (`./build/OpponentRoundRobin watch GalactusV2 Nexto 8 kickoff 1 20261105 fixed`), with and without `GGL_BOT_SHUFFLE=0` (checklist 1.6).
+- **Effect on the gauntlet:** with the shuffle off all three bots are deterministic, so the gauntlet's 96 games per bot would collapse to about ten distinct games each; the shuffle is what gives Galactus and Chronos some spread there.
+
 ## What this changes in the checklist
 1. **1.2 golden test, Nexto:** compare in one fixed entity order and add a permutation test; the "first differing index" rule only makes sense after that.
 2. **1.2 golden test, Galactus and Chronos:** the shuffle must be seeded or the comparison done per slot permutation; otherwise it is flaky by construction.

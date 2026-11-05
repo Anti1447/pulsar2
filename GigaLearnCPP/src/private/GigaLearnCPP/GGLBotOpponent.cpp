@@ -7,6 +7,8 @@
 #include <RLGymCPP/ThreadPool.h>
 
 #include <array>
+#include <cstdlib>
+#include <string>
 
 using namespace GGL;
 using namespace RLGC;
@@ -52,6 +54,18 @@ namespace {
 		*out++ = player.hasJumped;
 	}
 
+	// GGL_BOT_SHUFFLE=0 fills the slots in arena order instead of shuffling them (read once). The shuffle is what the
+	// bots' own AdvancedObsPadded does by default (the training build); whether the LIVE builds of GalactusV2 and
+	// ChronosV2 shuffle is not established (their source is not in this repo), so the sim can run either way and the two
+	// can be compared (docs/EXTERNAL_OPPONENTS.md). Default: shuffle, as before.
+	bool ShuffleSlots() {
+		static const bool on = [] {
+			const char* v = std::getenv("GGL_BOT_SHUFFLE");
+			return !(v && std::string(v) == "0");
+		}();
+		return on;
+	}
+
 	// Teammate then opponent slots, each group shuffled over its padded slot count with empty
 	// slots all-zero (the order both bots' builders produce)
 	void AddOthers(float*& out, const Player& self, const GameState& state, bool inv, bool mirrorX, const PhysState& ball) {
@@ -71,8 +85,10 @@ namespace {
 			}
 		}
 
-		std::shuffle(teammates.begin(), teammates.begin() + (MAX_PLAYERS - 1), ::Math::GetRandEngine());
-		std::shuffle(opponents.begin(), opponents.begin() + MAX_PLAYERS, ::Math::GetRandEngine());
+		if (ShuffleSlots()) {
+			std::shuffle(teammates.begin(), teammates.begin() + (MAX_PLAYERS - 1), ::Math::GetRandEngine());
+			std::shuffle(opponents.begin(), opponents.begin() + MAX_PLAYERS, ::Math::GetRandEngine());
+		}
 
 		for (int i = 0; i < MAX_PLAYERS - 1; i++) {
 			if (teammates[i])
