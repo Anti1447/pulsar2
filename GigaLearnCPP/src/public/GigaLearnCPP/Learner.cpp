@@ -2335,11 +2335,11 @@ void GGL::Learner::Start() {
 
 						// External yardstick: cumulative goals for/against the external opponent
 						// (RS_TEAM_FROM_Y = the CONCEDING team; conceder == the bot -> we scored).
-						// SKIP the impossible-control arenas: they spawn certified-unreachable
-						// ballistic intercepts, so whatever the ball does there is a property of
-						// the falsification fixture, not of play against Nexto. This series is the
-						// only pool-inflation-proof yardstick in the run and must not be diluted
-						// by arenas that exist to be unwinnable.
+						// EVERY arena counts: nothing is skipped. An earlier comment here promised to skip the
+						// ladder's impossible-control arenas (certified-unreachable ballistic intercepts, whose
+						// goals would dilute this series). That fixture is not wired into this build
+						// (ExampleMain g_NumImpossibleArenas = 0, IsImpossibleArena has no callers), so there is
+						// nothing to skip; if it is ever switched on, add the skip HERE and in extMonitor.Step.
 						if (oppExternal) {
 							extMonitor.Step(envSet->state.gameStates, extStartedFresh, envSet->state.terminals, oppTeam,
 								config.tickSkip, *externalPlay[externalOppIdx]);
