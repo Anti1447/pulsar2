@@ -1,5 +1,6 @@
 #pragma once
 #include "ExternalOpponent.h"
+#include "NextoKickoff.h"
 
 #include <torch/script.h>
 
@@ -34,6 +35,12 @@ namespace GGL {
 		std::vector<std::array<float, 8>> lookup;
 		// Per-global-player previous parsed action (zeroed on episode reset/serve start)
 		std::vector<std::array<float, 8>> prevActions;
+		// Nexto's hardcoded kickoff (NextoKickoff.h). On by default; GGL_NEXTO_SCRIPTED_KICKOFF=0 turns it off
+		// (pure argmax from the first step, the behaviour before 2026-11-05) for A/B comparisons.
+		bool scriptedKickoff = true;
+		NextoKickoff kickoff;
+		// NextoKickoff::Kind -> Nexto lookup row (exact tuple match, hard-fails if the table drifts)
+		std::array<int, NextoKickoff::NUM_KINDS> kickoffLookupIdx = {};
 
 		NextoOpponent(const std::string& modelPath, torch::Device device);
 

@@ -206,12 +206,26 @@ GGL::NextoOpponent::NextoOpponent(const std::string& modelPath, torch::Device de
 		actionMap[i] = found;
 	}
 
+	// The scripted kickoff's rows must exist in the table, exactly
+	for (int k = 0; k < NextoKickoff::NUM_KINDS; k++) {
+		int found = -1;
+		for (size_t i = 0; i < lookup.size() && found < 0; i++)
+			if (lookup[i] == NextoKickoff::TableRow((NextoKickoff::Kind)k))
+				found = (int)i;
+		if (found < 0)
+			RG_ERR_CLOSE("NextoOpponent: scripted kickoff row " << k << " is not in the action table");
+		kickoffLookupIdx[k] = found;
+	}
+	if (const char* v = std::getenv("GGL_NEXTO_SCRIPTED_KICKOFF"); v && std::string(v) == "0")
+		scriptedKickoff = false;
+
 	RG_LOG("NextoOpponent: model loaded from " << modelPath
 		<< ", all 90 actions mapped onto DefaultAction");
 }
 
 void GGL::NextoOpponent::BeginServe(int numPlayers) {
 	prevActions.assign(numPlayers, {});
+	kickoff.Begin(numPlayers);
 }
 
 // Feature layout of one entity row (nexto_obs.py): [IS_SELF, IS_MATE, IS_OPP,
@@ -381,6 +395,21 @@ void GGL::NextoOpponent::Act(const std::vector<RLGC::GameState>& states,
 			int g = who[mode][i];
 			outActionIdx[g] = actionMap[nextoIdx];
 			prevActions[g] = lookup[nextoIdx];
+		}
+	}
+
+	// The hardcoded kickoff overrides the net for the kickoff taker(s), as in the original (NextoKickoff.h).
+	// Its previous-action memory holds what the ORIGINAL controller had set (its `self.action = action`).
+	if (scriptedKickoff) {
+		if (kickoff.step.size() != prevActions.size())
+			kickoff.Begin((int)prevActions.size());
+		std::vector<int> kinds;
+		kickoff.Update(states, isOld, prevArenaTerminals, kinds);
+		for (size_t g = 0; g < kinds.size(); g++) {
+			if (kinds[g] < 0)
+				continue;
+			outActionIdx[g] = actionMap[kickoffLookupIdx[kinds[g]]];
+			prevActions[g] = NextoKickoff::OriginalRow((NextoKickoff::Kind)kinds[g]);
 		}
 	}
 }

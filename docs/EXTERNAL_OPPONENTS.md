@@ -29,7 +29,7 @@ Verdicts: **EXACT** (checked against the source), **ON PURPOSE** (differs, accep
 | Mask | all zeros (no padding) | zeros | EXACT |
 | Pick | argmax at beta 1 | argmax | EXACT |
 | Entity order | `[self, teammates, opponents]` (the live bot re-orders the players) | arena order, self wherever it sits | **VERIFIED 2026-11-05**: the live order [self, mates, opponents] changes the logits by at most 2.3e-5 and never the argmax (192 states, 768 observations); the golden compare uses arena order on both sides |
-| Scripted kickoff (`hardcoded_kickoffs`) | 168 ticks of fixed controls for the kickoff taker (the closer car; the left one on a tie) | none | ON PURPOSE (decision 2026-11-05, option a); revisit after 1.4/1.5 |
+| Scripted kickoff (`hardcoded_kickoffs`) | 168 ticks of fixed controls for the kickoff taker (the closer car; the left one on a tie) | none | **PORTED 2026-11-05** (was left out on purpose, then added after the 1.5 round robin showed Nexto never winning a first touch); see the section below |
 | Stochastic kickoff (`stochastic_kickoffs`, beta 0.5 = softmax sampling) | during `MatchPhase.Kickoff` | none | ON PURPOSE (same decision) |
 | Celebration (beta 0) | random actions after the match ends | none | ON PURPOSE (never happens in training) |
 | Latency | obs at tick 1 of the window, applied at tick 7: 6 ticks | obs at tick 0, applied at tick 7: 7 ticks | ON PURPOSE, off by 1 tick; Nexto's own training latency is unknown to us |
@@ -106,6 +106,18 @@ games every time, so a change in the series is a change in the policy.
   Nexto's win % moves in steps of about 10 points and the usual confidence band is too narrow; Galactus/Chronos vary a little (slot shuffle). It is a trend line,
   not a precise rate. If it turns out too coarse, swapping `KickoffState` for `FuzzedKickoffState` in `GauntletEval.cpp` adds small random offsets (more distinct games, less like a real kickoff).
 - **Not in it:** 2v2 and 3v3 (the sim round robin has a 3v3 smoke), and the random-state / ball-near-car scrimmage mix.
+
+## Nexto's scripted kickoff (ported 2026-11-05)
+Nexto's live bot does not play its first 168 ticks of a kickoff from the net: it runs a fixed control sequence (`KICKOFF_CONTROLS` in `rlbot-run/nexto/bot.py`).
+Without it the pure-argmax port never won a first touch against Galactus or Chronos (checklist 1.5, FLAG 1), so the port now includes it.
+- **Who:** the "kickoff taker": within 10 uu of the closest car to the ball, and among teammates just as close only the one that passes the original's `is_left` test. In 1v1 both cars take it.
+- **What:** 44 ticks boost, 16 steer left, 8 jump, 4 boost, 4 flip (yaw .8, pitch -.7), 52 pitch up, 40 roll right with pitch .5 and no boost; it runs while the ball is still on y == 0, then the net takes over with the previous action the original had left.
+- **How it maps to the env:** one action per 8-tick step, so 21 steps (`NextoKickoff::STEP_KIND`), with a step of jump released before the flip (a held button never flips). The flip is roll 1 + pitch -1, a 45 degree diagonal where the original's is 49 degrees; the last segment drops its half pitch. Measured against the tick-level original in a lone-car sim: the car is 77-79 uu apart and within 2% in speed when the script ends, on all five layouts.
+- **Start condition:** only on the first Act of an episode (or of a serve) that begins with the ball at rest in the centre. Mid-game states are never scripted.
+- **Switch:** `GGL_NEXTO_SCRIPTED_KICKOFF=0` runs the old pure-argmax Nexto (for A/B). The gauntlet and the trainer use the same class, so both get the script by default.
+- **Effect (kickoff suite, first touch Nexto / opponent / both):** against Chronos 0 / 94 / 6 -> 68 / 16 / 15; against Galactus 0 / 100 / 0 -> 0 / 62 / 38. Win rates barely move (Nexto 42.8% -> 42.2% on kickoffs). It makes Nexto contest the kickoff as the live bot does; it does not make it a stronger opponent overall.
+- **Still not ported:** the beta .5 softmax sampling for non-takers during the kickoff, and the celebration randomness.
+- **Not checked:** the same kickoffs through RLBot (checklist 1.6).
 
 ## What this changes in the checklist
 1. **1.2 golden test, Nexto:** compare in one fixed entity order and add a permutation test; the "first differing index" rule only makes sense after that.
