@@ -407,7 +407,7 @@ std::vector<int> GGL::GGLBotOpponent::Pick(const std::vector<float>& obs, const 
 	try {
 		auto tObs = torch::from_blob((void*)obs.data(), { numRows, obsSize }, torch::kFloat32).to(device);
 		auto tMasks = torch::from_blob((void*)masks.data(), { numRows, numActions }, torch::kUInt8).to(device);
-		PPOLearner::InferActionsFromModels(models, tObs, tMasks, /*deterministic=*/true, 1.f, /*halfPrec=*/false, &picks, nullptr);
+		PPOLearner::InferActionsFromModels(models, tObs, tMasks, /*deterministic=*/temperature <= 0.f, temperature > 0.f ? temperature : 1.f, /*halfPrec=*/false, &picks, nullptr);
 	} catch (const std::exception& e) {
 		RG_ERR_CLOSE("GGLBotOpponent(" << name << ")::Pick: inference failed (" << numRows << " rows): " << e.what());
 	}

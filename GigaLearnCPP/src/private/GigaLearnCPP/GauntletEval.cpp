@@ -71,6 +71,13 @@ GGL::GauntletEval::~GauntletEval() {
 }
 
 GGL::MatchResult GGL::GauntletEval::Run(PPOLearner* ppo, ExternalOpponent& bot) {
+	// The gauntlet is the fixed yardstick: the bots play as shipped (argmax) whatever the training serves use
+	struct RestoreTemperature {
+		ExternalOpponent& b;
+		float saved;
+		~RestoreTemperature() { b.temperature = saved; }
+	} restoreTemperature{ bot, bot.temperature };
+	bot.temperature = 0.f;
 	PolicyController ours;
 	ours.env = envSet;
 	ours.ppo = ppo;

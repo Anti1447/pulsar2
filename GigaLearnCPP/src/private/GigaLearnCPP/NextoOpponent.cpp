@@ -1,4 +1,5 @@
 #include "NextoOpponent.h"
+#include "ExternalSampling.h"
 
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
 #include <RLGymCPP/CommonValues.h>
@@ -387,7 +388,7 @@ void GGL::NextoOpponent::Act(const std::vector<RLGC::GameState>& states,
 			RG_ERR_CLOSE("NextoOpponent::Act: forward failed (mode " << mode
 				<< ", batch " << b << ", device " << device << "): " << e.what());
 		}
-		auto picks = logits.argmax(-1).cpu();
+		auto picks = PickFromLogits(logits, temperature).cpu();
 		auto pickAcc = picks.accessor<int64_t, 1>();
 
 		for (int64_t i = 0; i < b; i++) {

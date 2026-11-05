@@ -30,3 +30,5 @@ Open **http://localhost:9275/visualizer/visualizer.html** in a browser on Window
 Arguments after the two bots: games (6), `kickoff` or `scrimmage` (the training state mix), speed multiplier (1 = real time), seed.
 The colours swap every game, so both bots are seen on both sides; add `fixed` as the last argument (`... kickoff 1 20261105 fixed`) to keep A blue and B orange. The log prints each game's result and who touched first.
 In the viewer: left mouse cycles the spectated car, `P` jumps to the car closest to the ball.
+
+`GGL_BOT_TEMPERATURE=T` (any mode) makes every bot sample from softmax(logits / T) instead of the argmax (0 = argmax, the default); `GGL_BOT_SHUFFLE=0` fills the Galactus/Chronos observation slots in order instead of shuffling them (see docs/EXTERNAL_OPPONENTS.md).

@@ -11,6 +11,9 @@ target_link_libraries(GigaLearnTests GigaLearnCPP)
 
 # Golden-state dumper for checklist item 1.2 (tools/opponent_golden): same OFF-by-default gate as the tests.
 find_package(Torch REQUIRED)
+# test_external_sampling.cpp needs torch tensors (the picker behind ExternalOpponent::temperature)
+target_include_directories(GigaLearnTests PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(GigaLearnTests ${TORCH_LIBRARIES})
 add_executable(OpponentGolden ../tools/opponent_golden/golden_dump.cpp)
 set_target_properties(OpponentGolden PROPERTIES CXX_STANDARD 20)
 target_include_directories(OpponentGolden PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearnCPP/src/private")

@@ -17,6 +17,12 @@ namespace GGL {
 	public:
 		std::string name;     // Metric prefix, e.g. "Nexto" -> Nexto/Goals For
 
+		// How the bot picks among its actions. 0 = argmax of its net (the bot as shipped; the default and what the
+		// yardsticks assume). > 0 = sample from softmax(logits / temperature): 1 is the net's own distribution, lower
+		// is closer to argmax. Set by the Learner from ExternalOpponentConfig::sampleTemperature for training serves;
+		// the gauntlet forces 0. Sampling uses torch's global generator (ExternalSampling.h).
+		float temperature = 0.f;
+
 		virtual ~ExternalOpponent() = default;
 
 		// Called once when a serve iteration begins (it picks up arenas mid-episode)

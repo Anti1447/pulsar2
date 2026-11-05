@@ -165,6 +165,10 @@ namespace {
 		};
 		auto a = make(nameA);
 		auto b = make(nameB);
+		if (const char* t = std::getenv("GGL_BOT_TEMPERATURE")) {
+			if (a) a->temperature = (float)std::atof(t);
+			if (b) b->temperature = (float)std::atof(t);
+		}
 		if (!a || !b) return 2;
 
 		pybind11::initialize_interpreter();
@@ -213,8 +217,12 @@ int main(int argc, char** argv) {
 	auto env = MakeEnv(N, suite == "kickoff");
 
 	std::vector<Participant> parts;
+	// GGL_BOT_TEMPERATURE=T: every bot samples from softmax(logits / T) instead of argmax (ExternalOpponent::temperature)
+	const float botTemperature = std::getenv("GGL_BOT_TEMPERATURE") ? (float)std::atof(std::getenv("GGL_BOT_TEMPERATURE")) : 0.f;
 	auto addBot = [&](const std::string& name, std::function<std::shared_ptr<GGL::ExternalOpponent>()> mk) {
-		parts.push_back({ name, mk(), mk() });
+		auto a = mk(), b = mk();
+		a->temperature = b->temperature = botTemperature;
+		parts.push_back({ name, a, b });
 	};
 	addBot("Nexto", [&] { return std::make_shared<GGL::NextoOpponent>("rlbot-run/nexto/nexto-model.pt", dev); });
 	addBot("GalactusV2", [&] { return std::make_shared<GGL::GGLBotOpponent>(GGL::GGLBotKind::GALACTUS_V2, "rlbot-run/galactus_v2", dev); });

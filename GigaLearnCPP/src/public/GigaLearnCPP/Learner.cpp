@@ -331,6 +331,11 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 				externalOpps.push_back(std::make_shared<GGLBotOpponent>(spec.kind == ExternalBotKind::GALACTUS_V2
 					? GGLBotKind::GALACTUS_V2 : GGLBotKind::CHRONOS_V2, spec.path, device));
 		}
+		for (auto& opp : externalOpps)
+			opp->temperature = config.externalOpponent.sampleTemperature;
+		if (!externalOpps.empty())
+			RG_LOG("\tExternal opponents pick actions by " << (config.externalOpponent.sampleTemperature > 0
+				? "sampling at temperature " + std::to_string(config.externalOpponent.sampleTemperature) : std::string("argmax")));
 		externalStats = std::vector<ExternalOpponentStats>(externalOpps.size());
 		for (size_t i = 0; i < externalOpps.size(); i++)
 			externalPlay.push_back(std::make_shared<ExternalPlayStats>());

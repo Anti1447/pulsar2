@@ -65,6 +65,10 @@ namespace GGL {
 	struct ExternalOpponentConfig {
 		std::vector<ExternalBotSpec> bots = {};
 		float serveFrac = 0.15f;     // per-iteration serve probability, shared by all bots
+		// How the bots pick actions on training serves: 0 = argmax (as shipped, what the Goals For/Against yardsticks and
+		// older panels assume); > 0 = sample from softmax(logits / T) for some extra noise (1 = the net's own distribution).
+		// The gauntlet always plays them at argmax.
+		float sampleTemperature = 0.f;
 	};
 
 	// GAUNTLET (docs/Pre_Run_Checklist.md item 8; GauntletEval.h): every everyIterations iterations, fixed-seed 1v1 kickoff
