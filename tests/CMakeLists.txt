@@ -34,6 +34,13 @@ target_include_directories(OpponentRoundRobin PRIVATE "${PROJECT_SOURCE_DIR}/Gig
 target_include_directories(OpponentRoundRobin PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(OpponentRoundRobin GigaLearnCPP ${TORCH_LIBRARIES})
 
+# Observation scale measurement (tools/obs_stats)
+add_executable(ObsStats ../tools/obs_stats/obs_stats.cpp)
+set_target_properties(ObsStats PROPERTIES CXX_STANDARD 20)
+target_include_directories(ObsStats PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearnCPP/src/private")
+target_include_directories(ObsStats PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(ObsStats GigaLearnCPP ${TORCH_LIBRARIES})
+
 # Galactus/Chronos golden test (our side; the reference programs are built by tools/opponent_golden/build_ref.sh)
 add_executable(OpponentGoldenGGL ../tools/opponent_golden/golden_ggl.cpp)
 set_target_properties(OpponentGoldenGGL PROPERTIES CXX_STANDARD 20)
