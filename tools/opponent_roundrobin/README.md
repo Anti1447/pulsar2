@@ -30,20 +30,3 @@ Open **http://localhost:9275/visualizer/visualizer.html** in a browser on Window
 Arguments after the two bots: games (6), `kickoff` or `scrimmage` (the training state mix), speed multiplier (1 = real time), seed.
 The colours swap every game, so both bots are seen on both sides. The log prints each game's result and who touched first.
 In the viewer: left mouse cycles the spectated car, `P` jumps to the car closest to the ball.
-
-## Watch mode (checklist 1.4)
-
-Plays two bots against each other in ONE arena, in real time, and streams every step to the RocketSimVis web viewer:
-
-```bash
-# terminal A: the viewer's web server
-cd ~/pulsar2/tools/viz/RocketSimVisWeb && ../.venv/bin/python -u server.py
-# terminal B (repo root): A vs B, 6 games, kickoff suite, speed 1 (bots: Nexto, GalactusV2, ChronosV2, Random)
-cd ~/pulsar2 && ./build/OpponentRoundRobin watch Nexto GalactusV2 6 kickoff 1
-```
-
-Open **http://localhost:9275/visualizer/visualizer.html** in a browser on Windows (the bare `http://localhost:9275` only lists the folder).
-Arguments after the two bots: games (6), `kickoff` or `scrimmage` (the training state mix), speed multiplier (1 = real time), seed.
-The colours swap every game, so both bots are seen on both sides. The log prints each game's result and who touched first.
-In the viewer: left mouse cycles the spectated car, `P` jumps to the car closest to the ball.
-
