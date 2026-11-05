@@ -129,3 +129,4 @@ Everything else: untested in this repo.
 Suggested audit order (farm risk first, since a bare one-sided positive term breaks the zero-sum invariant by itself):
 Supersonic, RolvWavedash, PitchControlAerial, MultiAirTouch, then the rotation cluster, then the penalties (avoidance and
 early-termination checks), then the one-shot kickoff terms.
+2026-11-05 | Comment-only: replaced the unreachable `mechanic_census` anneal promise on the scaffold weights (ExampleMain.cpp AerialTouch comment, CommonRewards.h) with a pointer to the manual rule in `docs/SCAFFOLD_ANNEAL_PLAN.md`. No weight changed. | Anneal later = by hand, one lever per change, at a checkpoint restart. | n/a

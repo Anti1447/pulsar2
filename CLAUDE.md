@@ -263,11 +263,7 @@ it understated AirIntercept 40→75 and CarEnergy 15→75 and omitted five terms
 
 - **AerialTouch 120 / AirIntercept 75 are SCAFFOLD weights** for 5.0's formative
   aerial window, flagged to anneal back down once aerial-touch share establishes.
-  Don't read them as steady-state values. **Their stated anneal trigger does not
-  exist**: six SCAFFOLD weights totalling ~260 (vs Goal 150) name `mechanic_census`,
-  which measures none of the relevant mechanics and cannot load the live
-  checkpoints — so "anneal later" currently means "never". Either implement it or
-  delete the promise.
+  Don't read them as steady-state values. **Their old anneal trigger (`mechanic_census`) does not exist and is no longer the plan: the live scaffolds are AerialTouch 120, AirIntercept 75, ConsecutiveAirTouch 40, WallJumpToBall 30 (about 265 vs Goal 150; FlipReset is gone). They are annealed BY HAND per `docs/SCAFFOLD_ANNEAL_PLAN.md` (decided 2026-11-05); nothing anneals automatically.
 - **CarEnergyPotential** was 75 (rode uncommitted through two cold starts, UNMEASURED
   on this lineage; extrapolated near 60% of per-step credit density) and is now 25
   (2026-11-04). Re-measure its credit share before raising it.

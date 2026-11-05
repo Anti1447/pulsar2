@@ -228,7 +228,7 @@ namespace RLGC {
 	// cooldown so a tight juggle can't rack it up. Zero-sum wrapped like every event
 	// term. The residual farm (ceiling-ball juggling for resets) advances the ball
 	// nowhere, so B2G/Goal/TimeCost dominate its gradient once scoring exists.
-	// SCAFFOLD weight - anneal once mechanic_census shows a stable flip-reset rate.
+	// SCAFFOLD weight (FlipReset is no longer in the stack). Anneal rule: docs/SCAFFOLD_ANNEAL_PLAN.md.
 	class FlipResetReward : public Reward {
 	public:
 		constexpr static float BALL_MIN_Z = 500;             // genuinely aerial

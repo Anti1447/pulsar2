@@ -130,8 +130,8 @@ ConsecutiveAirTouch/WallJumpToBall were raised from 30/30 and are unmeasured at 
 
 **Open (two):** `CarEnergy` was `15 → 75` (unmeasured; extrapolation from `REWARD_SHAPING.md` put it near 60% of per-step credit density) and was set to 25 on 2026-11-04 as a cautious baseline; its measured credit share is still to be checked. And six SCAFFOLD weights
 totalling ~260 (vs Goal 150) name `mechanic_census` as their anneal trigger; that metric measures
-none of the relevant mechanics and cannot load the live checkpoints, so "anneal later" currently
-means "never".
+none of the relevant mechanics and cannot load the live checkpoints. **Resolved 2026-11-05:** "anneal later" now means the manual rule in
+`docs/SCAFFOLD_ANNEAL_PLAN.md` (the live scaffolds are AerialTouch 120, AirIntercept 75, ConsecutiveAirTouch 40, WallJumpToBall 30, about 265).
 
 ## 9. Known-broken
 
@@ -164,7 +164,7 @@ binary still creates a ~282 MB context at boot.
 2. **Composite injection budget** (§3) — should both injectors match the same pre-injection σ?
 3. **Reachability car-state head** (§6) — instrumentation, or strip?
 4. **`CarEnergy 75`** (§8) — measure and justify, or walk back?
-5. **SCAFFOLD anneal triggers** (§8) — implement `mechanic_census`, or delete the promise?
+5. **SCAFFOLD anneal triggers** (§8) — DECIDED 2026-11-05: manual, pre-registered rule in `docs/SCAFFOLD_ANNEAL_PLAN.md`; no automatic trigger.
 6. **Offline toolkit** (§9) — repair properly, or accept it as 5.0v3-only?
 7. **Rename `steering.enabled`** (§4) — it no longer steers anything.
 8. **Accept the no-guard posture** (§10), or re-introduce something narrower than the old latch?

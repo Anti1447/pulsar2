@@ -219,7 +219,7 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// drills produce accidental aerial touches from birth; this weight decides
 		// how hard each accident is reinforced during the formative window. Zero-sum,
 		// impulse-scaled, 0.8s cooldown - bounded and unfarmable in sum. ANNEAL LATER:
-		// once aerial-touch share establishes (PULSAR5.md), step back toward 50 so the
+		// once aerial-touch share establishes (see docs/SCAFFOLD_ANNEAL_PLAN.md: a manual, pre-registered rule; no automatic trigger exists), step back toward 50 so the
 		// mature style isn't permanently air-warped.
 		{ new ZeroSumReward(new AerialTouchReward(), TEAM_SPIRIT), 120.f },
 
