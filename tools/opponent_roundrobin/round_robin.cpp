@@ -14,10 +14,10 @@
 // Usage (repo root):  ./build/OpponentRoundRobin <kickoff|scrimmage> [N=200] [seed=20261105] [out.md] [players per team=1]
 // With 2 or 3 players per team each side is ONE bot controlling the whole team (exercises team-size handling).
 //
-// Watch mode (checklist 1.4):  ./build/OpponentRoundRobin watch <A> <B> [games=6] [kickoff|scrimmage] [speed=1] [seed]
+// Watch mode (checklist 1.4):  ./build/OpponentRoundRobin watch <A> <B> [games=6] [kickoff|scrimmage] [speed=1] [seed] [fixed]
 // plays A against B on ONE arena in real time and streams every step to the RocketSimVis web viewer (start
 // tools/viz/RocketSimVisWeb/server.py and open http://localhost:9275). A bot is Nexto, GalactusV2, ChronosV2 or Random.
-// The colours swap every game, so both bots are seen on both sides.
+// The colours swap every game (both bots are seen on both sides) unless the last argument is `fixed`: A stays blue, B orange.
 #include <GigaLearnCPP/ExternalOpponent.h>
 #include <GigaLearnCPP/NextoOpponent.h>
 #include <GigaLearnCPP/GGLBotOpponent.h>
@@ -138,7 +138,7 @@ namespace {
 	// Watch mode: two bots on one arena, streamed to the viewer
 	int RunWatch(int argc, char** argv) {
 		if (argc < 4) {
-			std::cerr << "usage: OpponentRoundRobin watch <A> <B> [games=6] [kickoff|scrimmage] [speed=1] [seed]" << std::endl;
+			std::cerr << "usage: OpponentRoundRobin watch <A> <B> [games=6] [kickoff|scrimmage] [speed=1] [seed] [fixed]" << std::endl;
 			return 2;
 		}
 		std::string nameA = argv[2], nameB = argv[3];
@@ -146,6 +146,7 @@ namespace {
 		std::string suite = argc > 5 ? argv[5] : "kickoff";
 		float speed = argc > 6 ? (float)std::atof(argv[6]) : 1.f;
 		unsigned seed = argc > 7 ? (unsigned)std::stoul(argv[7]) : 20261105;
+		bool fixedColours = argc > 8 && std::string(argv[8]) == "fixed"; // A stays blue, B stays orange
 		if (suite != "kickoff" && suite != "scrimmage") { std::cerr << "suite: kickoff | scrimmage" << std::endl; return 2; }
 
 		for (const char* path : { "collision_meshes", "../collision_meshes", "build/collision_meshes" })
@@ -173,7 +174,7 @@ namespace {
 		int winsA = 0, winsB = 0, draws = 0;
 		for (int g = 0; g < games; g++) {
 			// Even games: A is blue. Odd games: B is blue. The viewer shows blue on the left.
-			bool aBlue = (g % 2) == 0;
+			bool aBlue = fixedColours || (g % 2) == 0;
 			RocketSim::Math::GetRandEngine().seed(seed + g);
 			GGL::MatchConfig mc;
 			mc.playersPerTeam = g_perTeam;

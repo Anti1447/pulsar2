@@ -28,5 +28,5 @@ cd ~/pulsar2 && ./build/OpponentRoundRobin watch Nexto GalactusV2 6 kickoff 1
 
 Open **http://localhost:9275/visualizer/visualizer.html** in a browser on Windows (the bare `http://localhost:9275` only lists the folder).
 Arguments after the two bots: games (6), `kickoff` or `scrimmage` (the training state mix), speed multiplier (1 = real time), seed.
-The colours swap every game, so both bots are seen on both sides. The log prints each game's result and who touched first.
+The colours swap every game, so both bots are seen on both sides; add `fixed` as the last argument (`... kickoff 1 20261105 fixed`) to keep A blue and B orange. The log prints each game's result and who touched first.
 In the viewer: left mouse cycles the spectated car, `P` jumps to the car closest to the ball.
