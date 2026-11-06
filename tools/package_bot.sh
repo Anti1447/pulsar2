@@ -101,7 +101,7 @@ else
 fi
 CK_NAME="$(basename "$CKPT")"
 # 6.0's nets read the ball-prediction obs (278 wide): the launcher sets GGL_BALLPRED=1 so the client builds it (src/RLBotMain.cpp).
-BALLPRED=0; [ "$(basename "$(dirname "$CKPT")")" = checkpoints_6.0 ] && BALLPRED=1
+BALLPRED=0; case "$(basename "$(dirname "$CKPT")")" in checkpoints_6.0|checkpoints_6.1) BALLPRED=1;; esac
 RATING_MODE=1v1
 if [[ "$CK_NAME" =~ ^best(2v2|3v3)?_r(-?[0-9]+)_([0-9]+)$ ]]; then
 	RATING_MODE="${BASH_REMATCH[1]:-1v1}"; RATING="${BASH_REMATCH[2]}"; STEP="${BASH_REMATCH[3]}"

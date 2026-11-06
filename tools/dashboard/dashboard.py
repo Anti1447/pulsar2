@@ -33,7 +33,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 BUILD = REPO / "build"
 LOGS = REPO / "run_logs"
-CKPT_NAME = "checkpoints_6.0"
+CKPT_NAME = "checkpoints_6.1"
 # Packaging: the RLBot client builds the 6.0 ball-prediction obs itself (src/RLBotClient.cpp); package_bot.sh reads CKPT_DIR.
 RUN_SH = REPO / "tools" / "run_trainer.sh"
 WANDB_PROJECT = "gigalearncpp"

@@ -245,7 +245,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 
 		// VERIFIED SHOT (2026-11-05, user-directed weight 10): +1 to the engine-credited shooter, only when that player was also the last
 		// car to touch the ball (no own-net phantom shots). ZeroSum charges the other team. Not yet audited in the Lab.
-		{ new ZeroSumReward(new VerifiedShotReward(), TEAM_SPIRIT), 10.f },
+		// 2026-11-05 Updated weight to match OpposedSaveReward at 25.f
+		{ new ZeroSumReward(new VerifiedShotReward(), TEAM_SPIRIT), 25.f },
 
 		// TEMPO CREDIT (2026-07-16, user-directed; see CarEnergyPotentialReward for the
 		// full farm-proof): total mechanical energy as exact PBRS - instant local
@@ -299,7 +300,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-02 (docs/REWARD_CHANGE_LOG.md); re-enable by restoring the line below at weight 60 and re-reading the log.
 		// 2026-11-05 Uncommented after 1.5B steps of Phase A, bot can hit the ball consistently now.
 		// 2026-11-05 decreased weight from 40 down to 20. adding KickoffOutcomeReward at 20.f
-		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 20.f },
+		// 2026-11-05 decreased weight from 20 down to 10. updated KickoffOutcomeReward weight to 30.f
+		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 10.f },
 
 		// CONSECUTIVE AIR TOUCHES (2026-10-27): chain of airborne touches without landing
 		// (aerial dribble / juggle). Exact PBRS: Phi = 1 - exp(-(streak-1)/2); landing refunds
@@ -333,7 +335,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// ======================================================================================
 		// -- Kickoff
 		// Uncommented KickoffOutcomeReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 20.f weight. 
-		{ new KickoffOutcomeReward(), 20.f },                    // v3 Gold 12 (Silver 20). static metrics. Overlaps KickoffRaceReward.
+		// Increased weight from 20.f to 30.f on 2026-11-05 after 1.75B steps of Phase A, KickoffRaceReward seems less good.
+		{ new KickoffOutcomeReward(), 30.f },                    // v3 Gold 12 (Silver 20). static metrics. Overlaps KickoffRaceReward.
 		// ^ audited and fixed 2026-11-03 (possession by latest touch step, contested gate, standoff 3.5 s). DELIBERATELY OFF: add it only
 		//   after the bot hits the ball and scores, because a random policy sits in standoff and would eat a flat -0.6 x weight per kickoff.
 		// { new KickoffStandoffPenalty(), 70.f },                  // v3 Gold 70 (Diamond 300). terminal-step only; static metrics.
@@ -361,11 +364,14 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// -- Dribble / flick. v3 Gold: Dribble and CatchBallOnCar DISABLED (live in Plat: 2.0 / 0.8); DribbleMastery, Flick, AdvancedFlick live.
 		// { new ZeroSumReward(new DribbleReward(), TEAM_SPIRIT), 0.5f },
 		// Uncommented DribbleMasteryReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.5f weight.
-		{ new ZeroSumReward(new DribbleMasteryReward(), TEAM_SPIRIT), 0.5f },
+		// Commented out DribbleMasteryReward on 2026-11-05 - too easy to farm at this weight.
+		// { new ZeroSumReward(new DribbleMasteryReward(), TEAM_SPIRIT), 0.5f },
 		// Uncommented CatchBallOnCarReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.5f weight.
-		{ new ZeroSumReward(new CatchBallOnCarReward(), TEAM_SPIRIT), 0.5f },
+		// Commented out CatchBallOnCarReward on 2026-11-05 - too easy to farm at this weight.
+		// { new ZeroSumReward(new CatchBallOnCarReward(), TEAM_SPIRIT), 0.5f },
 		// Uncommented FlickReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 10.f weight.
-		{ new ZeroSumReward(new FlickReward(), TEAM_SPIRIT), 10.f },
+		// Commented out FlickReward on 2026-11-05 - too easy to farm at this weight.
+		// { new ZeroSumReward(new FlickReward(), TEAM_SPIRIT), 10.f },
 		// { new ZeroSumReward(new AdvancedFlickReward(), 0.3f), 5.f },
 		// -- Movement / aerial
 		// RETIRED 2026-11-01: SupersonicReward - speed/energy is already priced by CarEnergyPotentialReward. Do not re-enable (bare positive income term; see docs/reward_scenarios/SupersonicReward_2026-11-01.md).
@@ -1301,8 +1307,11 @@ int main(int argc, char* argv[]) {
 	// 6.0 (2026-11-01): the ball-prediction obs (g_BallPredObs; 230 -> 278 wide) is a shape break in every net's
 	// first layer, so a fresh lineage from step 0 on 5.3's config, with GalactusV2 + ChronosV2 in place of Nexto
 	// (below). checkpoints_5.3 stays intact (and still seeds/feeds the GCO lineage, which keeps the 5.3 obs).
-	cfg.checkpointFolder = "checkpoints_6.0";
-	cfg.metricsRunName = "6.0-ballpred";
+	// 6.1 (2026-11-06): fresh lineage on the corrected RocketSim 0.3.5 engine (car-ball hit impulse fixed); 6.0 was trained on the old weak-hit
+	// physics and stays intact as the restore point. Same obs/net as 6.0, so package_bot treats it as ball-pred.
+
+	cfg.checkpointFolder = "checkpoints_6.1";
+	cfg.metricsRunName = "6.1-rs035";
 
 	// A smoke MUST NOT be able to masquerade as the real run in wandb. Three sandbox smokes on
 	// 2026-07-25 landed in the shared project under this exact display name, indistinguishable
