@@ -10,6 +10,10 @@
 #include <RLGymCPP/ObsBuilders/ObsBuilder.h>
 #include <RLGymCPP/ActionParsers/ActionParser.h>
 #include <GigaLearnCPP/Util/InferUnit.h>
+#include <RLGymCPP/ObsBuilders/AdvancedObsPadded.h>
+#include <RLGymCPP/Gamestates/BallPredictor.h>
+
+#include <memory>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -20,6 +24,12 @@ struct RLBotParams {
 	int actionDelay; // Your action delay
 
 	GGL::InferUnit* inferUnit = nullptr;
+
+	// 6.0 (ball-prediction obs): the builder the InferUnit uses, and its slice count (0 = the 5.3 obs, no prediction).
+	// The client predicts the ball itself with RocketSim's BallPredictor, exactly like training, instead of requesting
+	// RLBot's prediction (that flooded the socket and is a different physics engine from the one the net trained on).
+	RLGC::AdvancedObsPadded* obsBuilder = nullptr;
+	int ballPredSlices = 0;
 };
 
 // The BotManager only ever calls a fixed (indices, team, name) constructor, so the
@@ -49,6 +59,9 @@ private:
 		int ticks = -1;
 	};
 	std::unordered_map<unsigned, CarCtx> ctxByIndex;
+
+	std::unique_ptr<RLGC::BallPredictor> ballPredictor; // created on first use (needs RocketSim::Init to have run)
+	uint64_t tickCount = 0;                             // 120 Hz ticks since this bot started, the predictor's clock
 
 	float prevTime = 0; // secondsElapsed of the previous packet (shared across this bot's cars)
 };

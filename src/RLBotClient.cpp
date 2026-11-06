@@ -109,7 +109,7 @@ static GameState ToGameState(const rlbot::flat::GamePacket* packet) {
 void RLBotBot::update(
 	rlbot::flat::GamePacket const* packet,
 	rlbot::flat::BallPrediction const* ballPrediction) noexcept {
-	(void)ballPrediction;
+	(void)ballPrediction; // unused: the ball is predicted locally (RLBotParams::obsBuilder)
 
 	if (!params.inferUnit)
 		return;
@@ -120,6 +120,8 @@ void RLBotBot::update(
 	prevTime = curTime;
 
 	int ticksElapsed = (int)roundf(deltaTime * 120);
+	if (ticksElapsed > 0)
+		tickCount += (uint64_t)ticksElapsed;
 
 	GameState gs = ToGameState(packet);
 
@@ -140,6 +142,18 @@ void RLBotBot::update(
 
 		if (ctx.updateAction) {
 			ctx.updateAction = false;
+			if (params.obsBuilder && params.ballPredSlices > 0) {
+				// The same 8 slices training builds: pred[i * 30] for i = 1..8, from RocketSim's own ball simulation
+				// (AdvancedObsPadded::AddBallPredToObs), fed to the builder as external slices because this state has no arena.
+				constexpr int SLICE_TICKS = RLGC::AdvancedObsPadded::BALL_PRED_SLICE_TICKS;
+				if (!ballPredictor)
+					ballPredictor = std::make_unique<RLGC::BallPredictor>(GameMode::SOCCAR, params.ballPredSlices * SLICE_TICKS + 1);
+				ballPredictor->Update(gs.ball, tickCount);
+				std::vector<PhysState> slices;
+				for (int i = 1; i <= params.ballPredSlices; i++)
+					slices.push_back(ballPredictor->pred[(size_t)i * SLICE_TICKS]);
+				params.obsBuilder->SetExternalBallPred(slices);
+			}
 			ctx.action = params.inferUnit->InferAction(localPlayer, gs, true);
 		}
 
