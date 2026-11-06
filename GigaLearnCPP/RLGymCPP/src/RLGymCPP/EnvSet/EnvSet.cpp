@@ -93,7 +93,9 @@ RLGC::EnvSet::EnvSet(const EnvSetConfig& config) : config(config) {
 			eventTrackers[idx] = tracker;
 
 			tracker->SetShotCallback(_ShotEventCallback, userInfo);
+#ifdef RG_ROCKETSIM_V3 // the verified-shot event exists only in the v3 compat tracker
 			tracker->SetVerifiedShotCallback(_VerifiedShotEventCallback, userInfo);
+#endif
 			tracker->SetGoalCallback(_GoalEventCallback, userInfo);
 			tracker->SetSaveCallback(_SaveEventCallback, userInfo);
 		} else {

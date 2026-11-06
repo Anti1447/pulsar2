@@ -61,7 +61,11 @@ void ArenaSnapshot::CaptureFrom(Arena* arena) {
 		cs.team = car->team;
 		CaptureCar(car, cs.state, cs.engineExtra);
 		cs.controls = car->controls;
+#ifdef RG_ROCKETSIM_V3
 		cs.ballHitInfo = car->_ballHitInfo;
+#else
+		cs.ballHitInfo = car->_internalState.ballHitInfo; // v2 engine
+#endif
 		cars.push_back(cs);
 	}
 
@@ -88,8 +92,10 @@ bool ArenaSnapshot::ApplyTo(Arena* arena) const {
 	rsf_arena_set_rng_state(arena->_rs, rngState);
 #endif
 
+	// v2 keeps _cars in an unordered_set (no indexing): snapshot ids are matched below, so index order is the iteration order
+	std::vector<Car*> carList(arena->_cars.begin(), arena->_cars.end());
 	for (size_t i = 0; i < cars.size(); i++) {
-		Car* car = arena->_cars[i];
+		Car* car = carList[i];
 		// Cars are never added or removed while the viewer runs, so index order is
 		// stable; the id check is a cheap guard against that assumption changing.
 		if (car->id != cars[i].id)
@@ -99,7 +105,11 @@ bool ArenaSnapshot::ApplyTo(Arena* arena) const {
 		// on top of whatever action the pre-seek policy had queued.
 		car->controls = cars[i].controls;
 		ApplyCar(car, cars[i].state, cars[i].engineExtra);
+#ifdef RG_ROCKETSIM_V3
 		car->_ballHitInfo = cars[i].ballHitInfo;
+#else
+		car->_internalState.ballHitInfo = cars[i].ballHitInfo;
+#endif
 	}
 
 	for (size_t i = 0; i < pads.size(); i++) {
