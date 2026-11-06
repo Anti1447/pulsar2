@@ -174,11 +174,12 @@ static float TEAM_SPIRIT = 0.3f;
 // Whole-stack invariant: every component is exactly zero-sum or antisymmetric (nothing gated) ->
 // the stack sums to 0 across both players every step, so PSD probe fitness is a pure competitive
 // margin instead of being dominated by farmable per-player income. No PBRS is ever gated (breaks
-// telescoping). ShotReward is deliberately NOT used: GameEventTracker's shot detector attributes
+// telescoping). The plain ShotReward is deliberately NOT used: GameEventTracker's shot detector attributes
 // the shooter as the team OPPOSITE the threatened net, so a solo player blasting the ball at their
-// OWN net (after any opponent touch) arms a phantom shot credited to the opponent - a red-teamed,
-// source-verified exploit (GameEventTracker.cpp). OpposedSaveReward below closes the matching
-// self-save farm with a last-touch guard instead.
+// OWN net (after any opponent touch) arms a phantom shot credited to the opponent. VerifiedShotReward
+// (2026-11-05) replaces it: same detector, but only paid when the credited shooter was also the LAST car
+// to touch the ball (GameEventTracker verified-shot event). OpposedSaveReward additionally closes the
+// matching self-save farm with a last-touch guard.
 std::vector<WeightedReward> BuildRewards(float gamma) {
 	return {
 		// ---- Proven core: bit-identical economics to the 1132-Elo run -------------
@@ -237,10 +238,14 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 
 
 		// THE defensive signal (the stack's first): engine-refereed save, guarded so only
-		// genuinely opponent-created shots pay. Deliberately NO paired ShotReward (see file header
-		// - phantom-farmable). UNGATED - the gate's attack-oriented level is lowest exactly in the
+		// genuinely opponent-created shots pay. Its offensive counterpart is VerifiedShotReward below (plain
+		// ShotReward is phantom-farmable, see file header). UNGATED - the gate's attack-oriented level is lowest exactly in the
 		// own-half states where saves fire.
 		{ new ZeroSumReward(new OpposedSaveReward(), TEAM_SPIRIT), 25.f },
+
+		// VERIFIED SHOT (2026-11-05, user-directed weight 10): +1 to the engine-credited shooter, only when that player was also the last
+		// car to touch the ball (no own-net phantom shots). ZeroSum charges the other team. Not yet audited in the Lab.
+		{ new ZeroSumReward(new VerifiedShotReward(), TEAM_SPIRIT), 10.f },
 
 		// TEMPO CREDIT (2026-07-16, user-directed; see CarEnergyPotentialReward for the
 		// full farm-proof): total mechanical energy as exact PBRS - instant local
@@ -293,7 +298,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// kickoff terms do not give an early strong signal (ZeroSum charges the loser of every contested race). Audited and fixed
 		// 2026-11-02 (docs/REWARD_CHANGE_LOG.md); re-enable by restoring the line below at weight 60 and re-reading the log.
 		// 2026-11-05 Uncommented after 1.5B steps of Phase A, bot can hit the ball consistently now.
-		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 40.f },
+		// 2026-11-05 decreased weight from 40 down to 20. adding KickoffOutcomeReward at 20.f
+		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 20.f },
 
 		// CONSECUTIVE AIR TOUCHES (2026-10-27): chain of airborne touches without landing
 		// (aerial dribble / juggle). Exact PBRS: Phi = 1 - exp(-(streak-1)/2); landing refunds
@@ -326,16 +332,22 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// static atomic counters that nothing in pulsar reads yet.
 		// ======================================================================================
 		// -- Kickoff
-		// { new KickoffOutcomeReward(), 12.f },                    // v3 Gold 12 (Silver 20). static metrics. Overlaps KickoffRaceReward.
+		// Uncommented KickoffOutcomeReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 20.f weight. 
+		{ new KickoffOutcomeReward(), 20.f },                    // v3 Gold 12 (Silver 20). static metrics. Overlaps KickoffRaceReward.
 		// ^ audited and fixed 2026-11-03 (possession by latest touch step, contested gate, standoff 3.5 s). DELIBERATELY OFF: add it only
 		//   after the bot hits the ball and scores, because a random policy sits in standoff and would eat a flat -0.6 x weight per kickoff.
 		// { new KickoffStandoffPenalty(), 70.f },                  // v3 Gold 70 (Diamond 300). terminal-step only; static metrics.
 		// -- Positioning penalties. Offside and TooFar apply in 1v1 too (no teammate => offside is never "covered", so the full penalty applies; TooFar has a 1v1 threshold). Only TeammateSpacing is team-only.
-		// { new OffsidePenalty(), 0.3f },                          // v3 Gold 0.3. raw range [-6,0] so worst case -1.8/step.
-		// { new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.3f },  // v3 Gold 0.3 (thresholds 1v1/2v2/3v3, ramp half-width).
-		// { new TeammateSpacingPenalty(1000.f, 1500.f), 3.f },     // v3 Gold 3.0 (thresholds 2v2/3v3). Team only: returns 0 in 1v1.
+		// Uncommented OffsidePenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.2f weight.
+		{ new OffsidePenalty(), 0.2f },                          // v3 Gold 0.3. raw range [-6,0] so worst case -1.8/step.
+		// Uncommented TooFarFromTheBallPenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.2f weight.
+		{ new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.2f },  // v3 Gold 0.3 (thresholds 1v1/2v2/3v3, ramp half-width).
+		// Uncommented TeammateSpacingPenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 1.f weight in preparation for Phase B. 
+		// The 1v1 case is inert by construction (returns 0).
+		{ new TeammateSpacingPenalty(1000.f, 1500.f), 1.f },     // v3 Gold 3.0 (thresholds 2v2/3v3). Team only: returns 0 in 1v1.
 		// -- Scoring / touch
-		// { new ZeroSumReward(new GoalSpeedReward(), 0.3f), 300.f },  // v3 Gold 300 (Plat 120, Diamond 70, spirit 1.0). Needs eventState.goal from the GameEventTracker facade - unverified. static metrics.
+		// Uncommented GoalSpeedReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 50.f weight. (1/3 of a goal)
+		{ new ZeroSumReward(new GoalSpeedReward(), TEAM_SPIRIT), 50.f },  // v3 Gold 300 (Plat 120, Diamond 70, spirit 1.0). Needs eventState.goal from the GameEventTracker facade - unverified. static metrics.
 		// { new ZeroSumReward(new TouchBallToGoalAccelReward(), 0.3f), 30.f },  // v3 Gold 30; v3 used it INSTEAD OF TouchAccelReward - pulsar has TouchAccel (10) live, so they overlap.
 		// -- Rotation (team). ProgressiveRotation wraps Retreat + InstantSpacing + RoleAwareness, so it overlaps the three below it; v3 Gold ran all at 3.
 		// { new ActiveSupportingPositionReward(), 3.f },           // v3 Gold 3 (Plat 7). 2v2+ only (game size >= 4). static metrics shared across instances.
@@ -347,14 +359,18 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// { new ZeroSumReward(new PassingSetupReward(), 0.5f), 15.f },
 		// { new ZeroSumReward(new ReceivingPassReward(), 0.5f), 15.f },
 		// -- Dribble / flick. v3 Gold: Dribble and CatchBallOnCar DISABLED (live in Plat: 2.0 / 0.8); DribbleMastery, Flick, AdvancedFlick live.
-		// { new ZeroSumReward(new DribbleReward(), 0.0f), 1.5f },
-		// { new ZeroSumReward(new DribbleMasteryReward(), 0.3f), 0.5f },
-		// { new ZeroSumReward(new CatchBallOnCarReward(), 0.0f), 0.5f },
-		// { new ZeroSumReward(new FlickReward(), 0.3f), 10.f },
+		// { new ZeroSumReward(new DribbleReward(), TEAM_SPIRIT), 0.5f },
+		// Uncommented DribbleMasteryReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.5f weight.
+		{ new ZeroSumReward(new DribbleMasteryReward(), TEAM_SPIRIT), 0.5f },
+		// Uncommented CatchBallOnCarReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.5f weight.
+		{ new ZeroSumReward(new CatchBallOnCarReward(), TEAM_SPIRIT), 0.5f },
+		// Uncommented FlickReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 10.f weight.
+		{ new ZeroSumReward(new FlickReward(), TEAM_SPIRIT), 10.f },
 		// { new ZeroSumReward(new AdvancedFlickReward(), 0.3f), 5.f },
 		// -- Movement / aerial
 		// RETIRED 2026-11-01: SupersonicReward - speed/energy is already priced by CarEnergyPotentialReward. Do not re-enable (bare positive income term; see docs/reward_scenarios/SupersonicReward_2026-11-01.md).
-		// { new RolvWavedashReward(), 20.f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
+		// Uncommented RolvWavedashReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 3.f weight.
+		{ new RolvWavedashReward(), 3.f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
 		// { new ZeroSumReward(new PitchControlAerialReward(), 0.3f), 12.f },   // v3 Gold 12. needs a jump/pitch/second-jump sequence within 0.55s: check at tickSkip 8.
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live.
 		// { new ZeroSumReward(new UnifiedAirDribbleReward(), 0.3f), 40.f },    // v3 Plat 40 (not in Gold). Needs state.ballPred; 2.0s horizon (v3: 4s). UNTESTED.
