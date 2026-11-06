@@ -13,8 +13,8 @@ use std::os::raw::{c_char, c_int};
 
 use glam::{Mat3A, Vec3A};
 use rocketsim::{
-    Arena, ArenaConfig, ArenaEvent, BallState, BoostPadState, CarBodyConfig, CarControls,
-    CarExtraState, CarState, GameMode, Team,
+    Arena, ArenaConfig, ArenaEvent, BallState, BoostPadState, CarBodyConfig, CarControls, CarCore,
+    CarState, CarTuning, GameMode, Team,
 };
 
 // A Rust panic aborts (panic="abort") rather than unwinding into C++; arena
@@ -165,14 +165,17 @@ impl From<&CarState> for RsfCarState {
                 ang_vel: s.phys.ang_vel.into(),
             },
             controls: s.controls.into(),
-            prev_controls: s.prev_controls.into(),
-            is_on_ground: s.is_on_ground as u8,
-            wheels_with_contact: s.wheels_with_contact.map(|b| b as u8),
+            prev_controls: (*s.prev_controls()).into(),
+            is_on_ground: s.is_on_ground() as u8,
+            wheels_with_contact: {
+                let w = s.wheels_with_contact();
+                [w[0].is_some() as u8, w[1].is_some() as u8, w[2].is_some() as u8, w[3].is_some() as u8]
+            },
             has_jumped: s.has_jumped as u8,
             has_double_jumped: s.has_double_jumped as u8,
             has_flipped: s.has_flipped as u8,
             flip_rel_torque: s.flip_rel_torque.into(),
-            jump_time: s.jump_time,
+            jump_time: s.jump_time(),
             flip_time: s.flip_time,
             is_flipping: s.is_flipping as u8,
             is_jumping: s.is_jumping as u8,
@@ -189,8 +192,8 @@ impl From<&CarState> for RsfCarState {
             auto_flip_timer: s.auto_flip_timer,
             auto_flip_torque_scale: s.auto_flip_torque_scale,
             bump_cooldown_timer: s.bump_cooldown_timer,
-            has_world_contact: s.world_contact_normal.is_some() as u8,
-            world_contact_normal: s.world_contact_normal.unwrap_or(Vec3A::ZERO).into(),
+            has_world_contact: s.world_contact_normal().is_some() as u8,
+            world_contact_normal: s.world_contact_normal().unwrap_or(Vec3A::ZERO).into(),
             is_demoed: s.is_demoed as u8,
             demo_respawn_timer: s.demo_respawn_timer,
         }
@@ -199,7 +202,7 @@ impl From<&CarState> for RsfCarState {
 
 impl From<&RsfCarState> for CarState {
     fn from(s: &RsfCarState) -> Self {
-        CarState {
+        let core = CarCore {
             phys: rocketsim::PhysState {
                 pos: s.phys.pos.into(),
                 rot_mat: s.phys.rot_mat.into(),
@@ -207,35 +210,38 @@ impl From<&RsfCarState> for CarState {
                 ang_vel: s.phys.ang_vel.into(),
             },
             controls: s.controls.into(),
-            prev_controls: s.prev_controls.into(),
-            is_on_ground: s.is_on_ground != 0,
-            wheels_with_contact: s.wheels_with_contact.map(|b| b != 0),
             has_jumped: s.has_jumped != 0,
             has_double_jumped: s.has_double_jumped != 0,
             has_flipped: s.has_flipped != 0,
             flip_rel_torque: s.flip_rel_torque.into(),
-            jump_time: s.jump_time,
+            // v3 0.3.x keeps an integer tick counter; jump_time() is derived from it
+            jump_ticks: (s.jump_time / rocketsim::consts::TICK_TIME).round().max(0.0) as u32,
             flip_time: s.flip_time,
             is_flipping: s.is_flipping != 0,
             is_jumping: s.is_jumping != 0,
-            air_time: s.air_time,
             air_time_since_jump: s.air_time_since_jump,
             boost: s.boost,
-            time_since_boosted: s.time_since_boosted,
-            is_boosting: s.is_boosting != 0,
-            boosting_time: s.boosting_time,
-            is_supersonic: s.is_supersonic != 0,
-            supersonic_grace_timer: s.supersonic_grace_timer,
-            handbrake_val: s.handbrake_val,
             is_auto_flipping: s.is_auto_flipping != 0,
             auto_flip_timer: s.auto_flip_timer,
             auto_flip_torque_scale: s.auto_flip_torque_scale,
             bump_cooldown_timer: s.bump_cooldown_timer,
-            world_contact_normal: (s.has_world_contact != 0)
-                .then(|| s.world_contact_normal.into()),
             is_demoed: s.is_demoed != 0,
             demo_respawn_timer: s.demo_respawn_timer,
-        }
+            ..CarCore::DEFAULT
+        };
+        let tuning = CarTuning {
+            handbrake_val: s.handbrake_val,
+            is_supersonic: s.is_supersonic != 0,
+            supersonic_grace_timer: s.supersonic_grace_timer,
+            time_since_boosted: s.time_since_boosted,
+            boosting_time: s.boosting_time,
+            is_boosting: s.is_boosting != 0,
+            air_time: s.air_time,
+        };
+        let mut state = CarState::from(core).with_tuning(tuning);
+        state.set_contact_flags(s.is_on_ground != 0, s.wheels_with_contact.map(|b| b != 0));
+        state.set_prev_controls(s.prev_controls.into());
+        state
     }
 }
 
@@ -365,12 +371,14 @@ pub unsafe extern "C" fn rsf_arena_step(p: *mut FfiArena, ticks: u32) {
     for _ in 0..ticks {
         let tick = fa.arena.tick_count();
         for ev in fa.arena.step_tick() {
-            fa.events.push(convert_event(ev, tick));
+            if let Some(e) = convert_event(ev, tick) {
+                fa.events.push(e);
+            }
         }
     }
 }
 
-fn convert_event(ev: &ArenaEvent, tick: u64) -> RsfEvent {
+fn convert_event(ev: &ArenaEvent, tick: u64) -> Option<RsfEvent> {
     let mut out = RsfEvent {
         kind: 0,
         a: 0,
@@ -410,8 +418,10 @@ fn convert_event(ev: &ArenaEvent, tick: u64) -> RsfEvent {
             out.pos = e.contact_point.into();
             out.extra = e.contact_normal.into();
         }
+        // v3 0.3.x event with no C++ counterpart (no reward or tracker reads it)
+        _ => return None,
     }
-    out
+    Some(out)
 }
 
 /// Returns number of events written (<= cap); total available regardless of cap
@@ -451,7 +461,7 @@ pub unsafe extern "C" fn rsf_arena_set_car_state(
     s: *const RsfCarState,
 ) {
     let state: CarState = unsafe { &*s }.into();
-    unsafe { arena(p) }.arena.set_car_state(idx as usize, state);
+    unsafe { arena(p) }.arena.set_car_state_full(idx as usize, state);
 }
 
 // -- Exact-restore extras ----------------------------------------------------
@@ -468,7 +478,7 @@ pub unsafe extern "C" fn rsf_arena_set_car_state(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rsf_car_extra_state_size() -> u32 {
-    size_of::<CarExtraState>() as u32
+    size_of::<CarState>() as u32
 }
 
 #[unsafe(no_mangle)]
@@ -477,8 +487,8 @@ pub unsafe extern "C" fn rsf_arena_get_car_extra_state(
     idx: u32,
     out: *mut std::ffi::c_void,
 ) {
-    let s = unsafe { arena(p) }.arena.get_car_extra_state(idx as usize);
-    unsafe { std::ptr::write_unaligned(out.cast::<CarExtraState>(), s) };
+    let s = *unsafe { arena(p) }.arena.get_car_state(idx as usize);
+    unsafe { std::ptr::write_unaligned(out.cast::<CarState>(), s) };
 }
 
 #[unsafe(no_mangle)]
@@ -487,10 +497,37 @@ pub unsafe extern "C" fn rsf_arena_set_car_extra_state(
     idx: u32,
     s: *const std::ffi::c_void,
 ) {
-    let state = unsafe { std::ptr::read_unaligned(s.cast::<CarExtraState>()) };
+    let state = unsafe { std::ptr::read_unaligned(s.cast::<CarState>()) };
     unsafe { arena(p) }
         .arena
-        .set_car_extra_state(idx as usize, &state);
+        .set_car_state_full(idx as usize, state);
+}
+
+// Whole-arena snapshots. RocketSim 0.3.x derives a car's wheel/suspension history, the sticky-contact gate and pending body impulses
+// from Bullet state that CarState does not expose, so a per-field restore cannot rewind exactly (the old CarExtraState blob is gone).
+// Arena is Clone: the clone carries the full physics state (static meshes stay shared), RNG, contact history and pending events.
+
+pub struct FfiArenaSnap {
+    arena: Arena,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rsf_arena_snapshot(p: *mut FfiArena) -> *mut FfiArenaSnap {
+    Box::into_raw(Box::new(FfiArenaSnap { arena: unsafe { arena(p) }.arena.clone() }))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rsf_arena_restore(p: *mut FfiArena, snap: *const FfiArenaSnap) {
+    let fa = unsafe { arena(p) };
+    fa.arena = unsafe { &*snap }.arena.clone();
+    fa.events.clear();
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rsf_arena_snapshot_free(snap: *mut FfiArenaSnap) {
+    if !snap.is_null() {
+        drop(unsafe { Box::from_raw(snap) });
+    }
 }
 
 // The arena RNG. Only demo respawns draw from it (Car::respawn picks a spawn location),
@@ -609,7 +646,8 @@ pub unsafe extern "C" fn rsf_arena_set_pad_state(
     s: *const RsfPadState,
 ) {
     let src = unsafe { &*s };
-    unsafe { arena(p) }
-        .arena
-        .set_boost_pad_state(idx as usize, BoostPadState { cooldown: src.cooldown });
+    let fa = unsafe { arena(p) };
+    let mut state: BoostPadState = fa.arena.get_boost_pad_state(idx as usize).clone();
+    state.cooldown = src.cooldown;
+    fa.arena.set_boost_pad_state(idx as usize, state);
 }

@@ -2,15 +2,15 @@ use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, N
 
 use glam::{Affine3A, Mat3A, Quat, Vec3A};
 
-#[cfg(debug_assertions)]
-use indexmap::IndexMap;
-
 use crate::{
     bullet::{
-        collision::shapes::collision_shape::CollisionShapes,
+        collision::{
+            narrowphase::persistent_manifold::CONTACT_BREAKING_THRESHOLD,
+            shapes::collision_shape::CollisionShapes,
+        },
         linear_math::{integrate_trans, integrate_trans_no_rot},
     },
-    sim::UserInfoTypes,
+    sim::UserInfoType,
 };
 
 pub struct RigidBodyConstructionInfo {
@@ -19,11 +19,20 @@ pub struct RigidBodyConstructionInfo {
     pub collision_shape: CollisionShapes,
     pub local_inertia: Vec3A,
     pub linear_damping: f32,
-    pub angular_damping: f32,
     pub friction: f32,
     pub restitution: f32,
     pub linear_sleeping_threshold: f32,
     pub angular_sleeping_threshold: f32,
+}
+
+pub(crate) struct RigidBodyUpdateInfo {
+    pub shape: CollisionShapes,
+    pub mass: f32,
+    pub local_inertia: Vec3A,
+    pub friction: f32,
+    pub restitution: f32,
+    pub linear_damping: f32,
+    pub invalidate_contacts: bool,
 }
 
 impl RigidBodyConstructionInfo {
@@ -33,7 +42,6 @@ impl RigidBodyConstructionInfo {
             collision_shape,
             local_inertia: Vec3A::ZERO,
             linear_damping: 0.0,
-            angular_damping: 0.0,
             friction: 0.5,
             restitution: 0.0,
             linear_sleeping_threshold: 0.0,
@@ -48,6 +56,7 @@ pub enum ActivationState {
     Active,
     Sleeping,
     DisableSimulation,
+    WantsDeactivation,
 }
 
 pub enum CollisionFlags {
@@ -56,7 +65,12 @@ pub enum CollisionFlags {
     CanSleep = (1 << 2),
     NoContactResponse = (1 << 3),
     NoWorldGravity = (1 << 4),
+    /// Keep the world matrix and quaternion at identity. Keep angular velocity.
+    /// Transform setters ignore supplied rotations when this bit is set.
     NoAngularMotion = (1 << 5),
+    /// The world matrix is identity and its translation is zero.
+    /// Transform setters maintain this bit. Signed zeros compare equal.
+    IdentityTransform = (1 << 6),
 }
 
 impl BitOrAssign<CollisionFlags> for u8 {
@@ -127,6 +141,7 @@ pub enum Impulse {
     Angular(Vec3A),
 }
 
+#[derive(Clone)]
 pub struct RigidBody {
     world_trans: Affine3A,
     world_quat: Quat,
@@ -136,7 +151,14 @@ pub struct RigidBody {
 
     pub interp_world_trans: Affine3A,
     pub contact_processing_threshold: f32,
+    /// Cached shape breaking threshold (`angular_disc * 0.02`).
+    /// Refresh this value when physical properties replace the shape.
+    /// Read it via [`get_contact_breaking_threshold`](Self::get_contact_breaking_threshold).
+    contact_breaking_threshold: f32,
 
+    /// Preserve `IdentityTransform` when changing collision settings.
+    /// Enable `NoAngularMotion` only with an identity matrix and quaternion.
+    /// Transform setters maintain `IdentityTransform`.
     pub collision_flags: u8,
     pub companion_id: Option<usize>,
     /// The index of this object in `CollisionWorld`
@@ -145,7 +167,7 @@ pub struct RigidBody {
     pub friction: f32,
     pub restitution: f32,
     pub user_pointer: usize,
-    pub user_idx: UserInfoTypes,
+    pub user_idx: UserInfoType,
 
     pub inv_inertia_tensor_world: Mat3A,
     pub lin_vel: Vec3A,
@@ -158,26 +180,34 @@ pub struct RigidBody {
     pub accum_ang_vel: Vec3A,
 
     pub linear_damping: f32,
-    pub angular_damping: f32,
+    /// Cached `(1 - linear_damping)^time_step` for the repeated fixed tick.
+    cached_linear_damping: f32,
+    cached_damping_time_step: f32,
+    cached_linear_damping_value: f32,
     pub linear_sleeping_threshold: f32,
     pub angular_sleeping_threshold: f32,
     pub inv_mass_splat: Vec3A,
-
-    /// For debugging physics, this tracks every impulse applied during a tick
-    #[cfg(debug_assertions)]
-    pub dbg_tick_impulse_history: IndexMap<(&'static str, bool), (Vec3A, Vec3A)>,
 }
 
 impl RigidBody {
     pub fn new(info: RigidBodyConstructionInfo) -> Self {
-        let (inverse_mass, collision_flags) = if info.mass == 0.0 {
+        let (inverse_mass, mut collision_flags) = if info.mass == 0.0 {
             (0.0, CollisionFlags::StaticObject as u8)
         } else {
             (1.0 / info.mass, 0)
         };
 
+        if info.start_world_trans.matrix3 == Mat3A::IDENTITY {
+            if info.mass == 0.0 {
+                collision_flags |= CollisionFlags::NoAngularMotion;
+            }
+
+            if info.start_world_trans.translation == Vec3A::ZERO {
+                collision_flags |= CollisionFlags::IdentityTransform;
+            }
+        }
+
         let linear_damping = info.linear_damping.clamp(0.0, 1.0);
-        let angular_damping = info.angular_damping.clamp(0.0, 1.0);
         let linear_sleeping_threshold = info.linear_sleeping_threshold;
         let angular_sleeping_threshold = info.angular_sleeping_threshold;
 
@@ -190,11 +220,17 @@ impl RigidBody {
         let inv_inertia_tensor_world =
             Self::get_inertia_tensor(info.start_world_trans.matrix3, inv_inertia_local);
 
+        // Cache the angular-disc threshold for manifold creation.
+        let contact_breaking_threshold = info
+            .collision_shape
+            .get_contact_breaking_threshold(CONTACT_BREAKING_THRESHOLD);
+
         Self {
             world_trans: info.start_world_trans,
             world_quat: Quat::from_mat3a(&info.start_world_trans.matrix3),
             interp_world_trans: info.start_world_trans,
             contact_processing_threshold: f32::MAX,
+            contact_breaking_threshold,
             broadphase_handle: 0,
             shape: info.collision_shape,
             collision_flags,
@@ -205,7 +241,7 @@ impl RigidBody {
             friction: info.friction,
             restitution: info.restitution,
             user_pointer: 0,
-            user_idx: UserInfoTypes::default(),
+            user_idx: UserInfoType::default(),
             inv_inertia_tensor_world,
             lin_vel: Vec3A::ZERO,
             ang_vel: Vec3A::ZERO,
@@ -215,22 +251,73 @@ impl RigidBody {
             accum_lin_vel: Vec3A::ZERO,
             accum_ang_vel: Vec3A::ZERO,
             linear_damping,
-            angular_damping,
+            cached_linear_damping: 1.0,
+            cached_damping_time_step: 0.0,
+            cached_linear_damping_value: linear_damping,
             linear_sleeping_threshold,
             angular_sleeping_threshold,
             inv_mass_splat: Vec3A::splat(inverse_mass),
-
-            #[cfg(debug_assertions)]
-            dbg_tick_impulse_history: IndexMap::new(),
         }
     }
 
-    pub fn set_world_trans(&mut self, world_trans: Affine3A) {
-        if (self.collision_flags & CollisionFlags::NoAngularMotion) == 0 {
-            self.world_quat = Quat::from_mat3a(&world_trans.matrix3);
-        }
+    /// Cached breaking threshold for this body's current shape (see field docs).
+    #[inline]
+    pub const fn get_contact_breaking_threshold(&self) -> f32 {
+        self.contact_breaking_threshold
+    }
 
+    /// Assert that an inserted static body does not change transform.
+    ///
+    /// A static proxy AABB is final after `CollisionWorld::add_collision_obj`
+    /// assigns a broadphase handle. The `bullet` module is private, and the
+    /// public `Arena` API exposes no mutable static body. Internal setup code
+    /// must set `start_world_trans` before insertion.
+    #[inline]
+    fn assert_static_transform_unchanged(&self, world_trans: &Affine3A) {
+        assert!(
+            !self.is_static_obj()
+                || self.broadphase_handle == 0
+                || *world_trans == self.world_trans,
+            "static collision object {} changed its world transform after broadphase insertion; its proxy AABB would be stale",
+            self.world_array_idx
+        );
+    }
+
+    /// Set the world transform.
+    /// Ignore rotation when `NoAngularMotion` is set. Keep angular velocity.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this is a static body with a broadphase handle and the new
+    /// transform differs from the cached transform.
+    pub fn set_world_trans(&mut self, mut world_trans: Affine3A) {
+        let world_quat = if self.collision_flags & CollisionFlags::NoAngularMotion != 0 {
+            world_trans.matrix3 = Mat3A::IDENTITY;
+            Quat::IDENTITY
+        } else {
+            Quat::from_mat3a(&world_trans.matrix3)
+        };
+        self.assert_static_transform_unchanged(&world_trans);
+
+        self.world_quat = world_quat;
         self.world_trans = world_trans;
+        self.update_transform_flags();
+    }
+
+    #[inline]
+    fn update_transform_flags(&mut self) {
+        debug_assert!(
+            self.collision_flags & CollisionFlags::NoAngularMotion == 0
+                || self.world_trans.matrix3 == Mat3A::IDENTITY,
+            "NoAngularMotion requires an identity world matrix"
+        );
+        self.collision_flags &= !CollisionFlags::IdentityTransform;
+        if self.world_trans.translation == Vec3A::ZERO
+            && (self.collision_flags & CollisionFlags::NoAngularMotion != 0
+                || self.world_trans.matrix3 == Mat3A::IDENTITY)
+        {
+            self.collision_flags |= CollisionFlags::IdentityTransform;
+        }
     }
 
     pub const fn get_world_trans(&self) -> &Affine3A {
@@ -239,6 +326,26 @@ impl RigidBody {
 
     pub const fn get_world_rot(&self) -> Quat {
         self.world_quat
+    }
+
+    /// Set the world transform and its matching cached quaternion.
+    ///
+    /// The caller must supply a quaternion that describes the matrix.
+    /// This avoids a matrix conversion when the quaternion is already known.
+    /// Ignore both rotations when `NoAngularMotion` is set.
+    ///
+    /// # Panics
+    ///
+    /// Panics when an inserted static body changes its transform.
+    pub(crate) fn set_world_trans_and_rot(&mut self, mut world_trans: Affine3A, mut quat: Quat) {
+        if self.collision_flags & CollisionFlags::NoAngularMotion != 0 {
+            world_trans.matrix3 = Mat3A::IDENTITY;
+            quat = Quat::IDENTITY;
+        }
+        self.assert_static_transform_unchanged(&world_trans);
+        self.world_trans = world_trans;
+        self.world_quat = quat;
+        self.update_transform_flags();
     }
 
     pub const fn get_collision_shape(&self) -> &CollisionShapes {
@@ -264,6 +371,33 @@ impl RigidBody {
         if self.activation != ActivationState::DisableSimulation {
             self.activation = new_state;
         }
+    }
+
+    pub(crate) fn update_physical_properties(&mut self, properties: RigidBodyUpdateInfo) {
+        self.shape = properties.shape;
+        self.mass = properties.mass;
+        self.inv_mass = if properties.mass == 0.0 {
+            0.0
+        } else {
+            1.0 / properties.mass
+        };
+        self.inv_mass_splat = Vec3A::splat(self.inv_mass);
+        self.inv_inertia_local = Vec3A::select(
+            properties.local_inertia.cmpeq(Vec3A::ZERO),
+            Vec3A::ZERO,
+            1.0 / properties.local_inertia,
+        );
+        self.update_inertia_tensor();
+        self.contact_breaking_threshold = self
+            .shape
+            .get_contact_breaking_threshold(CONTACT_BREAKING_THRESHOLD);
+        self.friction = properties.friction;
+        self.restitution = properties.restitution;
+        self.linear_damping = properties.linear_damping.clamp(0.0, 1.0);
+        self.cached_damping_time_step = 0.0;
+        self.cached_linear_damping_value = self.linear_damping;
+        self.clear_accum_vels();
+        self.force_activate();
     }
 
     pub const fn force_activate(&mut self) {
@@ -310,13 +444,7 @@ impl RigidBody {
     /// `accum`: Accumulate this impulse to be applied while
     /// stepping the simulation (instead of immediately)
     #[inline(always)] // Should assure const evaluation
-    pub fn add_impulse(
-        &mut self,
-        name: Option<&'static str>,
-        impulse: Impulse,
-        massed: bool,
-        accum: bool,
-    ) {
+    pub fn add_impulse(&mut self, impulse: Impulse, massed: bool, accum: bool) {
         let mut lin_impulse = Vec3A::ZERO;
         let mut ang_impulse = Vec3A::ZERO;
 
@@ -344,24 +472,22 @@ impl RigidBody {
             self.lin_vel += lin_impulse;
             self.ang_vel += ang_impulse;
         }
-
-        #[cfg(debug_assertions)]
-        if let Some(name) = name {
-            let map = &mut self.dbg_tick_impulse_history;
-            if let Some((lin, ang)) = map.get_mut(&(name, accum)) {
-                *lin += lin_impulse;
-                *ang += ang_impulse;
-            } else {
-                map.insert((name, accum), (lin_impulse, ang_impulse));
-            }
-        }
     }
 
     pub fn apply_damping(&mut self, time_step: f32) {
-        self.lin_vel *= (1.0 - self.linear_damping).powf(time_step);
-        self.ang_vel *= (1.0 - self.angular_damping).powf(time_step);
+        if self.linear_damping != 0.0 {
+            if self.cached_damping_time_step != time_step
+                || self.cached_linear_damping_value != self.linear_damping
+            {
+                self.cached_linear_damping = (1.0 - self.linear_damping).powf(time_step);
+                self.cached_damping_time_step = time_step;
+                self.cached_linear_damping_value = self.linear_damping;
+            }
+            self.lin_vel *= self.cached_linear_damping;
+        }
     }
 
+    #[inline]
     pub fn predict_integration_trans(&self, time_step: f32) -> Affine3A {
         let mut trans = self.world_trans;
         let mut quat = self.world_quat;
@@ -376,8 +502,8 @@ impl RigidBody {
     }
 
     pub fn set_center_of_mass_trans(&mut self, xform: Affine3A) {
-        self.interp_world_trans = xform;
         self.set_world_trans(xform);
+        self.interp_world_trans = self.world_trans;
 
         self.update_inertia_tensor();
     }
@@ -386,29 +512,45 @@ impl RigidBody {
         self.lin_vel + self.ang_vel.cross(rel_pos)
     }
 
-    pub fn update_activation_state(&mut self, _time_step: f32) {
+    pub fn update_activation_state(&mut self, time_step: f32) {
         if self.collision_flags & CollisionFlags::CanSleep == 0 {
             self.set_activation_state(ActivationState::Active);
             return;
         }
 
-        let thresh_lin_sq = self.linear_sleeping_threshold.powi(2);
-        let thresh_ang_sq = self.angular_sleeping_threshold.powi(2);
-        let within_sleep_thresh = (self.lin_vel.length_squared() < thresh_lin_sq)
-            && (self.ang_vel.length_squared() < thresh_ang_sq);
+        if self.activation == ActivationState::Sleeping {
+            return;
+        }
+
+        let lin_thresh_sq = self.linear_sleeping_threshold * self.linear_sleeping_threshold;
+        let ang_thresh_sq = self.angular_sleeping_threshold * self.angular_sleeping_threshold;
+        let within_sleep_thresh = self.lin_vel.length_squared() < lin_thresh_sq
+            && self.ang_vel.length_squared() < ang_thresh_sq;
 
         if within_sleep_thresh {
-            self.set_activation_state(ActivationState::Sleeping);
+            self.deactivation_time += time_step;
+            if self.deactivation_time > 2.0 && self.activation == ActivationState::Active {
+                self.set_activation_state(ActivationState::WantsDeactivation);
+            }
         } else {
+            self.deactivation_time = 0.0;
             self.set_activation_state(ActivationState::Active);
         }
+    }
+
+    pub(crate) const fn activation_state(&self) -> ActivationState {
+        self.activation
+    }
+
+    pub(crate) fn sleep(&mut self) {
+        self.set_activation_state(ActivationState::Sleeping);
+        self.lin_vel = Vec3A::ZERO;
+        self.ang_vel = Vec3A::ZERO;
     }
 
     pub fn clear_accum_vels(&mut self) {
         self.accum_lin_vel = Vec3A::ZERO;
         self.accum_ang_vel = Vec3A::ZERO;
-        #[cfg(debug_assertions)]
-        self.dbg_tick_impulse_history.clear();
     }
 
     pub fn get_mass(&self) -> f32 {
@@ -424,7 +566,7 @@ impl RigidBody {
         let c0 = r0.cross(normal);
         let vec = self
             .inv_inertia_tensor_world
-            .mul_transpose_vec3a(c0)
+            .transpose_mul_vec3a(c0)
             .cross(r0);
 
         self.inv_mass + normal.dot(vec)
@@ -446,8 +588,18 @@ impl RigidBody {
         self.get_world_trans().translation
     }
 
+    /// Set the world translation.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this is a static body with a broadphase handle and the new
+    /// position differs from the cached position.
     pub fn set_world_pos(&mut self, pos: Vec3A) {
+        let mut world_trans = self.world_trans;
+        world_trans.translation = pos;
+        self.assert_static_transform_unchanged(&world_trans);
         self.world_trans.translation = pos;
+        self.update_transform_flags();
     }
 
     pub fn limit_vels(&mut self, max_lin_speed: f32, max_ang_speed: f32) {

@@ -2,8 +2,6 @@ use std::f32::consts::TAU;
 
 use glam::{Affine3A, Vec2, Vec3A};
 
-use crate::bullet::dynamics::rigid_body::Impulse;
-use crate::consts::TICK_TIME;
 use crate::{
     BallState, Car, GameMode, MutatorConfig, Team, TileDamageState, TileStates,
     bullet::{
@@ -16,15 +14,18 @@ use crate::{
         },
         dynamics::{
             discrete_dynamics_world::DiscreteDynamicsWorld,
-            rigid_body::{ActivationState, CollisionFlags, RigidBody, RigidBodyConstructionInfo},
+            rigid_body::{
+                ActivationState, CollisionFlags, Impulse, RigidBody, RigidBodyConstructionInfo,
+            },
         },
     },
-    consts::{BT_TO_UU, UU_TO_BT, dropshot, heatseeker, snowday},
+    consts::{BT_TO_UU, TICK_TIME, UU_TO_BT, dropshot, heatseeker, snowday},
     get_neighbor_indices_1, get_neighbor_indices_2, get_tile_pos,
     shared::Angle,
-    sim::{UserInfoTypes, consts},
+    sim::{UserInfoType, consts, ue3},
 };
 
+#[derive(Clone, Copy)]
 pub(crate) struct Ball {
     pub state: BallState,
     pub rigid_body_idx: usize,
@@ -32,7 +33,7 @@ pub(crate) struct Ball {
 }
 
 impl Ball {
-    fn make_ball_collision_shape(
+    pub(crate) fn make_ball_collision_shape(
         game_mode: GameMode,
         mutator_config: &MutatorConfig,
     ) -> (CollisionShapes, Vec3A) {
@@ -80,6 +81,7 @@ impl Ball {
         info.start_world_trans.translation.z = consts::ball::REST_Z * UU_TO_BT;
         info.local_inertia = local_inertia;
         info.linear_damping = mutator_config.ball_drag;
+        info.linear_sleeping_threshold = 0.8;
 
         let coefs = if game_mode == GameMode::Snowday {
             snowday::PUCK_COEFS
@@ -90,8 +92,9 @@ impl Ball {
         info.restitution = coefs.restitution;
 
         let mut body = RigidBody::new(info);
-        body.user_idx = UserInfoTypes::Ball;
-        body.collision_flags |= CollisionFlags::CustomMaterialCallback | CollisionFlags::CanSleep;
+        body.user_idx = UserInfoType::Ball;
+        body.collision_flags |= CollisionFlags::CanSleep;
+        body.collision_flags |= CollisionFlags::CustomMaterialCallback;
         if no_rot && matches!(body.get_collision_shape(), CollisionShapes::Sphere(_)) {
             body.collision_flags |= CollisionFlags::NoAngularMotion;
         }
@@ -112,23 +115,27 @@ impl Ball {
     }
 
     pub fn set_state(&mut self, rb: &mut RigidBody, state: BallState) {
+        self.state = state;
+        self.sync_state_to_body(rb);
+    }
+
+    pub(crate) fn sync_state_to_body(&mut self, rb: &mut RigidBody) {
         debug_assert_eq!(rb.world_array_idx, self.rigid_body_idx);
-        debug_assert_eq!(rb.user_idx, UserInfoTypes::Ball);
+        debug_assert_eq!(rb.user_idx, UserInfoType::Ball);
 
         rb.set_world_trans(Affine3A {
-            matrix3: state.phys.rot_mat,
-            translation: state.phys.pos * UU_TO_BT,
+            matrix3: self.state.phys.rot_mat,
+            translation: self.state.phys.pos * UU_TO_BT,
         });
+        self.state.phys.rot_mat = rb.get_world_trans().matrix3;
+        rb.interp_world_trans = *rb.get_world_trans();
 
-        rb.set_lin_vel(state.phys.vel * UU_TO_BT);
-        rb.set_ang_vel(state.phys.ang_vel);
+        rb.set_lin_vel(self.state.phys.vel * UU_TO_BT);
+        rb.set_ang_vel(self.state.phys.ang_vel);
+        rb.clear_accum_vels();
         rb.update_inertia_tensor();
 
-        if state.phys.vel != Vec3A::ZERO || state.phys.ang_vel != Vec3A::ZERO {
-            rb.set_activation_state(ActivationState::Active);
-        }
-
-        self.state = state;
+        rb.force_activate();
     }
 
     pub(crate) fn pre_tick_update(&mut self, rb: &mut RigidBody, game_mode: GameMode) {
@@ -217,7 +224,6 @@ impl Ball {
                         };
 
                         rb.add_impulse(
-                            None,
                             Impulse::Linear(Vec3A::new(0.0, 0.0, launch_vel_z) * UU_TO_BT),
                             false,
                             false,
@@ -243,13 +249,13 @@ impl Ball {
 
     pub(crate) fn on_hit(
         &mut self,
-        car: &Car,
+        car: &mut Car,
         game_mode: GameMode,
         mutator_config: &MutatorConfig,
         tick_count: u64,
         rb: &mut RigidBody,
     ) {
-        let car_forward = car.state.phys.rot_mat.x_axis;
+        let car_forward = ue3::rotator_forward(car.state.phys.rot_mat.x_axis);
         let rel_pos = self.state.phys.pos - car.state.phys.pos;
         let rel_vel = self.state.phys.vel - car.state.phys.vel;
 
@@ -258,14 +264,14 @@ impl Ball {
             .min(consts::ball::car_hit_impulse::MAX_DELTA_VEL_UU);
 
         // Prevent repeated extra impulses
-        let can_accel = self
+        let can_accel = car
             .state
             .last_extra_hit_tick
             .is_none_or(|last_hit_tick| last_hit_tick + 1 < tick_count);
 
         if rel_speed > 0.0 && can_accel {
             let extra_z_scale = game_mode == GameMode::Hoops
-                && car.state.is_on_ground
+                && car.state.cache.is_on_ground
                 && car.state.phys.rot_mat.z_axis.z
                     > consts::ball::car_hit_impulse::Z_SCALE_HOOPS_NORMAL_Z_THRESH;
             let z_scale = if extra_z_scale {
@@ -284,14 +290,10 @@ impl Ball {
                 * rel_speed
                 * consts::curves::BALL_CAR_EXTRA_IMPULSE_FACTOR.get_output(rel_speed)
                 * mutator_config.ball_hit_extra_force_scale;
-            rb.add_impulse(
-                None,
-                Impulse::Linear(added_hit_impulse * UU_TO_BT),
-                false,
-                true,
-            );
+            // Apply the extra impulse after contact solving.
+            rb.add_impulse(Impulse::Linear(added_hit_impulse * UU_TO_BT), false, false);
 
-            self.state.last_extra_hit_tick = Some(tick_count);
+            car.state.last_extra_hit_tick = Some(tick_count);
         }
 
         match game_mode {
@@ -329,10 +331,8 @@ impl Ball {
                     }
                 }
 
-                if *charge_level > 1 {
-                    // Blue -> 1, Orange -> -1
-                    self.state.ds_info.y_target_dir = car.team as i8 * -2 + 1;
-                }
+                // Blue -> 1, Orange -> -1
+                self.state.ds_info.y_target_dir = car.team as i8 * -2 + 1;
             }
             _ => {}
         }
@@ -369,17 +369,12 @@ impl Ball {
                     let bounce_impulse = bounce_dir
                         * self.state.phys.vel.length()
                         * heatseeker::WALL_BOUNCE_FORCE_SCALE;
-                    rb.add_impulse(
-                        None,
-                        Impulse::Linear(bounce_impulse * UU_TO_BT),
-                        false,
-                        true,
-                    );
+                    rb.add_impulse(Impulse::Linear(bounce_impulse * UU_TO_BT), false, true);
                 }
             }
             GameMode::Snowday if !self.ground_stick_applied => {
                 let force = -normal * snowday::PUCK_GROUND_STICK_FORCE * TICK_TIME;
-                rb.add_impulse(None, Impulse::Linear(force), true, true);
+                rb.add_impulse(Impulse::Linear(force), true, true);
                 self.ground_stick_applied = true;
             }
             _ => {}
@@ -400,6 +395,11 @@ impl Ball {
             tile_idx,
         );
 
+        // No one has touched the ball yet
+        if self.state.ds_info.y_target_dir == 0 {
+            return;
+        }
+
         // This should be possible in rare circumstances where two tiles are hit simultaneously
         if tile_state == TileDamageState::Broken {
             return;
@@ -412,14 +412,11 @@ impl Ball {
             }
         }
 
-        if self.state.phys.vel.z * BT_TO_UU > -dropshot::MIN_DOWNWARD_SPEED_TO_DAMAGE {
+        if self.state.phys.vel.z > -dropshot::MIN_DOWNWARD_SPEED_TO_DAMAGE {
             return; // Not going fast enough downward
         }
 
-        if self.state.ds_info.charge_level > 1
-            && self.state.ds_info.y_target_dir != 0
-            && tile_pos.y.signum() != f32::from(self.state.ds_info.y_target_dir)
-        {
+        if tile_pos.y.signum() != f32::from(self.state.ds_info.y_target_dir) {
             return; // Wrong side of the arena
         }
 

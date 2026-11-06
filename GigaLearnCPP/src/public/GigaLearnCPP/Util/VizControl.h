@@ -1,6 +1,7 @@
 #pragma once
 // GigaLearnCPP's Framework (not RLGymCPP's): this is where RG_IMEXPORT lives, and it
 // pulls in the RLGymCPP one — which brings the engine types used below.
+#include <memory>
 #include "../Framework.h"
 
 #include <deque>
@@ -55,6 +56,9 @@ namespace GGL {
 		// that alone is enough to make a rewind across a demo put the victim somewhere
 		// else. Unused under the legacy v2 engine.
 		uint64_t rngState = 0;
+		// v3: an exact engine-side copy of the whole arena (RocketSim 0.3.x hides wheel/suspension history and the sticky-contact gate,
+		// so per-field restore cannot rewind exactly). Restored LAST in ApplyTo. Null under the legacy v2 engine.
+		std::shared_ptr<void> engineClone = nullptr;
 
 		struct CarSnapshot {
 			uint32_t id = 0;

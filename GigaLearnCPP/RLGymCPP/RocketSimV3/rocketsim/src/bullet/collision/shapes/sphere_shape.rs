@@ -1,15 +1,19 @@
-use glam::{Affine3A, Vec3A, Vec4};
+use core::cmp::Ordering;
+
+use glam::{Vec3A, Vec4};
 
 use super::convex_internal_shape::ConvexInternalShape;
 use crate::{
-    bullet::collision::dispatch::quad_ray_callbacks::{
-        BridgeTriQuadRayCallback, QuadRayResultCallback,
+    bullet::collision::{
+        dispatch::quad_ray_callbacks::{BridgeTriQuadRayCallback, QuadRayResultCallback},
+        narrowphase::gjk::calc_point_time_of_impact,
     },
     shared::{Aabb, QuadRayInfo},
 };
 
 pub const SPHERE_RADIUS_MARGIN: f32 = 0.08;
 
+#[derive(Clone, Copy)]
 pub struct SphereShape {
     pub convex_internal_shape: ConvexInternalShape,
 }
@@ -35,8 +39,7 @@ impl SphereShape {
         self.get_radius()
     }
 
-    pub fn get_aabb(&self, t: &Affine3A) -> Aabb {
-        let center = t.translation;
+    pub fn get_aabb(&self, center: Vec3A) -> Aabb {
         let margin = self.get_margin() + SPHERE_RADIUS_MARGIN;
         let extent = Vec3A::splat(margin);
 
@@ -52,6 +55,19 @@ impl SphereShape {
 
     pub fn local_get_supporting_vertex(&self, vec: Vec3A) -> Vec3A {
         self.get_margin() * vec.try_normalize().unwrap()
+    }
+
+    /// Distance from a shape-space point to the sphere surface and the outward normal.
+    /// The sphere centre is the shape origin.
+    pub(crate) fn closest_point(&self, point: Vec3A) -> Option<(f32, Vec3A)> {
+        let len_sq = point.length_squared();
+        let len = len_sq.sqrt();
+        if len_sq.partial_cmp(&(f32::EPSILON * f32::EPSILON)) != Some(Ordering::Greater) {
+            return None;
+        }
+
+        let rlen = 1.0 / len;
+        Some((1.0 / rlen - self.get_radius(), point * rlen))
     }
 
     pub fn perform_quad_raycast<T: QuadRayResultCallback>(
@@ -91,62 +107,19 @@ impl SphereShape {
             return;
         }
 
-        let delta_x = target_x - source_x;
-        let delta_y = target_y - source_y;
-        let delta_z = target_z - source_z;
-
-        let dist = (delta_x * delta_x + delta_y * delta_y + delta_z * delta_z).sqrt();
-
-        let dir_x = delta_x / dist;
-        let dir_y = delta_y / dist;
-        let dir_z = delta_z / dist;
-
-        let b = 2.0 * (source_x * dir_x + source_y * dir_y + source_z * dir_z);
-        let c = source_x * source_x + source_y * source_y + source_z * source_z - radius_sq;
-
-        let discriminant = b * b - 4.0 * c;
-        let valid_mask = discriminant.cmpge(Vec4::ZERO) & within_sphere_mask;
-        if !valid_mask.any() {
-            return;
-        }
-
-        let sqrt_disc = discriminant.sqrt();
-        let mut t0 = (-b - sqrt_disc) / 2.0;
-        let mut t1 = (-b + sqrt_disc) / 2.0;
-
-        let swap_mask = t0.cmpgt(t1);
-        t0 = Vec4::select(swap_mask, t1, t0);
-        t1 = Vec4::select(swap_mask, t0, t1);
-
-        let t0_nearest_mask = t0.cmpge(Vec4::ZERO) & t0.cmple(dist);
-        let t1_nearest_mask = t1.cmpge(Vec4::ZERO) & t1.cmple(dist) & !t0_nearest_mask;
-        let nearest_mask = valid_mask & (t0_nearest_mask | t1_nearest_mask);
-        if !nearest_mask.any() {
-            return;
-        }
-
-        let t = Vec4::select(t0_nearest_mask, t0, t1);
-
-        let hit_point_x = source_x + dir_x * t;
-        let hit_point_y = source_y + dir_y * t;
-        let hit_point_z = source_z + dir_z * t;
-
-        let normal_x = (hit_point_x / radius).to_array();
-        let normal_y = (hit_point_y / radius).to_array();
-        let normal_z = (hit_point_z / radius).to_array();
-
-        let hit_mask = nearest_mask.bitmask();
-        let hit_fraction = t / dist;
-        for (i, hit_fraction) in hit_fraction.to_array().into_iter().enumerate() {
-            if (hit_mask & (1 << i)) == 0 {
+        let within_sphere: [bool; 4] = within_sphere_mask.into();
+        for i in 0..4 {
+            if !within_sphere[i] {
                 continue;
             }
 
-            result_callback.report_hit(
-                Vec3A::new(normal_x[i], normal_y[i], normal_z[i]),
-                hit_fraction,
-                i,
-            );
+            let Some(result) = calc_point_time_of_impact(sources[i], targets[i], |point| {
+                self.closest_point(point)
+            }) else {
+                continue;
+            };
+
+            result_callback.report_hit(result.normal, result.fraction, i);
         }
     }
 }

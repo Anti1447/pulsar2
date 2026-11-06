@@ -23,6 +23,7 @@ pub struct QuadRayResultCallbackBase {
     pub ignore_obj_world_idx: Option<usize>,
     pub collision_filter_group: u8,
     pub collision_filter_mask: u8,
+    pub min_hit_dist_sq: f32,
 }
 
 impl Default for QuadRayResultCallbackBase {
@@ -33,6 +34,7 @@ impl Default for QuadRayResultCallbackBase {
             collision_filter_group: CollisionFilterGroups::Default as u8,
             collision_filter_mask: CollisionFilterGroups::ALL,
             ignore_obj_world_idx: None,
+            min_hit_dist_sq: 0.0,
         }
     }
 }
@@ -88,7 +90,19 @@ impl QuadRayResultCallback for ClosestQuadRayResultCallback<'_> {
     }
 
     fn add_single_result(&mut self, ray_result: LocalRayResult, ray_idx: usize) {
-        if ray_result.hit_fraction > self.base.closest_hit_fraction[ray_idx] {
+        if ray_result.hit_fraction >= self.base.closest_hit_fraction[ray_idx] {
+            return;
+        }
+
+        let candidate = interpolate_3(
+            self.ray_from_world[ray_idx],
+            self.ray_to_world[ray_idx],
+            ray_result.hit_fraction,
+        );
+        if self.base.min_hit_dist_sq > 0.0
+            && (candidate - self.ray_from_world[ray_idx]).length_squared()
+                < self.base.min_hit_dist_sq
+        {
             return;
         }
 
@@ -96,11 +110,7 @@ impl QuadRayResultCallback for ClosestQuadRayResultCallback<'_> {
         self.hit_normal_world[ray_idx] = ray_result.hit_normal_world;
 
         self.base.collision_obj_idx[ray_idx] = Some(ray_result.collision_obj_idx);
-        self.hit_point_world[ray_idx] = interpolate_3(
-            self.ray_from_world[ray_idx],
-            self.ray_to_world[ray_idx],
-            ray_result.hit_fraction,
-        );
+        self.hit_point_world[ray_idx] = candidate;
     }
 }
 
@@ -129,11 +139,9 @@ impl<'a, T: QuadRayResultCallback> QuadRayCallback<'a, T> {
 
 impl<T: QuadRayResultCallback> BroadphaseAabbCallback for QuadRayCallback<'_, T> {
     fn process(&mut self, proxy: &BroadphaseProxy) -> bool {
-        let obj_idx = proxy.client_obj_idx as usize;
-        let rb = &self.world.collision_objs[obj_idx];
-        let handle = &self.world.broadphase_pair_cache.handles[rb.get_broadphase_handle()];
-
-        if self.result_callback.needs_collision(handle) {
+        if self.result_callback.needs_collision(proxy) {
+            let obj_idx = proxy.client_obj_idx as usize;
+            let rb = &self.world.collision_objs[obj_idx];
             CollisionWorld::quad_ray_test(
                 self.ray_from_world,
                 self.ray_to_world,
@@ -188,8 +196,9 @@ impl<T: QuadRayResultCallback> BridgeTriQuadRayCallback<'_, T> {
 
         let proj_length = dist_a - dist_b;
         let distance = dist_a / proj_length;
-        if distance >= self.hit_fraction[ray_idx] {
-            *lambda_max = self.hit_fraction[ray_idx];
+        let hit_fraction = self.hit_fraction[ray_idx];
+        if distance >= hit_fraction {
+            *lambda_max = (*lambda_max).min(hit_fraction);
             return;
         }
 
@@ -212,11 +221,15 @@ impl<T: QuadRayResultCallback> BridgeTriQuadRayCallback<'_, T> {
             return;
         }
 
-        *lambda_max = distance;
+        let prev_fraction = self.result_callback.get_base().closest_hit_fraction[ray_idx];
         if dist_a <= 0.0 {
             self.internal_report_hit(-triangle.normal, distance, ray_idx);
         } else {
             self.internal_report_hit(triangle.normal, distance, ray_idx);
+        }
+
+        if self.result_callback.get_base().closest_hit_fraction[ray_idx] < prev_fraction {
+            *lambda_max = self.result_callback.get_base().closest_hit_fraction[ray_idx];
         }
     }
 }

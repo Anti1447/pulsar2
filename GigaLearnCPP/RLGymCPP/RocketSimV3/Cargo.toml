@@ -1,15 +1,12 @@
 [workspace]
-package.version = "0.2.0"
-package.license-file = "LICENSE.rocketsim"
 resolver = "3"
 members = [
   "rocketsim",
-  "rocketsim_derive",
   "rocketsim_ffi",
 ]
 
 [workspace.dependencies]
-glam = { version = "0.33.0", features = ["debug-glam-assert"] }
+glam = { version = "0.34", features = ["debug-glam-assert"] }
 rustc-hash = "2.1.2"
 
 [profile.dev]

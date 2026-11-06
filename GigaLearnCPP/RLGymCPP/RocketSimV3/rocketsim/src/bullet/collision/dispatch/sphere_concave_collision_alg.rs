@@ -1,4 +1,4 @@
-use glam::{Affine3A, Vec3A};
+use glam::{Mat3A, Vec3A};
 
 use crate::bullet::{
     collision::{
@@ -9,32 +9,40 @@ use crate::bullet::{
         },
     },
     dynamics::rigid_body::RigidBody,
-    linear_math::AffineExt,
 };
 
 struct SphereTriangleCallback<'a, T: ContactAddedCallback> {
-    pub manifold: PersistentManifold,
-    pub convex_obj: &'a RigidBody,
+    pub manifold: &'a mut PersistentManifold,
+    pub sphere_obj: &'a RigidBody,
     pub tri_obj: &'a RigidBody,
-    contact_added_callback: &'a mut T,
     sphere_center: Vec3A,
     sphere_radius: f32,
+    radius_with_threshold: f32,
+    radius_with_threshold_sqr: f32,
+    contact_added_callback: &'a mut T,
 }
 
 impl<'a, T: ContactAddedCallback> SphereTriangleCallback<'a, T> {
     pub fn new(
-        convex_obj: &'a RigidBody,
+        manifold: &'a mut PersistentManifold,
+        sphere_obj: &'a RigidBody,
         tri_obj: &'a RigidBody,
         sphere_center: Vec3A,
         sphere_radius: f32,
+        contact_breaking_threshold: f32,
         contact_added_callback: &'a mut T,
     ) -> Self {
+        let radius_with_threshold = sphere_radius + contact_breaking_threshold;
+        let radius_with_threshold_sqr = radius_with_threshold * radius_with_threshold;
+
         Self {
-            manifold: PersistentManifold::new(convex_obj, tri_obj),
-            convex_obj,
+            manifold,
+            sphere_obj,
             tri_obj,
             sphere_center,
             sphere_radius,
+            radius_with_threshold,
+            radius_with_threshold_sqr,
             contact_added_callback,
         }
     }
@@ -42,66 +50,66 @@ impl<'a, T: ContactAddedCallback> SphereTriangleCallback<'a, T> {
 
 impl<T: ContactAddedCallback> ProcessTriangle for SphereTriangleCallback<'_, T> {
     fn process_triangle(&mut self, triangle: &TriangleShape, triangle_idx: usize) {
-        let Some(contact_info) = triangle.intersect_sphere(
+        let Some(contact_info) = triangle.intersect_sphere_front_precomputed(
             self.sphere_center,
             self.sphere_radius,
-            self.manifold.contact_breaking_threshold,
+            self.radius_with_threshold,
+            self.radius_with_threshold_sqr,
         ) else {
             return;
         };
 
-        let normal_on_b = self
-            .tri_obj
-            .get_world_trans()
-            .transform_vector3a(contact_info.result_normal);
-        let point_in_world = self
-            .tri_obj
-            .get_world_trans()
-            .transform_point3a(contact_info.contact_point);
+        let tri_world = self.tri_obj.get_world_trans();
+        debug_assert_eq!(tri_world.matrix3, Mat3A::IDENTITY);
+
+        let normal_on_b = contact_info.result_normal;
+        let point_in_world = contact_info.contact_point + tri_world.translation;
 
         self.manifold.add_contact_point(
-            self.convex_obj,
+            self.sphere_obj,
             self.tri_obj,
             normal_on_b,
             point_in_world,
             contact_info.depth,
             Some(triangle_idx),
             self.contact_added_callback,
-        );
+        )
     }
 }
 
-pub fn process_collision<T: ContactAddedCallback>(
+pub(crate) fn process_collision_into<T: ContactAddedCallback>(
     convex_obj: &RigidBody,
     sphere_shape: &SphereShape,
     concave_obj: &RigidBody,
     tri_mesh: &BvhTriangleMeshShape,
+    manifold: &mut PersistentManifold,
     contact_added_callback: &mut T,
-) -> Option<PersistentManifold> {
+) -> bool {
     let xform1 = convex_obj.get_world_trans();
-    let xform2 = concave_obj.get_world_trans().transpose();
-    let convex_in_triangle_space = Affine3A {
-        matrix3: xform2.matrix3 * xform1.matrix3,
-        translation: xform2.transform_point3a(xform1.translation),
-    };
+    let mesh_trans = *concave_obj.get_world_trans();
 
-    let mut convex_triangle_callback = SphereTriangleCallback::new(
-        convex_obj,
-        concave_obj,
-        convex_in_triangle_space.translation,
-        sphere_shape.get_radius(),
-        contact_added_callback,
-    );
+    debug_assert_eq!(mesh_trans.matrix3, Mat3A::IDENTITY);
+    let convex_in_triangle_space = xform1.translation - mesh_trans.translation;
 
-    let aabb = sphere_shape.get_aabb(&convex_in_triangle_space);
-    tri_mesh.process_all_triangles(&mut convex_triangle_callback, &aabb);
+    let contact_breaking_threshold = manifold.contact_breaking_threshold;
+    {
+        let mut convex_triangle_callback = SphereTriangleCallback::new(
+            manifold,
+            convex_obj,
+            concave_obj,
+            convex_in_triangle_space,
+            sphere_shape.get_radius(),
+            contact_breaking_threshold,
+            contact_added_callback,
+        );
 
-    if convex_triangle_callback.manifold.point_cache.is_empty() {
-        None
-    } else {
-        convex_triangle_callback
-            .manifold
-            .refresh_contact_points(convex_obj, concave_obj);
-        Some(convex_triangle_callback.manifold)
+        let aabb = sphere_shape.get_aabb(convex_in_triangle_space);
+        tri_mesh.process_all_triangles(&mut convex_triangle_callback, &aabb);
     }
+
+    if !manifold.point_cache.is_empty() {
+        manifold.refresh_contact_points(convex_obj, concave_obj);
+    }
+
+    !manifold.point_cache.is_empty()
 }

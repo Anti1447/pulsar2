@@ -1,22 +1,30 @@
 use glam::Vec3A;
 
+use crate::{
+    shared::LinearPieceCurve,
+    sim::consts::{UU_TO_BT, curves},
+};
+
+/// Full hitbox sizes in uu for the 7 presets
+/// (Octane, Dominus, Plank, Breakout, Hybrid, Merc, Psyclops).
 pub const HITBOX_SIZES: [Vec3A; 7] = [
-    Vec3A::new(120.507, 86.6994, 38.6591), // OCTANE
-    Vec3A::new(130.427, 85.7799, 33.8),    // DOMINUS
-    Vec3A::new(131.32, 87.1704, 31.8944),  // PLANK
-    Vec3A::new(133.992, 83.021, 32.8),     // BREAKOUT
-    Vec3A::new(129.519, 84.6879, 36.6591), // HYBRID
-    Vec3A::new(123.22, 79.2103, 44.1591),  // MERC
-    Vec3A::new(120.507 + 0.134, 86.6994 + 0.134, 38.6591 + 0.134), // PSYCLOPS
+    Vec3A::new(120.507_38, 86.699_41, 38.659_073), // OCTANE
+    Vec3A::new(130.426_79, 85.779_95, 33.8),       // DOMINUS
+    Vec3A::new(131.319_78, 87.170_364, 31.894_402), // PLANK
+    Vec3A::new(133.992_36, 83.021, 32.8),          // BREAKOUT
+    Vec3A::new(129.519_2, 84.687_87, 36.659_073),  // HYBRID
+    Vec3A::new(123.220_23, 79.210_31, 44.159_073), // MERC
+    Vec3A::new(120.641_01, 86.833_405, 38.793_1),  // PSYCLOPS
 ];
 
+/// Hitbox center offsets in uu (same preset order as [`HITBOX_SIZES`]).
 pub const HITBOX_OFFSETS: [Vec3A; 7] = [
-    Vec3A::new(13.8757, 0.0, 20.755),
+    Vec3A::new(13.875_66, 0.0, 20.754_988),
     Vec3A::new(9.0, 0.0, 15.75),
-    Vec3A::new(9.00857, 0.0, 12.0942),
+    Vec3A::new(9.008_572, 0.0, 12.0942),
     Vec3A::new(12.5, 0.0, 11.75),
-    Vec3A::new(13.8757, 0.0, 20.755),
-    Vec3A::new(11.3757, 0.0, 21.505),
+    Vec3A::new(13.875_66, 0.0, 20.754_988),
+    Vec3A::new(11.375_66, 0.0, 21.504_988),
     Vec3A::new(13.8757, 0.0, 15.0),
 ];
 
@@ -47,6 +55,7 @@ pub const BACK_WHEELS_OFFSET: [Vec3A; 7] = [
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WheelPairConfig {
     /// Radius of both wheels
     pub wheel_radius: f32,
@@ -58,7 +67,13 @@ pub struct WheelPairConfig {
     pub connection_point_offset: Vec3A,
 }
 
+/// Hitbox + suspension preset for a car body (all lengths in uu).
+///
+/// Use the associated presets (`OCTANE`, `DOMINUS`, ...) or build custom.
+/// `dodge_deadzone` is the min `|yaw|+|pitch|+|roll|` to flip instead of
+/// double-jump (default `0.5`).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CarBodyConfig {
     /// Full size of hitbox (NOT the half-size/extent)
     pub hitbox_size: Vec3A,
@@ -75,6 +90,10 @@ pub struct CarBodyConfig {
     pub three_wheels: bool,
     /// (|yaw| + |pitch| + |roll|) will need to be >= this in order to flip
     pub dodge_deadzone: f32,
+    /// Steering angle in radians for forward speed in uu/s.
+    pub steer_angle_curve: LinearPieceCurve<6>,
+    /// Steering angle in radians during powerslide for forward speed in uu/s.
+    pub powerslide_steer_angle_curve: LinearPieceCurve<2>,
 }
 
 impl Default for CarBodyConfig {
@@ -84,6 +103,15 @@ impl Default for CarBodyConfig {
 }
 
 impl CarBodyConfig {
+    /// Return the wheel-ray minimum hit distance in `BT` squared.
+    ///
+    /// The hitbox height is in uu. The value is squared after conversion to BT.
+    /// Wheel rays reject only smaller squared distances. Equal distances pass.
+    pub(super) fn wheel_ray_min_hit_dist_sq(&self) -> f32 {
+        let min_hit_dist = (self.hitbox_size.z * 0.5 - 2.25) * UU_TO_BT;
+        min_hit_dist * min_hit_dist
+    }
+
     const fn make_car_config(idx: usize, three_wheels: bool) -> Self {
         Self {
             hitbox_size: HITBOX_SIZES[idx],
@@ -100,6 +128,18 @@ impl CarBodyConfig {
             },
             three_wheels,
             dodge_deadzone: 0.5,
+            steer_angle_curve: if idx == 2 {
+                curves::PLANK_STEER_ANGLE_FROM_SPEED
+            } else if idx == 6 {
+                curves::STEER_ANGLE_FROM_SPEED_THREEWHEEL
+            } else {
+                curves::STEER_ANGLE_FROM_SPEED
+            },
+            powerslide_steer_angle_curve: if idx == 2 {
+                curves::PLANK_POWERSLIDE_STEER_ANGLE_FROM_SPEED
+            } else {
+                curves::POWERSLIDE_STEER_ANGLE_FROM_SPEED
+            },
         }
     }
 

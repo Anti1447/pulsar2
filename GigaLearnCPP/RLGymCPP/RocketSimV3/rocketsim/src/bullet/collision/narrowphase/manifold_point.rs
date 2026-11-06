@@ -15,7 +15,6 @@ pub struct ManifoldPoint {
     pub combined_friction: f32,
     pub combined_restitution: f32,
     pub applied_impulse: f32,
-    pub lateral_friction_dir_1: Vec3A,
     pub is_special: bool,
 }
 
@@ -31,31 +30,30 @@ impl ManifoldPoint {
             combined_friction: 0.0,
             combined_restitution: 0.0,
             applied_impulse: 0.0,
-            lateral_friction_dir_1: Vec3A::ZERO,
             is_special: false,
         }
     }
 
     pub fn calc_lat_friction_dir(
-        &mut self,
+        &self,
         solver_body_a: &SolverBody,
         solver_body_b: &SolverBody,
         rel_pos1: Vec3A,
         rel_pos2: Vec3A,
-    ) {
+    ) -> Vec3A {
         let vel1 = solver_body_a.get_vel_in_local_point_no_delta(rel_pos1);
         let vel2 = solver_body_b.get_vel_in_local_point_no_delta(rel_pos2);
 
         let vel = vel1 - vel2;
         let rel_vel = self.normal_world_on_b.dot(vel);
 
-        self.lateral_friction_dir_1 = vel - self.normal_world_on_b * rel_vel;
-        let lat_rel_vel = self.lateral_friction_dir_1.length_squared();
+        let lateral_friction_dir_1 = vel - self.normal_world_on_b * rel_vel;
+        let lat_rel_vel = lateral_friction_dir_1.length_squared();
 
         if lat_rel_vel > f32::EPSILON {
-            self.lateral_friction_dir_1 *= 1.0 / lat_rel_vel.sqrt();
+            lateral_friction_dir_1 * (1.0 / lat_rel_vel.sqrt())
         } else {
-            self.lateral_friction_dir_1 = plane_space_1(self.normal_world_on_b);
+            plane_space_1(self.normal_world_on_b)
         }
     }
 }

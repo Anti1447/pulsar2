@@ -6,10 +6,11 @@ pub mod collision_mesh_file;
 pub mod consts;
 mod dropshot_tiles;
 mod game_mode;
-mod linear_piece_curve;
 mod mutator_config;
 mod phys_state;
+mod quantize;
 mod team;
+mod ue3;
 mod user_info_types;
 
 pub use arena::*;
@@ -22,5 +23,4 @@ pub use game_mode::*;
 pub use mutator_config::*;
 pub use phys_state::*;
 pub use team::*;
-#[allow(clippy::redundant_pub_crate)]
-pub(crate) use user_info_types::*;
+pub use user_info_types::*;

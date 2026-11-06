@@ -384,8 +384,13 @@ TEST(VizSnapshot_RestoresBoostPadCooldowns) {
 
 	// Let every cooldown expire, then rewind back into the middle of them.
 	DriveArena(arena, /*seed=*/8, /*ticks=*/1500);
-	for (const auto& pad : arena->_boostPads)
-		CHECK(pad->GetState().isActive);
+	// (2026-11-06: not "every pad is active" any more. With RocketSim 0.3.5 the random drive re-collects a pad now and then, so the
+	// precondition is that the pads knocked down at the mark have mostly come back, which is what makes the rewind below non-vacuous.)
+	int reactivated = 0;
+	for (size_t i = 0; i < mark.pads.size(); i++)
+		if (!mark.pads[i].isActive && arena->_boostPads[i]->GetState().isActive)
+			reactivated++;
+	CHECK(reactivated >= inactiveAtMark - 1);
 
 	CHECK(mark.ApplyTo(arena));
 

@@ -12,8 +12,8 @@ using namespace RLGC;
 
 // The engine's shot event decides which saves OpposedSaveReward can pay (2026-11-03: user-directed widening of the tracker's shotMinSpeed from
 // 1750 to 1000 uu/s, set in EnvSet.cpp). A shot also needs the ball predicted to score within shotMinScoreTime = 2.0 s (time measured on y only),
-// so at ~1100 uu/s it must be struck from within about 2200 uu of the goal line. Scenario: an orange car drives south at 1500 uu/s (no boost, no
-// flip) into a ball at (0, -3200); the ball leaves at about 1100 uu/s toward the blue goal and is neither a shot at 1750 nor unshot at 1000.
+// so at ~1100 uu/s it must be struck from within about 2200 uu of the goal line. Scenario: an orange car drives south at 700 uu/s (no boost, no
+// flip; was 1500 before the 2026-11-06 car-ball impulse fix, when hits were ~45% weaker) into a ball at (0, -3200); the ball leaves at about 1100 uu/s toward the blue goal and is neither a shot at 1750 nor unshot at 1000.
 
 namespace {
 	void InitRocketSimShot() {
@@ -29,7 +29,7 @@ namespace {
 		blue = arena->AddCar(Team::BLUE);
 		orange = arena->AddCar(Team::ORANGE);
 		CarState b; b.pos = Vec(3000, 3000, 17); b.rotMat = Angle(0, 0, 0).ToRotMat(); blue->SetState(b);
-		CarState o; o.pos = Vec(0, -1700, 17); o.vel = Vec(0, -1500, 0); o.rotMat = Angle(-1.5708f, 0, 0).ToRotMat(); o.boost = 0; orange->SetState(o);
+		CarState o; o.pos = Vec(0, -2800, 17); o.vel = Vec(0, 0, 0); o.rotMat = Angle(-1.5708f, 0, 0).ToRotMat(); o.boost = 0; orange->SetState(o);
 		BallState bs; bs.pos = Vec(0, -3200, 93); arena->ball->SetState(bs);
 	}
 }
@@ -55,6 +55,7 @@ TEST(ShotEvent_a_1100_uu_per_s_ground_hit_is_a_shot_at_threshold_1000_and_not_at
 		return std::make_pair(shotCalls, maxBallSpeed);
 	};
 	auto strict = shots(1750.f), wide = shots(1000.f);
+	std::cout << "    max ball speed after the hit: " << strict.second << std::endl;
 	CHECK(strict.second > 1000.f && strict.second < 1750.f);   // the hit really is between the two thresholds
 	CHECK_EQ(strict.first, 0);
 	CHECK(wide.first >= 1);
@@ -67,7 +68,7 @@ namespace {
 		void ResetArena(Arena* arena) override {
 			Car* blue = arena->_cars.front(); Car* orange = *std::next(arena->_cars.begin());
 			CarState b; b.pos = Vec(3000, 3000, 17); blue->SetState(b);
-			CarState o; o.pos = Vec(0, -1700, 17); o.vel = Vec(0, -1500, 0); o.rotMat = Angle(-1.5708f, 0, 0).ToRotMat(); o.boost = 0; orange->SetState(o);
+			CarState o; o.pos = Vec(0, -1700, 17); o.vel = Vec(0, -700, 0); o.rotMat = Angle(-1.5708f, 0, 0).ToRotMat(); o.boost = 0; orange->SetState(o);
 			BallState bs; bs.pos = Vec(0, -3200, 93); arena->ball->SetState(bs);
 		}
 	};

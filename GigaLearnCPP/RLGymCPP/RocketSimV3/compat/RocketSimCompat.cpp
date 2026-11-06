@@ -119,7 +119,10 @@ void Car::SetState(const CarState& state) {
 	rs.hasFlipped = state.hasFlipped;
 	rs.flipRelTorque = ToRsf(state.flipRelTorque);
 	rs.jumpTime = state.jumpTime;
-	rs.flipTime = state.flipTime;
+	// v2: flipTime is 0 unless a flip is in progress. RocketSim 0.3.x counts flip_time up on EVERY tick (time since the last flip began),
+	// and locks pitch input while it is under 0.3 s, so a state carried over from v2 semantics (not flipping, flipTime 0) would be
+	// pitch-locked for 0.3 s. Write a long-ago value for it; a car that really is flipping keeps its own.
+	rs.flipTime = (!state.isFlipping && state.flipTime == 0) ? 10.0f : state.flipTime;
 	rs.isFlipping = state.isFlipping;
 	rs.isJumping = state.isJumping;
 	rs.airTime = state.airTime;

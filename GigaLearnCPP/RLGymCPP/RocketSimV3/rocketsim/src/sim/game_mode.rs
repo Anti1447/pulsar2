@@ -1,6 +1,16 @@
 use rustc_hash::FxHashMap;
 
+/// Which Rocket League game mode to simulate.
+///
+/// Mesh/preset mapping notes:
+/// * `Heatseeker` and `Snowday` reuse the Soccar arena meshes and goals.
+/// * `Hoops` and `Dropshot` have their own meshes and scoring rules.
+/// * [`GameMode::TheVoid`] loads no meshes: no goals, boost pads, or arena
+///   hull — cars and the ball fall forever. Useful for physics unit tests.
+///
+/// See [`crate::MutatorConfig::new`] for the per-mode default physics tweaks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GameMode {
     #[default]
     Soccar,
@@ -22,17 +32,47 @@ impl GameMode {
         "void",
     ];
 
+    /// Folder/file-stem name used for collision meshes (`soccar`, `hoops`, ...).
+    ///
+    /// Matches the subfolder layout expected by [`crate::init`].
     #[must_use]
     pub const fn name(self) -> &'static str {
         Self::NAMES[self as usize]
     }
 
+    /// Returns `true` for modes that use Soccar goals and Soccar goal scoring
+    /// (`Soccar`, `Heatseeker`, `Snowday`).
     #[must_use]
     pub const fn has_soccar_arena(self) -> bool {
         match self {
             Self::Soccar | Self::Heatseeker | Self::Snowday => true,
             Self::Hoops | Self::Dropshot | Self::TheVoid => false,
         }
+    }
+
+    pub(crate) fn soccar_component_order(hash: u32) -> Option<usize> {
+        const HASHES_IN_COMPONENT_ORDER: [u32; 16] = [
+            0xA160_BAF9,
+            0x2811_EEE8,
+            0x14B8_4668,
+            0xEC75_9EBF,
+            0x94FB_0D5C,
+            0xDEA0_7102,
+            0xBD4F_BEA8,
+            0x39A4_7F63,
+            0x3D79_D25D,
+            0xD84C_7A68,
+            0xB81A_C8B9,
+            0x7603_58D3,
+            0x73AE_4940,
+            0x918F_4A4E,
+            0x1F8E_E550,
+            0x255B_A8C1,
+        ];
+
+        HASHES_IN_COMPONENT_ORDER
+            .iter()
+            .position(|&component_hash| component_hash == hash)
     }
 
     pub(crate) fn get_hashes(self) -> FxHashMap<u32, u32> {

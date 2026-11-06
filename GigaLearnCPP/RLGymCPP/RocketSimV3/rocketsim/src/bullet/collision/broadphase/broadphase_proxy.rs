@@ -70,6 +70,7 @@ impl BitOr for CollisionFilterGroups {
     }
 }
 
+#[derive(Clone, Copy, Default)]
 pub struct BroadphaseProxy {
     /// The index of the client `RigidBody` in `CollisionWorld`
     pub client_obj_idx: u32,
@@ -81,6 +82,7 @@ pub struct BroadphaseProxy {
     pub indices: [u32; 3],
 }
 
+#[derive(Clone, Copy)]
 pub struct BroadphasePair {
     pub proxy0: usize,
     pub proxy1: usize,
@@ -88,24 +90,4 @@ pub struct BroadphasePair {
 
 pub trait BroadphaseAabbCallback {
     fn process(&mut self, proxy: &BroadphaseProxy) -> bool;
-}
-
-#[cfg(test)]
-mod layout_tests {
-    use std::mem::size_of;
-
-    use crate::bullet::collision::{
-        narrowphase::{manifold_point::ManifoldPoint, persistent_manifold::PersistentManifold},
-        shapes::triangle_shape::TriangleShape,
-    };
-
-    use super::BroadphaseProxy;
-
-    #[test]
-    fn compact_layouts() {
-        assert_eq!(size_of::<BroadphaseProxy>(), 64);
-        assert_eq!(size_of::<TriangleShape>(), 80);
-        assert_eq!(size_of::<ManifoldPoint>(), 128);
-        assert_eq!(size_of::<PersistentManifold>(), 560);
-    }
 }

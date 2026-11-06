@@ -17,6 +17,7 @@ use crate::{
     shared::{Aabb, QuadRayInfo},
 };
 
+#[derive(Clone)]
 pub enum CollisionShapes {
     Compound(CompoundShape),
     Sphere(SphereShape),
@@ -36,7 +37,7 @@ fn fast_compare_trans(a: &Affine3A, b: &Affine3A) -> bool {
 impl CollisionShapes {
     pub fn get_aabb(&self, t: &Affine3A) -> Aabb {
         match self {
-            Self::Sphere(shape) => shape.get_aabb(t),
+            Self::Sphere(shape) => shape.get_aabb(t.translation),
             Self::Compound(shape) => shape.get_aabb(t),
             Self::ConvexHull(shape) => shape.get_aabb(t),
             Self::StaticPlane(shape) => {
@@ -44,11 +45,10 @@ impl CollisionShapes {
                 debug_assert!(fast_compare_trans(t, &shape.aabb_cache_trans));
                 shape.aabb_cache
             }
-            Self::TriangleMesh(shape) => {
-                #[cfg(debug_assertions)]
-                debug_assert!(fast_compare_trans(t, &Affine3A::IDENTITY));
-                shape.aabb_ident_cache
-            }
+            Self::TriangleMesh(shape) => Aabb::new(
+                shape.aabb_ident_cache.min + t.translation,
+                shape.aabb_ident_cache.max + t.translation,
+            ),
             Self::Triangle(shape) => shape.aabb(),
         }
     }
@@ -107,10 +107,9 @@ impl CollisionShapes {
     pub fn local_get_support_vertex_without_margin(&self, vec: Vec3A) -> Vec3A {
         match self {
             Self::Sphere(_) => Vec3A::ZERO,
-            Self::Compound(shape) => {
-                let half_extents = shape.child_shape.get_half_extents();
-                half_extents * Vec3A::ONE.copysign(vec)
-            }
+            Self::Compound(shape) => shape
+                .child_shape
+                .local_get_supporting_vertex_without_margin(vec),
             Self::ConvexHull(shape) => shape.local_get_supporting_vertex_without_margin(vec),
             Self::Triangle(shape) => shape.local_get_supporting_vertex_without_margin(vec),
             _ => unreachable!(),

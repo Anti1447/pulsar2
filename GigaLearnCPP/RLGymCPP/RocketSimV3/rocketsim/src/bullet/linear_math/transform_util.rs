@@ -19,21 +19,19 @@ pub fn integrate_trans(
     integrate_trans_no_rot(&mut cur_trans.translation, lin_vel, time_step);
 
     let mut angle = ang_vel.length();
-
     if angle * time_step > ANGULAR_MOTION_THRESHOLD {
         angle = ANGULAR_MOTION_THRESHOLD / time_step;
     }
 
-    let axis = if angle < 0.001 {
-        ang_vel
-            * (0.5 * time_step - time_step * time_step * time_step * 0.020_833_334)
-            * angle
-            * angle
-    } else {
-        ang_vel * ((0.5 * angle * time_step).sin() / angle)
-    };
+    let half_angle = angle * time_step * 0.5;
+    let axis = ang_vel
+        * if angle < 0.001 {
+            0.5 * time_step - time_step * time_step * time_step * 0.020_833_334 * angle * angle
+        } else {
+            half_angle.sin() / angle
+        };
 
-    let dorn = Quat::from_xyzw(axis.x, axis.y, axis.z, (angle * time_step * 0.5).cos());
+    let dorn = Quat::from_vec4(axis.extend(half_angle.cos()));
     *cur_rot = (dorn * *cur_rot).normalize();
     cur_trans.matrix3 = Mat3A::from_quat(*cur_rot);
 }

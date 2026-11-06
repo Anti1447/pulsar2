@@ -51,6 +51,7 @@ void ArenaSnapshot::CaptureFrom(Arena* arena) {
 	ball = arena->ball->GetState();
 #ifdef RG_ROCKETSIM_V3
 	rngState = rsf_arena_get_rng_state(arena->_rs);
+	engineClone = std::shared_ptr<void>(rsf_arena_snapshot(arena->_rs), [](void* p) { rsf_arena_snapshot_free((RsfArenaSnap*)p); });
 #endif
 
 	cars.clear();
@@ -127,6 +128,14 @@ bool ArenaSnapshot::ApplyTo(Arena* arena) const {
 		}
 		arena->_boostPads[i]->SetState(ps);
 	}
+
+#ifdef RG_ROCKETSIM_V3
+	// Exact engine restore, last: it overwrites what the per-field setters above approximated (the facade-side ballHitInfo they set stays)
+	if (engineClone) {
+		rsf_arena_restore(arena->_rs, (const RsfArenaSnap*)engineClone.get());
+		arena->tickCount = rsf_arena_tick_count(arena->_rs);
+	}
+#endif
 
 	return true;
 }

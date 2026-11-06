@@ -1,4 +1,3 @@
-use arrayvec::ArrayVec;
 use glam::{Affine3A, Vec3A};
 
 use super::{
@@ -8,279 +7,220 @@ use super::{
 use crate::{
     bullet::{
         collision::{
-            narrowphase::persistent_manifold::{ContactAddedCallback, PersistentManifold},
+            narrowphase::{
+                box_triangle_sat::box_triangle_sat,
+                persistent_manifold::{ContactAddedCallback, PersistentManifold},
+            },
             shapes::{
-                box_shape::BoxShape, collision_shape::CollisionShapes,
-                compound_shape::CompoundShape, triangle_callback::ProcessTriangle,
-                triangle_shape::TriangleShape,
+                collision_shape::CollisionShapes, compound_shape::CompoundShape,
+                triangle_callback::ProcessTriangle, triangle_shape::TriangleShape,
             },
         },
-        dynamics::rigid_body::RigidBody,
+        dynamics::rigid_body::{CollisionFlags, RigidBody},
         linear_math::AffineExt,
     },
-    shared::{Aabb, rsmath},
+    shared::Aabb,
 };
 
-struct SatResult {
-    penetration: f32,
-    axis: Vec3A,
-    axis_type: AxisType,
+/// Cached static-mesh transform facts for one compound/mesh pair.
+///
+/// `NoAngularMotion` and `IdentityTransform` are maintained by the
+/// `RigidBody` transform setters. Do not test the matrix again.
+#[derive(Clone, Copy)]
+struct MeshTransformFlags {
+    no_angular_motion: bool,
+    identity: bool,
 }
 
-enum AxisType {
-    TriFace,
-    ObbFace(usize),
-    EdgeEdge { box_axis: usize, tri_edge: usize },
+impl MeshTransformFlags {
+    fn from_body(body: &RigidBody) -> Self {
+        let flags = body.collision_flags;
+        Self {
+            no_angular_motion: flags & CollisionFlags::NoAngularMotion != 0,
+            identity: flags & CollisionFlags::IdentityTransform != 0,
+        }
+    }
+
+    /// The body matrix is identity. `IdentityTransform` implies this too.
+    const fn is_flat(self) -> bool {
+        self.no_angular_motion || self.identity
+    }
+}
+
+/// Build the box transform in triangle-mesh space.
+///
+/// The generic path is the original expression. The flat paths use the
+/// `NoAngularMotion` matrix guarantee. Only `IdentityTransform` skips the
+/// translation subtraction.
+#[inline]
+fn mesh_pair_transform(
+    mesh_trans: &Affine3A,
+    flags: MeshTransformFlags,
+    child_world_trans: Affine3A,
+) -> Affine3A {
+    if flags.identity {
+        child_world_trans
+    } else if flags.no_angular_motion {
+        Affine3A {
+            matrix3: child_world_trans.matrix3,
+            translation: child_world_trans.translation - mesh_trans.translation,
+        }
+    } else {
+        let mesh_to_local = mesh_trans.transpose();
+        Affine3A {
+            matrix3: mesh_to_local.matrix3 * child_world_trans.matrix3,
+            translation: mesh_to_local.transform_point3a(child_world_trans.translation),
+        }
+    }
+}
+
+/// Build the triangle-mesh to box transform.
+///
+/// Compute `box_to_local` once. The flat path replaces only the
+/// `box_to_local.matrix3 * I` product. The translation keeps the original
+/// `Affine3A` multiply order because it feeds contact geometry.
+#[inline]
+fn mesh_to_box_transform(
+    box_trans: &Affine3A,
+    mesh_trans: &Affine3A,
+    flags: MeshTransformFlags,
+) -> Affine3A {
+    let box_to_local = box_trans.transpose();
+    let matrix3 = if flags.is_flat() {
+        box_to_local.matrix3
+    } else {
+        box_to_local.matrix3 * mesh_trans.matrix3
+    };
+
+    Affine3A {
+        matrix3,
+        translation: box_to_local.transform_point3a(mesh_trans.translation),
+    }
 }
 
 struct ConvexTriangleCallback<'a, T: ContactAddedCallback> {
-    pub manifold: PersistentManifold,
-    pub convex_obj: RigidBodyWrapper<'a>,
-    pub tri_obj: &'a RigidBody,
-    pub local_convex_aabb: &'a Aabb,
-    pub box_shape: &'a BoxShape,
-    pub contact_added_callback: &'a mut T,
+    manifold: Option<PersistentManifold>,
+    convex_obj: &'a RigidBody,
+    tri_obj: &'a RigidBody,
+    local_convex_aabb: Aabb,
+    half: Vec3A,
+    margin: f32,
+    maximum_distance: f32,
+    box_trans: Affine3A,
+    tri_trans: &'a Affine3A,
+    tri_flags: MeshTransformFlags,
+    /// Composed on the first triangle that passes the local AABB test.
+    /// A BVH walk with no leaf candidate never pays for the transform.
+    mesh_to_box: Option<Affine3A>,
+    contact_added_callback: &'a mut T,
 }
 
 impl<T: ContactAddedCallback> ProcessTriangle for ConvexTriangleCallback<'_, T> {
     fn process_triangle(&mut self, triangle: &TriangleShape, triangle_idx: usize) {
-        if !triangle.aabb().intersects(self.local_convex_aabb) {
+        let tri_min = triangle.points[0]
+            .min(triangle.points[1])
+            .min(triangle.points[2]);
+        let tri_max = triangle.points[0]
+            .max(triangle.points[1])
+            .max(triangle.points[2]);
+        if !(tri_min.cmple(self.local_convex_aabb.max).all()
+            && tri_max.cmpge(self.local_convex_aabb.min).all())
+        {
             return;
         }
 
-        let half_extents = self.box_shape.get_half_extents();
-        let contact_margin = self.box_shape.get_margin() + self.manifold.contact_breaking_threshold;
-
-        let world_to_box = self.convex_obj.world_trans.inverse();
-        let tri_to_world = self.tri_obj.get_world_trans();
-        let tri_to_box = world_to_box * tri_to_world;
-
-        let tri_verts_rel = [
-            tri_to_box.transform_point3a(triangle.points[0]),
-            tri_to_box.transform_point3a(triangle.points[1]),
-            tri_to_box.transform_point3a(triangle.points[2]),
+        let mesh_to_box = match self.mesh_to_box {
+            Some(mesh_to_box) => mesh_to_box,
+            None => {
+                let mesh_to_box =
+                    mesh_to_box_transform(&self.box_trans, self.tri_trans, self.tri_flags);
+                self.mesh_to_box = Some(mesh_to_box);
+                mesh_to_box
+            }
+        };
+        let q = [
+            mesh_to_box.transform_point3a(triangle.points[0]),
+            mesh_to_box.transform_point3a(triangle.points[1]),
+            mesh_to_box.transform_point3a(triangle.points[2]),
         ];
-
-        let tri_edges_rel = [
-            tri_verts_rel[1] - tri_verts_rel[0],
-            tri_verts_rel[2] - tri_verts_rel[1],
-            tri_verts_rel[0] - tri_verts_rel[2],
-        ];
-
-        let mut min_penetration = f32::INFINITY;
-        let mut best_result: Option<SatResult> = None;
-
-        for i in 0..3 {
-            let tri_min = tri_verts_rel[0][i]
-                .min(tri_verts_rel[1][i])
-                .min(tri_verts_rel[2][i]);
-            let tri_max = tri_verts_rel[0][i]
-                .max(tri_verts_rel[1][i])
-                .max(tri_verts_rel[2][i]);
-
-            let axis_extent = half_extents[i] + contact_margin;
-            if tri_max < -axis_extent || tri_min > axis_extent {
-                return;
-            }
-
-            let p_neg = tri_max + axis_extent;
-            let p_pos = axis_extent - tri_min;
-            let (penetration, side) = if p_neg < p_pos {
-                (p_neg, -1.0)
-            } else {
-                (p_pos, 1.0)
-            };
-
-            if penetration < min_penetration {
-                min_penetration = penetration;
-                let mut axis = Vec3A::ZERO;
-                axis[i] = side;
-                best_result = Some(SatResult {
-                    penetration,
-                    axis,
-                    axis_type: AxisType::ObbFace(i),
-                });
-            }
-        }
-
-        let tri_normal = tri_edges_rel[0].cross(tri_edges_rel[1]);
-        if let Some(norm_axis) = tri_normal.try_normalize() {
-            let plane_dist = norm_axis.dot(tri_verts_rel[0]);
-            let proj_radius = half_extents.dot(norm_axis.abs()) + contact_margin;
-
-            if plane_dist.abs() > proj_radius {
-                return;
-            }
-
-            let penetration = proj_radius - plane_dist.abs();
-            if penetration < min_penetration {
-                min_penetration = penetration;
-                best_result = Some(SatResult {
-                    penetration,
-                    axis: if plane_dist > 0.0 {
-                        norm_axis
-                    } else {
-                        -norm_axis
-                    },
-                    axis_type: AxisType::TriFace,
-                });
-            }
-        }
-
-        for box_axis_idx in 0..3 {
-            let mut box_axis = Vec3A::ZERO;
-            box_axis[box_axis_idx] = 1.0;
-
-            for (edge_idx, &edge_vec) in tri_edges_rel.iter().enumerate() {
-                let axis = box_axis.cross(edge_vec);
-                if let Some(norm_axis) = axis.try_normalize() {
-                    let p = Vec3A::new(
-                        norm_axis.dot(tri_verts_rel[0]),
-                        norm_axis.dot(tri_verts_rel[1]),
-                        norm_axis.dot(tri_verts_rel[2]),
-                    );
-                    let (tri_min, tri_max) = (p.min_element(), p.max_element());
-                    let proj_radius = half_extents.dot(norm_axis.abs()) + contact_margin;
-
-                    if tri_max < -proj_radius || tri_min > proj_radius {
-                        return;
-                    }
-
-                    let p_neg = tri_max + proj_radius;
-                    let p_pos = proj_radius - tri_min;
-                    let (penetration, axis_dir) = if p_neg < p_pos {
-                        (p_neg, -norm_axis)
-                    } else {
-                        (p_pos, norm_axis)
-                    };
-
-                    if penetration < min_penetration {
-                        min_penetration = penetration;
-                        best_result = Some(SatResult {
-                            penetration,
-                            axis: axis_dir,
-                            axis_type: AxisType::EdgeEdge {
-                                box_axis: box_axis_idx,
-                                tri_edge: edge_idx,
-                            },
-                        });
-                    }
-                }
-            }
-        }
-
-        let Some(result) = best_result else {
+        let Some(contact) = box_triangle_sat(
+            &self.box_trans,
+            self.half,
+            self.margin,
+            &q,
+            self.maximum_distance,
+        ) else {
             return;
         };
 
-        let contact_point_local = match result.axis_type {
-            AxisType::TriFace => {
-                let tri_centroid = (tri_verts_rel[0] + tri_verts_rel[1] + tri_verts_rel[2]) / 3.0;
-                let plane_dist = result.axis.dot(tri_verts_rel[0]);
-
-                let mut best_point = Vec3A::ZERO;
-                let mut min_dist_sq = f32::INFINITY;
-                for i in 0..8 {
-                    let corner = half_extents
-                        * Vec3A::new(
-                            if i & 1 != 0 { 1.0 } else { -1.0 },
-                            if i & 2 != 0 { 1.0 } else { -1.0 },
-                            if i & 4 != 0 { 1.0 } else { -1.0 },
-                        );
-
-                    let dist_to_plane = result.axis.dot(corner) - plane_dist;
-                    let projected = corner - result.axis * dist_to_plane;
-
-                    let dist_sq = (projected - tri_centroid).length_squared();
-                    if dist_sq < min_dist_sq && dist_to_plane.abs() < 0.1 {
-                        min_dist_sq = dist_sq;
-                        best_point = projected;
-                    }
-                }
-                best_point
-            }
-
-            AxisType::ObbFace(face_idx) => {
-                let mut contact_points = ArrayVec::<Vec3A, 6>::new();
-                let face_coord = if result.axis[face_idx] > 0.0 {
-                    half_extents[face_idx]
-                } else {
-                    -half_extents[face_idx]
-                };
-
-                for &vert in &tri_verts_rel {
-                    if (vert[face_idx] - face_coord).abs() < 0.05 {
-                        let diff = (vert.abs() - half_extents).max_element();
-                        if diff < 0.05 {
-                            contact_points.push(vert);
-                        }
-                    }
-                }
-
-                for i in 0..3 {
-                    let start = tri_verts_rel[i];
-                    let end = tri_verts_rel[(i + 1) % 3];
-                    let (da, db) = (start[face_idx] - face_coord, end[face_idx] - face_coord);
-
-                    if da * db < 0.0 {
-                        let t = da / (da - db);
-                        let intersection = start + (end - start) * t;
-                        if (intersection.abs() - half_extents).max_element() < 0.05 {
-                            contact_points.push(intersection);
-                        }
-                    }
-                }
-
-                if contact_points.is_empty() {
-                    let mut deepest_vert = tri_verts_rel[0];
-                    let mut max_dot = result.axis.dot(tri_verts_rel[0]);
-
-                    for &vert in &tri_verts_rel[1..] {
-                        let dot = result.axis.dot(vert);
-                        if dot > max_dot {
-                            max_dot = dot;
-                            deepest_vert = vert;
-                        }
-                    }
-                    deepest_vert
-                } else {
-                    contact_points.iter().sum::<Vec3A>() / (contact_points.len() as f32)
-                }
-            }
-
-            AxisType::EdgeEdge { box_axis, tri_edge } => {
-                let edge_pos = half_extents * result.axis.signum();
-                let mut edge_start = edge_pos;
-                let mut edge_end = edge_pos;
-                edge_start[box_axis] = half_extents[box_axis];
-                edge_end[box_axis] = -half_extents[box_axis];
-
-                rsmath::closest_points_between_segments(
-                    edge_start,
-                    edge_end,
-                    tri_verts_rel[tri_edge],
-                    tri_verts_rel[(tri_edge + 1) % 3],
-                )
-            }
-        };
-
-        let contact_point_world = self
-            .convex_obj
-            .world_trans
-            .transform_point3a(contact_point_local);
-
-        let normal_world_on_b = -self.convex_obj.world_trans.transform_vector3a(result.axis);
-        let distance = -(result.penetration + self.box_shape.get_margin());
-        self.manifold.add_contact_point(
-            self.convex_obj.obj,
-            self.tri_obj,
-            normal_world_on_b,
-            contact_point_world,
-            distance,
+        let emit_normal = self.tri_trans.matrix3 * triangle.normal;
+        let (convex_obj, tri_obj) = (self.convex_obj, self.tri_obj);
+        let manifold = self
+            .manifold
+            .get_or_insert_with(|| PersistentManifold::new(convex_obj, tri_obj));
+        let callback = &mut *self.contact_added_callback;
+        manifold.add_contact_point(
+            convex_obj,
+            tri_obj,
+            emit_normal,
+            contact.point_on_b_world,
+            contact.distance,
             Some(triangle_idx),
-            self.contact_added_callback,
+            callback,
         );
     }
+}
+
+/// World transform of the compound child shape.
+///
+/// This uses the same composition order as the gate AABB computation, so a
+/// caller can reuse one value for both the gate and the contact pass without
+/// changing rounding.
+#[inline]
+pub(crate) fn child_world_trans(
+    compound_obj: &RigidBody,
+    compound_shape: &CompoundShape,
+) -> Affine3A {
+    *compound_obj.get_world_trans() * compound_shape.child_trans
+}
+
+#[inline]
+pub(crate) fn child_world_aabb_from_trans(
+    compound_shape: &CompoundShape,
+    new_child_world_trans: &Affine3A,
+) -> Aabb {
+    compound_shape.child_shape.get_aabb(new_child_world_trans)
+}
+
+pub(crate) fn child_world_aabb(compound_obj: &RigidBody, compound_shape: &CompoundShape) -> Aabb {
+    child_world_aabb_from_trans(
+        compound_shape,
+        &child_world_trans(compound_obj, compound_shape),
+    )
+}
+
+pub(crate) fn child_overlaps_other(
+    compound_obj: &RigidBody,
+    compound_shape: &CompoundShape,
+    other_obj: &RigidBody,
+) -> bool {
+    let child_aabb = child_world_aabb(compound_obj, compound_shape);
+    let other_aabb = other_obj
+        .get_collision_shape()
+        .get_aabb(other_obj.get_world_trans());
+    child_aabb.intersects(&other_aabb)
+}
+
+fn child_overlaps_other_with_trans(
+    compound_shape: &CompoundShape,
+    new_child_world_trans: &Affine3A,
+    other_obj: &RigidBody,
+) -> bool {
+    let child_aabb = child_world_aabb_from_trans(compound_shape, new_child_world_trans);
+    let other_aabb = other_obj
+        .get_collision_shape()
+        .get_aabb(other_obj.get_world_trans());
+    child_aabb.intersects(&other_aabb)
 }
 
 pub fn process_collision<T: ContactAddedCallback>(
@@ -288,69 +228,107 @@ pub fn process_collision<T: ContactAddedCallback>(
     compound_shape: &CompoundShape,
     other_obj: &RigidBody,
     contact_added_callback: &mut T,
-) -> Option<PersistentManifold> {
-    let org_trans = *compound_obj.get_world_trans();
-    let child_trans = &compound_shape.child_trans;
-    let new_child_world_trans = org_trans * child_trans;
-
-    let box_shape = &compound_shape.child_shape;
-    let aabb1 = box_shape.get_aabb(&new_child_world_trans);
-
-    let other_col_shape = other_obj.get_collision_shape();
-    let aabb2 = other_col_shape.get_aabb(other_obj.get_world_trans());
-
-    if !aabb1.intersects(&aabb2) {
-        return None;
+    out: &mut Option<PersistentManifold>,
+) {
+    debug_assert!(out.is_none());
+    let new_child_world_trans = child_world_trans(compound_obj, compound_shape);
+    if !child_overlaps_other_with_trans(compound_shape, &new_child_world_trans, other_obj) {
+        return;
     }
 
-    let compound_obj_wrap = RigidBodyWrapper {
-        obj: compound_obj,
-        world_trans: new_child_world_trans,
-        child_shape_override: Some(box_shape),
-    };
+    process_collision_after_child_gate(
+        compound_obj,
+        compound_shape,
+        new_child_world_trans,
+        other_obj,
+        contact_added_callback,
+        out,
+    );
+}
+
+pub(crate) fn process_collision_after_child_gate<T: ContactAddedCallback>(
+    compound_obj: &RigidBody,
+    compound_shape: &CompoundShape,
+    new_child_world_trans: Affine3A,
+    other_obj: &RigidBody,
+    contact_added_callback: &mut T,
+    out: &mut Option<PersistentManifold>,
+) {
+    debug_assert!(out.is_none());
+
+    let box_shape = &compound_shape.child_shape;
+    let other_col_shape = other_obj.get_collision_shape();
 
     match other_col_shape {
         CollisionShapes::TriangleMesh(tri_mesh) => {
-            let xform1 = other_obj.get_world_trans().transpose();
-            let xform2 = new_child_world_trans;
-            let convex_in_triangle_space = Affine3A {
-                matrix3: xform1.matrix3 * xform2.matrix3,
-                translation: xform1.transform_point3a(xform2.translation),
-            };
+            let other_trans = other_obj.get_world_trans();
+            let tri_flags = MeshTransformFlags::from_body(other_obj);
+            let convex_in_triangle_space =
+                mesh_pair_transform(other_trans, tri_flags, new_child_world_trans);
             let aabb_in_triangle = box_shape.get_aabb(&convex_in_triangle_space);
 
+            // Constant for the whole BVH walk; cache here. Direct threshold
+            // fields avoid constructing a manifold for empty calls.
+            let half = box_shape.get_half_extents();
+            let margin = box_shape.get_margin();
+            let breaking = compound_obj
+                .get_contact_breaking_threshold()
+                .min(other_obj.get_contact_breaking_threshold());
+            let maximum_distance = margin + breaking;
+
             let mut convex_triangle_callback = ConvexTriangleCallback {
-                manifold: PersistentManifold::new(compound_obj, other_obj),
-                convex_obj: compound_obj_wrap,
+                manifold: None,
+                convex_obj: compound_obj,
                 tri_obj: other_obj,
-                local_convex_aabb: &aabb_in_triangle,
-                box_shape,
+                local_convex_aabb: aabb_in_triangle,
+                half,
+                margin,
+                maximum_distance,
+                box_trans: new_child_world_trans,
+                tri_trans: other_trans,
+                tri_flags,
+                mesh_to_box: None,
                 contact_added_callback,
             };
 
             tri_mesh.process_all_triangles(&mut convex_triangle_callback, &aabb_in_triangle);
 
-            convex_triangle_callback
-                .manifold
-                .refresh_contact_points(compound_obj, other_obj);
-
-            if convex_triangle_callback.manifold.point_cache.is_empty() {
-                None
-            } else {
-                Some(convex_triangle_callback.manifold)
+            if let Some(mut manifold) = convex_triangle_callback.manifold {
+                manifold.refresh_contact_points(compound_obj, other_obj);
+                if !manifold.point_cache.is_empty() {
+                    *out = Some(manifold);
+                }
             }
         }
-        CollisionShapes::StaticPlane(plane) => convex_plane_collision_alg::process_collision(
-            &compound_obj_wrap,
-            other_obj,
-            plane,
-            contact_added_callback,
-        ),
-        CollisionShapes::ConvexHull(_) => convex_convex_collision_alg::process_collision(
-            &compound_obj_wrap,
-            other_obj,
-            contact_added_callback,
-        ),
+        CollisionShapes::StaticPlane(plane) => {
+            let compound_obj_wrap = RigidBodyWrapper {
+                obj: compound_obj,
+                world_trans: new_child_world_trans,
+                child_shape_override: Some(box_shape),
+            };
+            // The compound gate above already compared this child AABB with
+            // `plane.aabb_cache`. Do not repeat the identical gate here.
+            convex_plane_collision_alg::process_collision_after_gate(
+                &compound_obj_wrap,
+                other_obj,
+                plane,
+                contact_added_callback,
+                out,
+            )
+        }
+        CollisionShapes::ConvexHull(_) => {
+            let compound_obj_wrap = RigidBodyWrapper {
+                obj: compound_obj,
+                world_trans: new_child_world_trans,
+                child_shape_override: Some(box_shape),
+            };
+            convex_convex_collision_alg::process_collision(
+                &compound_obj_wrap,
+                other_obj,
+                contact_added_callback,
+                out,
+            )
+        }
         _ => unimplemented!(),
     }
 }

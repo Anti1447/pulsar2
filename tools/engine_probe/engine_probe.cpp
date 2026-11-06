@@ -115,5 +115,16 @@ int main() {
 		std::cout << "ball_into_parked_car_" << (int)ballSpeed << " max_rebound_vy=" << maxRebound << " ticks_within_160uu=" << near << std::endl;
 		delete a;
 	}
+	// 7. airborne car (z=400, level), held pitch / roll / yaw for 8 ticks: nose direction and angular velocity
+	for (float pitch : { 1.f, -1.f }) {
+		Car* car; Arena* a = NewArena(car);
+		CarState cs = {}; cs.pos = Vec(0, 0, 400); cs.rotMat = Angle(0, 0, 0).ToRotMat(); cs.boost = 0;
+		cs.isOnGround = false; cs.hasJumped = true; cs.hasDoubleJumped = false; cs.hasFlipped = false; cs.isJumping = false;
+		car->SetState(cs);
+		for (int i = 0; i < 8; i++) { car->controls = CarControls(); car->controls.pitch = pitch; a->Step(1); }
+		CarState e = car->GetState();
+		std::cout << "air_pitch_" << (int)pitch << " forward.z=" << e.rotMat.forward.z << " angVel=(" << e.angVel.x << "," << e.angVel.y << "," << e.angVel.z << ") onGround=" << e.isOnGround << std::endl;
+		delete a;
+	}
 	return 0;
 }

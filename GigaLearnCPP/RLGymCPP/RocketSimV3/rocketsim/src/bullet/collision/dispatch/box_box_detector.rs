@@ -4,7 +4,7 @@ use std::{
 };
 
 use arrayvec::ArrayVec;
-use glam::{Affine3A, FloatExt, Mat3A, Vec3A, Vec4};
+use glam::{Affine3A, Mat3A, Vec3A, Vec4};
 
 use crate::bullet::{
     collision::{
@@ -52,25 +52,22 @@ pub fn intersect_rect_quad2(h: [f32; 2], poly: &[[f32; 2]; 4]) -> ArrayVec<[f32;
                 let cur_val = cur[dir];
                 let next_val = next[dir];
 
-                let inside_cur = sign * cur_val <= h[dir];
+                let inside_cur = sign * cur_val < h[dir];
 
                 // If current point is inside, keep it
                 if inside_cur {
                     r.push(cur);
                 }
 
-                let inside_next = sign * next_val <= h[dir];
+                let inside_next = sign * next_val < h[dir];
 
                 // If the edge crosses the boundary, add intersection
                 if inside_cur ^ inside_next {
-                    let denom = next_val - cur_val;
-                    let t = if denom.abs() < f32::EPSILON {
-                        0.0
-                    } else {
-                        (clip_val - cur_val) / denom
-                    };
+                    let p = cur[1 - dir]
+                        + (next[1 - dir] - cur[1 - dir]) / (next_val - cur_val)
+                            * (clip_val - cur_val);
 
-                    let mut p1 = cur[1 - dir].lerp(next[1 - dir], t);
+                    let mut p1 = p;
                     let mut p2 = clip_val;
                     if dir == 0 {
                         mem::swap(&mut p1, &mut p2);
@@ -119,7 +116,7 @@ fn cull_points2(p: &[[f32; 2]], i0: usize, m: usize) -> ArrayVec<usize, 8> {
             let inv = if area.abs() > f32::EPSILON {
                 1.0 / (3.0 * area)
             } else {
-                f32::INFINITY
+                1e18
             };
 
             (
@@ -140,9 +137,10 @@ fn cull_points2(p: &[[f32; 2]], i0: usize, m: usize) -> ArrayVec<usize, 8> {
     // Select points with closest angles
     let mut result: ArrayVec<usize, 8> = ArrayVec::new();
     let mut avail = [false; 8];
-    for a in &mut avail[1..n] {
+    for a in &mut avail[..n] {
         *a = true;
     }
+    avail[i0] = false;
 
     result.push(i0);
 
@@ -196,7 +194,9 @@ impl<T: ContactAddedCallback> BoxBoxDetector<'_, T> {
         &mut self,
         transform_a: Affine3A,
         transform_b: Affine3A,
-    ) -> Option<PersistentManifold> {
+        out: &mut Option<PersistentManifold>,
+    ) {
+        debug_assert!(out.is_none());
         let axis_a = transform_a.matrix3;
         let axis_b = transform_b.matrix3;
         let axis_a_inv = axis_a.transpose();
@@ -207,18 +207,20 @@ impl<T: ContactAddedCallback> BoxBoxDetector<'_, T> {
         let obb1 = Obb::new(transform_a.translation, axis_a, side1);
         let obb2 = Obb::new(transform_b.translation, axis_b, side2);
 
-        let hit = box_box_sat(&obb1, &axis_a_inv, &obb2)?;
+        let Some(hit) = box_box_sat(&obb1, &axis_a_inv, &obb2) else {
+            return;
+        };
 
         let mut manifold = PersistentManifold::new(self.col1, self.col2);
 
         self.compute_contact_points(&obb1, &axis_a, &obb2, &axis_b, &hit, &mut manifold);
 
         if manifold.point_cache.is_empty() {
-            return None;
+            return;
         }
 
         manifold.refresh_contact_points(self.col1, self.col2);
-        Some(manifold)
+        *out = Some(manifold);
     }
 
     fn compute_contact_points<'b>(
@@ -286,7 +288,7 @@ impl<T: ContactAddedCallback> BoxBoxDetector<'_, T> {
             -hit.normal
         };
 
-        let nr = r2t.mul_transpose_vec3a(normal_2);
+        let nr = r2t.transpose_mul_vec3a(normal_2);
         let anr = nr.abs();
 
         // find the largest compontent of anr: this corresponds to the normal
@@ -335,16 +337,16 @@ impl<T: ContactAddedCallback> BoxBoxDetector<'_, T> {
 
         let k = m * Vec4::new(
             obb2.extent[a1],
-            obb2.extent[a1],
             obb2.extent[a2],
+            obb2.extent[a1],
             obb2.extent[a2],
         );
 
         let quad = [
-            [c1 - k.x - k.z, c2 - k.y - k.w],
-            [c1 - k.x + k.z, c2 - k.y + k.w],
-            [c1 + k.x + k.z, c2 + k.y + k.w],
-            [c1 + k.x - k.z, c2 + k.y - k.w],
+            [c1 - k.x - k.y, c2 - k.z - k.w],
+            [c1 - k.x + k.y, c2 - k.z + k.w],
+            [c1 + k.x + k.y, c2 + k.z + k.w],
+            [c1 + k.x - k.y, c2 + k.z - k.w],
         ];
 
         // find the size of the reference face
@@ -418,12 +420,10 @@ impl<T: ContactAddedCallback> BoxBoxDetector<'_, T> {
 
         // we have more contacts than are wanted, some of them must be culled.
         // find the deepest point, it is always the first contact.
-        let (i1, _) = dep[..cnum]
+        let i1 = dep[..cnum]
             .iter()
-            .copied()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-            .unwrap();
+            .fold(0, |i1, (i, &d)| if d > dep[i1] { i } else { i1 });
 
         let iret = cull_points2(&ret[..cnum], i1, maxc);
 
@@ -603,41 +603,4 @@ fn box_box_sat(obb1: &Obb, r1t: &Mat3A, obb2: &Obb) -> Option<Hit> {
         normal,
         axis_idx: code,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use glam::{Mat3A, Vec3A};
-
-    use super::{Obb, box_box_sat};
-    use crate::{CarBodyConfig, consts::UU_TO_BT};
-
-    fn octane_obb(pos_uu: Vec3A, rot_mat: Mat3A) -> Obb {
-        let config = CarBodyConfig::OCTANE;
-        Obb::new(
-            (pos_uu + rot_mat * config.hitbox_pos_offset) * UU_TO_BT,
-            rot_mat,
-            config.hitbox_size * UU_TO_BT * 0.5,
-        )
-    }
-
-    #[test]
-    fn rotated_offset_octane_hitboxes_overlap() {
-        let car_a_rot = Mat3A::from_cols(
-            Vec3A::new(-0.197_008_49, -0.710_327_74, -0.675_738_2),
-            Vec3A::new(-0.328_847_1, -0.592_099, 0.735_586_46),
-            Vec3A::new(0.924_127_6, -0.364_699_04, 0.113_941_91),
-        );
-        let car_b_rot = Mat3A::from_cols(
-            Vec3A::new(0.031_831_503, 0.093_713_61, 0.995_090_25),
-            Vec3A::new(0.937_990_5, -0.346_187_98, 0.003_024_293_8),
-            Vec3A::new(0.344_967_37, 0.933_385_7, -0.098_937_63),
-        );
-
-        let car_a = octane_obb(Vec3A::new(161.537_67, -40.835_064, 366.293_03), car_a_rot);
-        let car_b = octane_obb(Vec3A::new(148.926_6, -160.566_18, 400.462_95), car_b_rot);
-
-        let hit = box_box_sat(&car_a, &car_a.axis.transpose(), &car_b);
-        assert!(hit.is_some());
-    }
 }

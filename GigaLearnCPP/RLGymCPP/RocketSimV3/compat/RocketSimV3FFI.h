@@ -79,6 +79,12 @@ uint32_t rsf_car_extra_state_size(void);
 void rsf_arena_get_car_extra_state(RsfArena* arena, uint32_t idx, void* out);
 void rsf_arena_set_car_extra_state(RsfArena* arena, uint32_t idx, const void* s);
 
+// Whole-arena snapshot: an exact engine-side copy (physics, contacts, RNG). restore overwrites the arena with a copy of it.
+typedef struct RsfArenaSnap RsfArenaSnap;
+RsfArenaSnap* rsf_arena_snapshot(RsfArena* arena);
+void rsf_arena_restore(RsfArena* arena, const RsfArenaSnap* snap);
+void rsf_arena_snapshot_free(RsfArenaSnap* snap);
+
 // Arena RNG state (demo respawn spawn-point selection is its only consumer).
 uint64_t rsf_arena_get_rng_state(RsfArena* arena);
 void rsf_arena_set_rng_state(RsfArena* arena, uint64_t state);

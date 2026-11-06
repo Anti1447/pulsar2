@@ -1,4 +1,4 @@
-use glam::{Affine3A, Vec3A};
+use glam::Vec3A;
 
 use crate::bullet::{
     collision::{
@@ -12,10 +12,11 @@ use crate::bullet::{
         },
     },
     dynamics::rigid_body::RigidBody,
+    linear_math::AffineExt,
 };
 
 struct ConvexTriangleCallback<'a, T: ContactAddedCallback> {
-    pub manifold: PersistentManifold,
+    pub manifold: &'a mut PersistentManifold,
     pub convex_obj: &'a RigidBody,
     pub tri_obj: &'a RigidBody,
     contact_added_callback: &'a mut T,
@@ -24,12 +25,13 @@ struct ConvexTriangleCallback<'a, T: ContactAddedCallback> {
 
 impl<'a, T: ContactAddedCallback> ConvexTriangleCallback<'a, T> {
     pub fn new(
+        manifold: &'a mut PersistentManifold,
         convex_obj: &'a RigidBody,
         tri_obj: &'a RigidBody,
         contact_added_callback: &'a mut T,
     ) -> Self {
         Self {
-            manifold: PersistentManifold::new(convex_obj, tri_obj),
+            manifold,
             convex_obj,
             tri_obj,
             contact_added_callback,
@@ -37,17 +39,22 @@ impl<'a, T: ContactAddedCallback> ConvexTriangleCallback<'a, T> {
         }
     }
 
-    /// Check if this is fully on one side of the triangle
+    /// Check if this is fully on one side of the triangle.
+    /// Triangles are component-local. Move the face to world with the
+    /// mesh body transform before the support test.
     fn is_triangle_separated(&self, triangle_normal: Vec3A, triangle_point: Vec3A) -> bool {
+        let tri_trans = self.tri_obj.get_world_trans();
+        let world_normal = tri_trans.transform_vector3a(triangle_normal);
+        let world_point = tri_trans.transform_point3a(triangle_point);
         let convex = self.convex_obj.get_collision_shape();
         let convex_trans = self.convex_obj.get_world_trans();
 
         let local_pt = convex
-            .local_get_supporting_vertex(convex_trans.matrix3.mul_transpose_vec3a(triangle_normal));
+            .local_get_supporting_vertex(convex_trans.matrix3.transpose_mul_vec3a(world_normal));
         let world_pt = convex_trans.transform_point3a(local_pt);
 
-        let proj_dist_pt = triangle_normal.dot(world_pt);
-        let proj_dist_tr = triangle_normal.dot(triangle_point);
+        let proj_dist_pt = world_normal.dot(world_pt);
+        let proj_dist_tr = world_normal.dot(world_point);
 
         let dist = proj_dist_tr - proj_dist_pt;
         dist > self.manifold.contact_breaking_threshold
@@ -82,7 +89,7 @@ impl<T: ContactAddedCallback> ProcessTriangle for ConvexTriangleCallback<'_, T> 
 
         let input = ClosestPointInput::new(
             self.convex_obj.get_world_trans(),
-            &Affine3A::IDENTITY,
+            self.tri_obj.get_world_trans(),
             margin_a + self.manifold.contact_breaking_threshold,
         );
 
@@ -96,26 +103,30 @@ impl<T: ContactAddedCallback> ProcessTriangle for ConvexTriangleCallback<'_, T> 
     }
 }
 
-pub fn process_collision<T: ContactAddedCallback>(
+pub fn process_collision_into<T: ContactAddedCallback>(
     convex_obj: &RigidBody,
     concave_obj: &RigidBody,
     tri_mesh: &BvhTriangleMeshShape,
+    manifold: &mut PersistentManifold,
     contact_added_callback: &mut T,
-) -> Option<PersistentManifold> {
-    let mut convex_triangle_callback =
-        ConvexTriangleCallback::new(convex_obj, concave_obj, contact_added_callback);
+) -> bool {
+    {
+        let mut convex_triangle_callback =
+            ConvexTriangleCallback::new(manifold, convex_obj, concave_obj, contact_added_callback);
 
-    let aabb = convex_obj
-        .get_collision_shape()
-        .get_aabb(convex_obj.get_world_trans());
-    tri_mesh.process_all_triangles(&mut convex_triangle_callback, &aabb);
-
-    if convex_triangle_callback.manifold.point_cache.is_empty() {
-        None
-    } else {
-        convex_triangle_callback
-            .manifold
-            .refresh_contact_points(convex_obj, concave_obj);
-        Some(convex_triangle_callback.manifold)
+        // BVH holds local triangles. Move the convex AABB into mesh-local
+        // space, mirroring the compound and sphere paths.
+        let world_to_local = concave_obj.get_world_trans().transpose();
+        let convex_aabb_world = convex_obj
+            .get_collision_shape()
+            .get_aabb(convex_obj.get_world_trans());
+        let aabb = convex_aabb_world.transform(&world_to_local, 0.0);
+        tri_mesh.process_all_triangles(&mut convex_triangle_callback, &aabb);
     }
+
+    // Skip the no-op empty refresh (see `refresh_contact_points`).
+    if !manifold.point_cache.is_empty() {
+        manifold.refresh_contact_points(convex_obj, concave_obj);
+    }
+    !manifold.point_cache.is_empty()
 }

@@ -1,12 +1,19 @@
+//! Game constants: tick rate, unit scales, per-mode arena/car/ball/goal tuning.
+//!
+//! Lengths/speeds are Unreal units (uu) unless the name says `_BT` (Bullet
+//! meters) or the docs say otherwise. Convert with [`BT_TO_UU`]/[`UU_TO_BT`].
+
 use glam::Vec3A;
 
-use crate::{GameMode, sim::linear_piece_curve::LinearPieceCurve};
+use crate::{GameMode, shared::LinearPieceCurve};
 
+/// Friction/restitution pair for a physics interaction.
 pub struct PhysicsCoefs {
     pub friction: f32,
     pub restitution: f32,
 }
 
+/// Static kickoff/respawn marker: `x/y` position (uu) + facing yaw (rad).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CarSpawnPos {
     pub x: f32,
@@ -15,6 +22,7 @@ pub struct CarSpawnPos {
 }
 
 impl CarSpawnPos {
+    /// Builds a spawn marker (`x/y` in uu, `yaw_ang` in radians, Blue side).
     #[inline]
     #[must_use]
     pub const fn new(x: f32, y: f32, yaw_ang: f32) -> Self {
@@ -39,6 +47,7 @@ pub const TICK_TIME: f32 = 1.0 / TICK_RATE;
 /// The z-velocity added by gravity each second
 pub const GRAVITY_Z: f32 = -650.0;
 
+/// Arena collision, bounds, and goal volumes per game mode.
 pub mod arena {
     use glam::Vec3A;
 
@@ -50,6 +59,7 @@ pub mod arena {
         restitution: 0.3,
     };
 
+    /// Arena outer bounds (uu) including floor height (Dropshot `z=1.5`).
     #[must_use]
     pub const fn get_aabb(game_mode: GameMode) -> Aabb {
         let (max_x, max_y, max_z) = match game_mode {
@@ -72,6 +82,7 @@ pub mod arena {
     }
 }
 
+/// Car mass, driving, jump/flip, boost, demo/bump, and spawn tuning.
 pub mod car {
     use super::PhysicsCoefs;
 
@@ -101,13 +112,14 @@ pub mod car {
 
     pub mod boost {
         pub const MAX: f32 = 100.0;
-        pub const USED_PER_SECOND: f32 = MAX / 3.0;
+        /// Boost is consumed at 0.333 * 100 per second - not MAX / 3.
+        pub const USED_PER_SECOND: f32 = 33.3;
         /// Minimum time we can be boosting for
         pub const MIN_TIME: f32 = 0.1;
-        /// uu/s for vel (on the ground)
+        /// uu/s for vel (on the ground, also used airborne)
         pub const ACCEL_GROUND: f32 = 2975.0 / 3.0;
-        /// uu/s for vel (airborne)
-        pub const ACCEL_AIR: f32 = 3175.0 / 3.0;
+        /// uu/s for vel (airborne, paired with ground)
+        pub const ACCEL_AIR: f32 = ACCEL_GROUND;
         pub const SPAWN_AMOUNT: f32 = MAX / 3.0;
         /// Amount of boost recharged per second when recharging
         pub const RECHARGE_PER_SECOND: f32 = 10.0;
@@ -124,6 +136,11 @@ pub mod car {
         pub const MAINTAIN_MAX_TIME: f32 = 1.0;
     }
 
+    pub mod demo {
+        pub const YAW_LIMIT_DEG: f32 = 45.572994;
+        pub const PITCH_LIMIT_DEG: f32 = 36.869896;
+    }
+
     pub mod drive {
         pub const THROTTLE_TORQUE_AMOUNT: f32 = super::MASS_BT * 400.0;
         pub const BRAKE_TORQUE_AMOUNT: f32 = super::MASS_BT * (14.25 + (1.0 / 3.));
@@ -133,8 +150,8 @@ pub mod car {
         pub const COASTING_BRAKE_FACTOR: f32 = 0.15;
         /// If we are braking and moving faster than this, disable throttle
         pub const BRAKING_NO_THROTTLE_SPEED_THRESH: f32 = 0.01;
-        /// Throttle input of less than this is ignored
-        pub const THROTTLE_DEADZONE: f32 = 0.001;
+        /// Processed throttle input with magnitude up to this is ignored
+        pub const THROTTLE_DEADZONE: f32 = 0.01;
         pub const THROTTLE_AIR_ACCEL: f32 = 200.0 / 3.0;
 
         pub const POWERSLIDE_RISE_RATE: f32 = 5.0;
@@ -144,26 +161,35 @@ pub mod car {
     pub mod jump {
         pub const ACCEL: f32 = 4375.0 / 3.0;
         pub const IMMEDIATE_FORCE: f32 = 875.0 / 3.0;
-        pub const MIN_TIME: f32 = 0.025;
-        pub const RESET_TIME_PAD: f32 = 0.25;
-        pub const MAX_TIME: f32 = 0.2;
+        /// Minimum hold duration: 3 ticks (0.025 s @ 120 Hz)
+        pub const MIN_TICKS: u32 = 3;
+        /// Maximum hold duration: 24 ticks (0.2 s @ 120 Hz)
+        pub const MAX_TICKS: u32 = 24;
+        /// Grounded re-arm delay: 15 ticks (0.125 s @ 120 Hz)
+        ///
+        /// A jump that ends without liftoff re-arms once `jump_time`
+        /// passes this delay. The end tick counts as 1, so the reset
+        /// fires at tick 16.
+        pub const SETTLED_REARM_TICKS: u32 = 15;
         /// Can be at most 1.25 seconds after the jump is finished
         pub const DOUBLEJUMP_MAX_DELAY: f32 = 1.25;
     }
 
     pub mod flip {
+        use glam::Vec3A;
+
         pub const Z_DAMP_120: f32 = 0.35;
         pub const Z_DAMP_START: f32 = 0.15;
         pub const Z_DAMP_END: f32 = 0.21;
         pub const TORQUE_TIME: f32 = 0.65;
         pub const TORQUE_MIN_TIME: f32 = 0.41;
+        pub const PITCH_CANCEL_GATE_MIN_TIME: f32 = 0.041;
         pub const PITCHLOCK_TIME: f32 = 1.0;
         pub const PITCHLOCK_EXTRA_TIME: f32 = 0.3;
         pub const INITIAL_VEL_SCALE: f32 = 500.0;
-        /// Left/Right
-        pub const TORQUE_X: f32 = 260.0;
-        /// Forward/backward
-        pub const TORQUE_Y: f32 = 224.0;
+        /// X: Left/Right
+        /// Y: Forward/Backward
+        pub const TORQUE: Vec3A = Vec3A::new(260.0, 224.0, 0.0);
         pub const FORWARD_IMPULSE_MAX_SPEED_SCALE: f32 = 1.0;
         pub const SIDE_IMPULSE_MAX_SPEED_SCALE: f32 = 1.9;
         pub const BACKWARD_IMPULSE_MAX_SPEED_SCALE: f32 = 2.5;
@@ -181,13 +207,12 @@ pub mod car {
     }
 
     pub mod autoflip {
-        use std::f32::consts::FRAC_1_SQRT_2;
-
         pub const IMPULSE: f32 = 200.0;
-        pub const TORQUE: f32 = 50.0;
+        pub const ANG_VEL_DELTA: f32 = 1000.0;
         pub const TIME: f32 = 0.4;
-        pub const NORM_Z_THRESH: f32 = FRAC_1_SQRT_2;
+        pub const NORM_Z_THRESH: f32 = 0.707;
         pub const ROLL_THRESH: f32 = 2.8;
+        pub const UP_DOT_THRESH: f32 = -0.966;
     }
 
     pub mod autoroll {
@@ -197,7 +222,8 @@ pub mod car {
 
     pub mod bump {
         pub const COOLDOWN_TIME: f32 = 0.25;
-        pub const MIN_FORWARD_DIST: f32 = 64.5;
+        pub const YAW_LIMIT_DEG: f32 = 70.0;
+        pub const PITCH_LIMIT_DEG: f32 = 36.869896;
     }
 
     pub mod spawn {
@@ -208,6 +234,8 @@ pub mod car {
         pub const REST_Z: f32 = 17.0;
         pub const RESPAWN_Z: f32 = 36.0;
 
+        /// Kickoff spots per mode (Blue side; Orange is mirrored 180°).
+        /// Extra cars overflow to [`get_respawn_locations`] with a +250 uu Y shift.
         #[must_use]
         pub const fn get_kickoff_spawn_locations(game_mode: GameMode) -> &'static [CarSpawnPos] {
             pub const LOCATIONS_SOCCAR: [CarSpawnPos; 5] = [
@@ -248,6 +276,7 @@ pub mod car {
 
         pub const RESPAWN_TIME: f32 = 3.0;
 
+        /// Demo-respawn spots per mode (Blue side; Orange is mirrored 180°).
         #[must_use]
         pub const fn get_respawn_locations(game_mode: GameMode) -> &'static [CarSpawnPos] {
             const LOCATIONS_SOCCAR: [CarSpawnPos; 4] = [
@@ -278,10 +307,12 @@ pub mod car {
     }
 }
 
+/// Ball/puck radius, mass, drag, bounce, and kickoff-launch tuning.
 pub mod ball {
     use super::PhysicsCoefs;
     use crate::{GameMode, consts::snowday};
 
+    /// Ball radius in uu per mode (Snowday returns the puck radius).
     #[must_use]
     pub const fn get_radius(game_mode: GameMode) -> f32 {
         pub const RADIUS_SOCCAR: f32 = 91.25;
@@ -324,6 +355,7 @@ pub mod ball {
     }
 }
 
+/// Goal dimensions/scoring thresholds (uu) for Soccar and Hoops.
 pub mod goal {
     use glam::Vec3A;
 
@@ -336,6 +368,7 @@ pub mod goal {
 
     pub const HOOPS_GOAL_SCORE_THRESHOLD_Z: f32 = 270.0;
 
+    /// Soccar goal volume for `goal_team` (uu, includes depth behind the line).
     #[must_use]
     pub const fn get_goal_aabb(goal_team: Team) -> Aabb {
         const FRONT_Y: f32 = SOCCAR_GOAL_SCORE_BASE_THRESHOLD_Y;
@@ -351,6 +384,7 @@ pub mod goal {
         )
     }
 
+    /// Center of the goal mouth for `goal_team` (uu).
     #[must_use]
     pub const fn get_goal_face_center(goal_team: Team) -> Vec3A {
         Vec3A::new(
@@ -361,9 +395,8 @@ pub mod goal {
     }
 }
 
+/// Bullet vehicle suspension/wheel solver constants (internal tuning).
 pub mod bullet_vehicle {
-    pub const SUSPENSION_FORCE_SCALE_FRONT: f32 = 36.0 - (1.0 / 4.);
-    pub const SUSPENSION_FORCE_SCALE_BACK: f32 = 54.0 + (1.0 / 4.) + (1.5 / 100.);
     pub const SUSPENSION_STIFFNESS: f32 = 500.0;
     pub const WHEELS_DAMPING_COMPRESSION: f32 = 25.0;
     pub const WHEELS_DAMPING_RELAXATION: f32 = 40.0;
@@ -371,6 +404,7 @@ pub mod bullet_vehicle {
     pub const SUSPENSION_SUBTRACTION: f32 = 0.05;
 }
 
+/// Piecewise driving/bump curves (sampled with `get_output`, clamped at ends).
 pub mod curves {
     use super::LinearPieceCurve;
 
@@ -382,14 +416,39 @@ pub mod curves {
         (1750., 0.08507),
         (3000., 0.03454),
     ]);
-    pub const STEER_ANGLE_FROM_SPEED_THREEWHEEL: LinearPieceCurve<2> =
-        LinearPieceCurve::new([(0., 0.342_473), (2300., 0.034_837)]);
+    /// Psyclops steering angle in radians for forward speed in uu/s.
+    ///
+    /// The final point repeats to fill the six-point curve used by car configs.
+    pub const STEER_ANGLE_FROM_SPEED_THREEWHEEL: LinearPieceCurve<6> = LinearPieceCurve::new([
+        (0., 0.342_473),
+        (2300., 0.034_837),
+        (2300., 0.034_837),
+        (2300., 0.034_837),
+        (2300., 0.034_837),
+        (2300., 0.034_837),
+    ]);
+    /// Plank steering angle in radians for forward speed in uu/s.
+    ///
+    /// The knots match recorded wheel steering.
+    pub const PLANK_STEER_ANGLE_FROM_SPEED: LinearPieceCurve<6> = LinearPieceCurve::new([
+        (0., 0.529_582),
+        (500., 0.317_619),
+        (1000., 0.181_425),
+        (1500., 0.105_480),
+        (1750., 0.084_926),
+        (3000., 0.034_519),
+    ]);
     pub const POWERSLIDE_STEER_ANGLE_FROM_SPEED: LinearPieceCurve<2> =
         LinearPieceCurve::new([(0., 0.39235), (2500., 0.12610)]);
+    /// Plank powerslide steering angle in radians for forward speed in uu/s.
+    ///
+    /// The knots match recorded wheel steering.
+    pub const PLANK_POWERSLIDE_STEER_ANGLE_FROM_SPEED: LinearPieceCurve<2> =
+        LinearPieceCurve::new([(0., 0.389_930), (2500., 0.125_785)]);
     pub const DRIVE_SPEED_TORQUE_FACTOR: LinearPieceCurve<3> =
         LinearPieceCurve::new([(0., 1.0), (1400., 0.1), (1410., 0.0)]);
     pub const NON_STICKY_FRICTION_FACTOR: LinearPieceCurve<3> =
-        LinearPieceCurve::new([(0., 0.1), (0.7075, 0.5), (1., 1.0)]);
+        LinearPieceCurve::new([(0., 0.1), (0.707, 0.5), (1., 1.0)]);
     pub const LAT_FRICTION: LinearPieceCurve<2> = LinearPieceCurve::new([(0., 1.0), (1., 0.2)]);
     pub const LAT_FRICTION_THREEWHEEL: LinearPieceCurve<2> =
         LinearPieceCurve::new([(0., 0.30), (1., 0.25)]);
@@ -397,17 +456,32 @@ pub mod curves {
         LinearPieceCurve::new([(0., 0.1)]);
     pub const HANDBRAKE_LONG_FRICTION_FACTOR: LinearPieceCurve<2> =
         LinearPieceCurve::new([(0., 0.5), (1., 0.9)]);
-    pub const BALL_CAR_EXTRA_IMPULSE_FACTOR: LinearPieceCurve<4> =
-        LinearPieceCurve::new([(0., 0.65), (500., 0.65), (2300., 0.55), (4600., 0.30)]);
+    pub const BALL_CAR_EXTRA_IMPULSE_FACTOR: LinearPieceCurve<5> = LinearPieceCurve::new([
+        (0., 0.65),
+        (500., 0.65),
+        (1400., 0.60),
+        (2300., 0.55),
+        (4600., 0.30),
+    ]);
 
-    pub const BUMP_VEL_AMOUNT_GROUND: LinearPieceCurve<3> =
-        LinearPieceCurve::new([(0., (5.0 / 6.)), (1400., 1100.), (2200., 1530.)]);
-    pub const BUMP_VEL_AMOUNT_AIR: LinearPieceCurve<3> =
-        LinearPieceCurve::new([(0., (5.0 / 6.)), (1400., 1390.), (2200., 1945.)]);
-    pub const BUMP_UPWARD_VEL_AMOUNT: LinearPieceCurve<3> =
-        LinearPieceCurve::new([(0., (2.0 / 6.)), (1400., 278.), (2200., 417.)]);
+    pub const BUMP_VEL_AMOUNT_GROUND: LinearPieceCurve<3> = LinearPieceCurve::new([
+        (0., (150.0 / 180.0)),
+        (1400., (200000.0 / 180.0)),
+        (2200., (275000.0 / 180.0)),
+    ]);
+    pub const BUMP_VEL_AMOUNT_AIR: LinearPieceCurve<3> = LinearPieceCurve::new([
+        (0., (150.0 / 180.0)),
+        (1400., (250000.0 / 180.0)),
+        (2200., (350000.0 / 180.0)),
+    ]);
+    pub const BUMP_UPWARD_VEL_AMOUNT: LinearPieceCurve<3> = LinearPieceCurve::new([
+        (0., (50.0 / 180.0)),
+        (1400., (50000.0 / 180.0)),
+        (2200., (75000.0 / 180.0)),
+    ]);
 }
 
+/// Heatseeker seek speeds, turn blends, wall-bounce rules, kickoff state.
 pub mod heatseeker {
     use std::f32::consts::PI;
 
@@ -431,7 +505,7 @@ pub mod heatseeker {
     pub const SPEED_BLEND: f32 = 0.3;
     /// Maximum pitch angle of turning
     pub const MAX_TURN_PITCH: f32 = 7000.0 * PI / (1 << 15) as f32;
-    /// Maximum speed the ball can seek at (different from `BALL_MAX_SPEED`)
+    /// Maximum speed the ball can seek at (different from `ball::MAX_SPEED`).
     pub const MAX_SPEED: f32 = 4600.0;
     /// Threshold of wall collision Y backwall distance to change goal targets
     pub const WALL_BOUNCE_CHANGE_Y_THRESH: f32 = 300.0;
@@ -445,6 +519,7 @@ pub mod heatseeker {
     pub const BALL_START_VEL: Vec3A = Vec3A::new(0., -65., 650.);
 }
 
+/// Snowday puck shape, mass, stick force, and bounce coefficients.
 pub mod snowday {
     use super::PhysicsCoefs;
 
@@ -461,6 +536,7 @@ pub mod snowday {
     };
 }
 
+/// Dropshot launch, charge thresholds, damage timing, and tile geometry.
 pub mod dropshot {
     use super::{BT_TO_UU, Vec3A};
 
@@ -498,21 +574,26 @@ pub mod dropshot {
     ];
 }
 
+/// Boost-pad hitbox sizes, cooldowns/amounts, and per-mode layouts (uu).
 pub mod boost_pads {
     use super::{GameMode, Vec3A};
 
     // TODO: Do something about repetitive small/big pairs
+    /// Pad trigger cylinder height (uu).
     pub const CYL_HEIGHT: f32 = 95.0;
     pub const CYL_RAD_BIG: f32 = 208.0;
-    pub const CYL_RAD_SMALL: f32 = 144.0;
+    pub const CYL_RAD_SMALL: f32 = 176.0;
     pub const BOX_HEIGHT: f32 = 64.0;
     pub const BOX_RAD_BIG: f32 = 160.0;
-    pub const BOX_RAD_SMALL: f32 = 120.0;
+    pub const BOX_RAD_SMALL: f32 = 96.0;
     pub const COOLDOWN_BIG: f32 = 10.0;
     pub const COOLDOWN_SMALL: f32 = 4.0;
     pub const BOOST_AMOUNT_BIG: f32 = 100.0;
     pub const BOOST_AMOUNT_SMALL: f32 = 12.0;
 
+    /// Pad positions (uu) for a mode/size class. Soccar layouts cover
+    /// Heatseeker/Snowday/Dropshot fallbacks; Hoops has its own 14+6.
+    /// Order is arena order (do not rely on big/small grouping).
     #[must_use]
     pub const fn get_locations(game_mode: GameMode, is_big: bool) -> &'static [Vec3A] {
         const LOCS_SMALL_SOCCAR: [Vec3A; 28] = [
@@ -598,6 +679,7 @@ pub mod boost_pads {
     }
 }
 
+/// Network quantization scales for position/velocity/angular velocity.
 pub mod quantize {
     pub const POS_SCALE: f32 = 100.0;
     pub const VEL_SCALE: f32 = 100.0;

@@ -2,15 +2,16 @@ use glam::Vec3A;
 
 use crate::{BoostPadConfig, MutatorConfig, consts::boost_pads, shared::Aabb};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct BoostPad {
     pub config: BoostPadConfig,
-    pub _box_radius: f32, // TODO: Implement car-locking with box hitbox
+    pub box_radius: f32,
     pub cyl_radius: f32,
     pub max_cooldown: f32,
     pub boost_amount: f32,
     pub aabb: Aabb,
     pub gave_boost_tick_count: Option<i64>,
+    pub touching_car_idxs: Vec<usize>,
 }
 
 impl BoostPad {
@@ -39,22 +40,24 @@ impl BoostPad {
             mutator_config.boost_pad_amount_small
         };
 
-        let extent = Vec3A::new(box_radius, box_radius, boost_pads::CYL_HEIGHT);
+        let extent = Vec3A::new(cyl_radius, cyl_radius, boost_pads::CYL_HEIGHT);
         let aabb = Aabb::new(config.pos - extent, config.pos + extent);
 
         Self {
             config,
-            _box_radius: box_radius,
+            box_radius,
             cyl_radius,
             max_cooldown,
             boost_amount,
             aabb,
             gave_boost_tick_count: None,
+            touching_car_idxs: Vec::new(),
         }
     }
 
-    pub const fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.gave_boost_tick_count = None;
+        self.touching_car_idxs.clear();
     }
 
     pub const fn config(&self) -> &BoostPadConfig {

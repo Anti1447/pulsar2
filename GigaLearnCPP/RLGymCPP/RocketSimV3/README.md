@@ -1,11 +1,19 @@
 # RocketSimV3 — vendored Rust engine + C FFI
 
-Vendored from https://github.com/VirxEC/RocketSim branch `fix-jump`
-at commit `239808fb0ce888c633de80003c6f9fc6b80a270c`.
-`fix-jump` corrects jump-time progression after the minimum jump period.
-`rocketsim/` and `rocketsim_derive/` are UNMODIFIED upstream — keep it that way;
-carry any local need in `rocketsim_ffi/` (ours) or the C++ compat layer
-(`compat/`), so upstream bumps stay a clean directory swap.
+Vendored from the crates.io release **rocketsim 0.3.5** (2026-11-03; upstream https://github.com/ZealanL/RocketSim,
+Rust port by VirxEC). `rocketsim/` is the UNMODIFIED crate source (minus Cargo.toml.orig / Cargo.lock) - keep it that way;
+carry any local need in `rocketsim_ffi/` (ours) or the C++ compat layer (`compat/`), so upstream bumps stay a directory swap.
+
+2026-11-06 bump from `fix-jump` @ 239808f (2026-07-12). Why: that snapshot lost the car-ball extra hit impulse (it was added
+to the rigid body's per-tick accumulator AFTER the solve, and the accumulator is cleared at the start of the next tick), so
+car hits came out ~45% weaker and the ball stuck to cars; the v2-trained bots then stalled (docs/engine_compare/FINDINGS.md).
+0.3.5 fixes it; `tools/engine_probe` matches RocketSim v2 within ~0.5% on hit speed and carry. What the port changed:
+- `rocketsim_ffi`: `CarExtraState` is gone and `CarState` is rebuilt from `CarCore` + `CarTuning`; the opaque "extra state" blob is now
+  a copy of the whole `CarState`. New `rsf_arena_snapshot/restore/snapshot_free` (an `Arena` clone) give the viz rewind an exact restore.
+  `ArenaEvent::CarLanded` has no C++ counterpart and is dropped.
+- compat: `flipTime` is written as 10 s for a car that is not flipping and has flipTime 0 (0.3.x counts it up on every tick and locks
+  pitch input for 0.3 s after it is 0, which v2 states would otherwise trigger).
+- Toolchain stays the pinned nightly; glam is 0.34.
 
 Why v3 (2026-07-17, user decision): measured ~3x single-thread physics speedup
 (same protocol/meshes/machine: 267k → 815k TPS @ 2 cars) and an upstream

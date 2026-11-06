@@ -162,10 +162,10 @@ namespace Lab {
 	// ---- engine probe ---------------------------------------------------------------------------------------------------
 	inline Scenario ProbeScenario() {
 		Scenario s; s.name = "engine_probe"; s.tickSkip = 8; s.steps = 60;
-		CarSpec a; a.team = Team::BLUE; a.pos = Vec(0, -2800, 17); a.yawDeg = 90; a.boost = 100;
+		CarSpec a; a.team = Team::BLUE; a.pos = Vec(2400, -2800, 17); a.yawDeg = 90; a.boost = 100;
 		CarSpec b; b.team = Team::ORANGE; b.pos = Vec(1500, 2500, 17); b.yawDeg = 270; b.boost = 100;
 		s.cars = { a, b };
-		s.ball.pos = Vec(0, -300, 93);
+		s.ball.pos = Vec(2400, -300, 93); // off to the wing: since the 2026-11-06 car-ball impulse fix the hit is hard enough that a centre shot scores inside 60 steps and ends the probe early
 		auto act = [](float thr, float steer, float pitch, float jump, float boost) { Action x = Action(CarControls{}); x.throttle = thr; x.steer = steer; x.pitch = pitch; x.jump = jump; x.boost = boost; return x; };
 		auto add = [&](int car, int from, Action x) { ActionEntry e; e.car = car; e.from = from; e.action = x; s.actions.push_back(e); };
 		add(0, 0, act(1, 0, 0, 0, 1)); add(0, 10, act(1, 0, 0, 1, 1)); add(0, 11, act(1, 0, -1, 1, 1)); add(0, 12, act(1, 0.3f, 0, 0, 1));

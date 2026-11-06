@@ -1,30 +1,41 @@
-use glam::{Affine3A, Quat, Vec3A};
+use glam::{Affine3A, Vec3A};
 
 use super::{NUM_WHEELS, raycaster::VehicleRaycasterResult};
-use crate::bullet::dynamics::rigid_body::Impulse;
 use crate::{
-    bullet::{
-        dynamics::{
-            constraint_solver::contact_constraint::{
-                resolve_single_bilateral, resolve_single_collision,
-            },
-            rigid_body::RigidBody,
+    bullet::dynamics::{
+        constraint_solver::contact_constraint::{
+            resolve_single_bilateral_fake_ground, resolve_single_collision,
         },
-        linear_math::QuatExt,
+        rigid_body::{Impulse, RigidBody},
     },
-    consts::{UU_TO_BT, bullet_vehicle},
+    consts::{BT_TO_UU, UU_TO_BT, bullet_vehicle, curves},
+    sim::UserInfoType,
 };
 
+#[derive(Clone, Copy)]
 pub struct RaycastInfo {
     pub contact_normal: Vec3A,
     pub contact_point: Vec3A,
+    pub ground_body_idx: usize,
     pub suspension_length: f32,
     pub impulse: Vec3A,
+    pub ground_stick: Option<Vec3A>,
     pub is_in_contact_with_world: bool,
     pub clipped_inv_contact_dot_suspension: f32,
     pub suspension_relative_vel: f32,
 }
 
+#[derive(Clone, Copy)]
+pub struct FrictionCurveInput {
+    pub chassis_translation: Vec3A,
+    pub contact_normal: Vec3A,
+    pub handbrake_val: f32,
+    pub real_throttle: f32,
+    pub three_wheels: bool,
+    pub is_dynamic_hit: bool,
+}
+
+#[derive(Clone, Copy)]
 pub struct WheelInfo {
     pub raycast_info: Option<RaycastInfo>,
     pub hard_point: Vec3A,
@@ -76,8 +87,7 @@ impl WheelInfo {
 
         let suspension_travel = bullet_vehicle::MAX_SUSPENSION_TRAVEL * UU_TO_BT;
         self.real_ray_length =
-            self.suspension_rest_length_1 + suspension_travel + self.wheels_radius
-                - bullet_vehicle::SUSPENSION_SUBTRACTION;
+            self.suspension_rest_length_1 + suspension_travel + self.wheels_radius;
     }
 
     pub fn prepare_for_raycast(&mut self, chassis_trans: &Affine3A) -> (Vec3A, Vec3A) {
@@ -95,6 +105,8 @@ impl WheelInfo {
     pub fn apply_ray_cast(
         &mut self,
         chassis: &RigidBody,
+        chassis_trans: &Affine3A,
+        front_axle_dir: Vec3A,
         ray_results: VehicleRaycasterResult,
         time_step: f32,
         front: bool,
@@ -103,22 +115,20 @@ impl WheelInfo {
         let contact_normal = ray_results.hit_normal_in_world;
         let is_in_contact_with_world = ray_results.rigid_body.is_static_obj();
 
-        let chassis_trans = chassis.get_world_trans();
+        // `front_axle_dir` is the cached steered axle shared by front
+        // wheels with equal steer angles; wheels with a different angle
+        // get their own axle from the caller.
         self.axle_dir = if front {
-            Quat::from_axis_angle_simd(chassis_trans.matrix3.z_axis, self.steer_angle)
-                * chassis_trans.matrix3.y_axis
+            front_axle_dir
         } else {
             chassis_trans.matrix3.y_axis
         };
 
         let up = chassis_trans.matrix3.z_axis;
         let wheel_trace_len_sq = (self.hard_point - contact_point).dot(up);
-        let mut suspension_length = wheel_trace_len_sq - self.wheels_radius;
 
         let suspension_travel = bullet_vehicle::MAX_SUSPENSION_TRAVEL * UU_TO_BT;
-        let min_suspension_len = self.suspension_rest_length_1 - suspension_travel;
         let max_suspension_len = self.suspension_rest_length_1 + suspension_travel;
-        suspension_length = suspension_length.clamp(min_suspension_len, max_suspension_len);
 
         let rel_pos = contact_point - chassis_trans.translation;
         self.vel_at_contact_point = chassis.get_vel_in_local_point(rel_pos);
@@ -133,7 +143,11 @@ impl WheelInfo {
             (0.0, 10.0)
         };
 
-        if is_in_contact_with_world {
+        let suspension_length = (wheel_trace_len_sq - self.wheels_radius).min(max_suspension_len);
+
+        self.extra_pushback = 0.0;
+        let is_car_hit = ray_results.rigid_body.user_idx == UserInfoType::Car;
+        if is_in_contact_with_world || is_car_hit {
             let ray_pushback_thresh = self.suspension_rest_length_1 + self.wheels_radius
                 - bullet_vehicle::SUSPENSION_SUBTRACTION;
             if wheel_trace_len_sq < ray_pushback_thresh {
@@ -152,43 +166,80 @@ impl WheelInfo {
             }
         }
 
-        let impulse = self.calc_friction_impulses(
-            chassis,
-            ray_results.rigid_body,
-            contact_normal,
-            contact_point,
-            time_step,
-        );
+        let ground_stick = if !is_in_contact_with_world {
+            Some(-contact_normal)
+        } else {
+            None
+        };
 
         self.raycast_info = Some(RaycastInfo {
             contact_normal,
             contact_point,
+            ground_body_idx: ray_results.rigid_body_idx,
             suspension_length,
-            impulse,
+            impulse: Vec3A::ZERO,
+            ground_stick,
             is_in_contact_with_world,
             clipped_inv_contact_dot_suspension,
             suspension_relative_vel,
         });
     }
 
+    pub fn refresh_friction_curves(&mut self, chassis: &RigidBody, input: FrictionCurveInput) {
+        let lat_dir = self.axle_dir;
+        let long_dir = lat_dir.cross(input.contact_normal);
+        let wheel_delta = self.hard_point - input.chassis_translation;
+        let cross_vec = (chassis.ang_vel.cross(wheel_delta) + chassis.lin_vel) * BT_TO_UU;
+        let base_friction = cross_vec.dot(lat_dir).abs();
+        let friction_curve_input = if base_friction > 5.0 {
+            base_friction / (cross_vec.dot(long_dir).abs() + base_friction)
+        } else {
+            0.0
+        };
+
+        let mut lat_friction = if input.three_wheels {
+            curves::LAT_FRICTION_THREEWHEEL
+        } else {
+            curves::LAT_FRICTION
+        }
+        .get_output(friction_curve_input);
+
+        let mut long_friction = 1.0;
+        if input.handbrake_val != 0.0 {
+            lat_friction *= 1.0
+                + (curves::HANDBRAKE_LAT_FRICTION_FACTOR.get_output(friction_curve_input) - 1.0)
+                    * input.handbrake_val;
+            long_friction *= 1.0
+                + (curves::HANDBRAKE_LONG_FRICTION_FACTOR.get_output(friction_curve_input) - 1.0)
+                    * input.handbrake_val;
+        }
+
+        if input.real_throttle == 0.0 || input.is_dynamic_hit {
+            let non_sticky_scale =
+                curves::NON_STICKY_FRICTION_FACTOR.get_output(input.contact_normal.z);
+            lat_friction *= non_sticky_scale;
+            long_friction *= non_sticky_scale;
+        }
+
+        self.lat_friction = lat_friction;
+        self.long_friction = long_friction;
+    }
+
     pub fn calc_friction_impulses(
         &mut self,
         chassis: &RigidBody,
-        ground_rb: &RigidBody,
         contact_normal: Vec3A,
         contact_point: Vec3A,
         time_step: f32,
+        friction_scale: f32,
     ) -> Vec3A {
-        let friction_scale = chassis.get_mass() / 3.0;
-        let mut axle_dir = self.axle_dir;
-        let proj = axle_dir.dot(contact_normal);
-        axle_dir -= contact_normal * proj;
-        axle_dir = axle_dir.normalize_or_zero();
+        let axle_dir = self.axle_dir.normalize_or_zero();
 
         let forward_dir = contact_normal.cross(axle_dir).normalize_or_zero();
 
-        let side_impulse =
-            resolve_single_bilateral(chassis, ground_rb, contact_point, contact_point, axle_dir);
+        // Lateral friction resolves against a fixed ground body, never the
+        // landed rigid body (target GetFakeBulletObj; upstream getFixedBody).
+        let side_impulse = resolve_single_bilateral_fake_ground(chassis, contact_point, axle_dir);
 
         let rolling_friction = if self.engine_force == 0.0 {
             if self.brake == 0.0 {
@@ -196,10 +247,7 @@ impl WheelInfo {
             } else {
                 const ROLLING_FRICTION_SCALE: f32 = 113.73963;
 
-                let car_rel_contact_point = contact_point - chassis.get_world_trans().translation;
-
-                let contact_vel = self.vel_at_contact_point
-                    - ground_rb.get_vel_in_local_point(car_rel_contact_point);
+                let contact_vel = self.vel_at_contact_point;
                 let mut rel_vel = contact_vel.dot(forward_dir);
 
                 if time_step > 1.0 / 80.0 {
@@ -220,7 +268,37 @@ impl WheelInfo {
         total_friction_force * friction_scale
     }
 
-    pub fn update_suspension(&mut self, cb: &mut RigidBody, delta_time: f32) {
+    pub fn update_friction_impulse(
+        &mut self,
+        chassis: &RigidBody,
+        time_step: f32,
+        friction_scale: f32,
+    ) {
+        let Some(raycast_info) = self.raycast_info.as_ref() else {
+            return;
+        };
+
+        let contact_normal = raycast_info.contact_normal;
+        let contact_point = raycast_info.contact_point;
+        let impulse = self.calc_friction_impulses(
+            chassis,
+            contact_normal,
+            contact_point,
+            time_step,
+            friction_scale,
+        );
+
+        if let Some(raycast_info) = self.raycast_info.as_mut() {
+            raycast_info.impulse = impulse;
+        }
+    }
+
+    pub fn update_suspension(
+        &mut self,
+        cb: &mut RigidBody,
+        chassis_translation: Vec3A,
+        delta_time: f32,
+    ) {
         let Some(raycast_info) = self.raycast_info.as_ref() else {
             return;
         };
@@ -242,28 +320,30 @@ impl WheelInfo {
             return;
         }
         let base_force_scale = wheels_suspension_force * delta_time + self.extra_pushback;
-        let contact_point_offset = raycast_info.contact_point - cb.get_world_trans().translation;
+        let contact_point_offset = raycast_info.contact_point - chassis_translation;
 
         let force = raycast_info.contact_normal * base_force_scale;
         cb.add_impulse(
-            Some("WheelsSuspension"),
             Impulse::LinearRelPos(force, contact_point_offset),
             true,
             false,
         );
     }
 
-    pub fn apply_friction_impulses(&self, cb: &mut RigidBody, time_step: f32) {
+    pub fn apply_friction_impulses(
+        &self,
+        cb: &mut RigidBody,
+        chassis_trans: &Affine3A,
+        time_step: f32,
+    ) {
         let Some(raycast_info) = self.raycast_info.as_ref() else {
             return;
         };
 
-        let trans = cb.get_world_trans();
-        let wheel_contact_offset = raycast_info.contact_point - trans.translation;
-        let contact_up_dot = trans.matrix3.z_axis.dot(wheel_contact_offset);
-        let wheel_rel_pos = wheel_contact_offset - trans.matrix3.z_axis * contact_up_dot;
+        let wheel_contact_offset = raycast_info.contact_point - chassis_trans.translation;
+        let contact_up_dot = chassis_trans.matrix3.z_axis.dot(wheel_contact_offset);
+        let wheel_rel_pos = wheel_contact_offset - chassis_trans.matrix3.z_axis * contact_up_dot;
         cb.add_impulse(
-            Some("WheelsFriction"),
             Impulse::LinearRelPos(raycast_info.impulse * time_step, wheel_rel_pos),
             true,
             false,
