@@ -88,10 +88,10 @@ int main(int argc, char** argv) {
 				c1[j] += ax > 1; c3[j] += ax > 3; c10[j] += ax > 10;
 			}
 	};
-	if (std::getenv(GGL_OBS_BOTS) && perTeam == 1) {
+	if (std::getenv("GGL_OBS_BOTS") && perTeam == 1) {
 		torch::Device dev = torch::cuda::is_available() ? torch::Device(torch::kCUDA, 0) : torch::Device(torch::kCPU);
-		GGL::GGLBotOpponent a(GGL::GGLBotKind::GALACTUS_V2, rlbot-run/galactus_v2, dev);
-		GGL::GGLBotOpponent b(GGL::GGLBotKind::CHRONOS_V2, rlbot-run/chronos_v2, dev);
+		GGL::GGLBotOpponent a(GGL::GGLBotKind::GALACTUS_V2, "rlbot-run/galactus_v2", dev);
+		GGL::GGLBotOpponent b(GGL::GGLBotKind::CHRONOS_V2, "rlbot-run/chronos_v2", dev);
 		GGL::MatchConfig mc;
 		mc.playersPerTeam = 1;
 		mc.maxSeconds = steps * 8 / 120.f;
