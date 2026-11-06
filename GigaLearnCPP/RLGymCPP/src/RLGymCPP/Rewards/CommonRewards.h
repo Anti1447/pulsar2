@@ -23,7 +23,10 @@ namespace RLGC {
 
 	typedef PlayerDataEventReward<&PlayerEventState::goal, false> PlayerGoalReward; // NOTE: Given only to the player who last touched the ball on the opposing team
 	typedef PlayerDataEventReward<&PlayerEventState::assist, false> AssistReward;
-	typedef PlayerDataEventReward<&PlayerEventState::shot, false> ShotReward;
+	typedef PlayerDataEventReward<&PlayerEventState::shot, false> ShotReward; // NOT exploit-safe: the shooter is the latest touch by the team opposite the threatened net, even if another car touched later
+	// Exploit-safe ShotReward (2026-11-05): +1 to the credited shooter of an engine shot only when that player was also the last car to touch the ball,
+	// so hitting the ball at your OWN net after an opponent's touch no longer pays the opponent a shot. Same detector, same thresholds.
+	typedef PlayerDataEventReward<&PlayerEventState::shotVerified, false> VerifiedShotReward;
 	typedef PlayerDataEventReward<&PlayerEventState::shotPass, false> ShotPassReward;
 	typedef PlayerDataEventReward<&PlayerEventState::save, false> SaveReward;
 	typedef PlayerDataEventReward<&PlayerEventState::bump, false> BumpReward;

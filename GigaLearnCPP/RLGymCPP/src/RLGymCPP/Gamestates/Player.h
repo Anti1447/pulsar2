@@ -5,6 +5,7 @@
 namespace RLGC {
 	struct PlayerEventState {
 		bool goal, save, assist, shot, shotPass, bump, bumped, demo, demoed;
+		bool shotVerified; // a shot whose credited shooter was also the last car to touch the ball (GameEventTracker verified-shot event)
 
 		PlayerEventState() {
 			memset(this, 0, sizeof(*this));

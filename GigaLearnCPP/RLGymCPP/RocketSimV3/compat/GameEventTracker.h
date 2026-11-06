@@ -35,6 +35,19 @@ struct GameEventTracker {
 		_shotCallback.userInfo = userInfo;
 	}
 
+	// Verified shot (2026-11-05): raised together with the shot callback, but ONLY when the credited shooter is also the LAST car
+	// to touch the ball (any team). The plain shot event credits the latest touch by the team OPPOSITE the threatened net, even when
+	// another car touched after it - so a car that blasts the ball at its own net after an opponent's touch hands that opponent a
+	// phantom shot. ShotReward's replacement (VerifiedShotReward) reads this one; the plain shot event (and saves) are unchanged.
+	struct {
+		ShotEventFn func = NULL;
+		void* userInfo = NULL;
+	} _verifiedShotCallback;
+	void SetVerifiedShotCallback(ShotEventFn callbackFn, void* userInfo = NULL) {
+		_verifiedShotCallback.func = callbackFn;
+		_verifiedShotCallback.userInfo = userInfo;
+	}
+
 	struct {
 		GoalEventFn func = NULL;
 		void* userInfo = NULL;

@@ -19,6 +19,10 @@ void _ShotEventCallback(Arena* arena, Car* shooter, Car* passer, void* userInfo)
 	IncPlayerCounter<&RLGC::PlayerEventState::shotPass>(passer, userInfo);
 }
 
+void _VerifiedShotEventCallback(Arena* arena, Car* shooter, Car* passer, void* userInfo) {
+	IncPlayerCounter<&RLGC::PlayerEventState::shotVerified>(shooter, userInfo);
+}
+
 void _GoalEventCallback(Arena* arena, Car* scorer, Car* passer, void* userInfo) {
 	IncPlayerCounter<&RLGC::PlayerEventState::goal>(scorer, userInfo);
 	IncPlayerCounter<&RLGC::PlayerEventState::assist>(passer, userInfo);
@@ -89,6 +93,7 @@ RLGC::EnvSet::EnvSet(const EnvSetConfig& config) : config(config) {
 			eventTrackers[idx] = tracker;
 
 			tracker->SetShotCallback(_ShotEventCallback, userInfo);
+			tracker->SetVerifiedShotCallback(_VerifiedShotEventCallback, userInfo);
 			tracker->SetGoalCallback(_GoalEventCallback, userInfo);
 			tracker->SetSaveCallback(_SaveEventCallback, userInfo);
 		} else {

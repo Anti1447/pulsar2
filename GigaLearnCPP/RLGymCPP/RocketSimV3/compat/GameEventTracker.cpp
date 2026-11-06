@@ -43,6 +43,16 @@ static bool GetShooterPasser(Arena* arena, Team team, Car*& shooterOut, bool fin
 	return shooterOut != NULL;
 }
 
+// True when `car` made the most recent ball touch of anyone (ties go to nobody but the car itself: equal ticks count for it).
+static bool IsLastToucher(Arena* arena, Car* car) {
+	if (!car->_ballHitInfo.isValid)
+		return false;
+	for (Car* other : arena->_cars)
+		if (other != car && other->_ballHitInfo.isValid && other->_ballHitInfo.tickCountWhenHit > car->_ballHitInfo.tickCountWhenHit)
+			return false;
+	return true;
+}
+
 void GameEventTracker::Update(Arena* arena) {
 	bool scored = arena->IsBallScored();
 
@@ -104,6 +114,8 @@ void GameEventTracker::Update(Arena* arena) {
 									_shotCooldown = config.shotEventCooldown;
 									if (_shotCallback.func)
 										_shotCallback.func(arena, shooter, passer, _shotCallback.userInfo);
+									if (_verifiedShotCallback.func && IsLastToucher(arena, shooter))
+										_verifiedShotCallback.func(arena, shooter, passer, _verifiedShotCallback.userInfo);
 								}
 							}
 						}
