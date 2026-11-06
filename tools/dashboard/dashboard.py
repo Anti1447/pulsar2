@@ -34,8 +34,7 @@ REPO = HERE.parent.parent
 BUILD = REPO / "build"
 LOGS = REPO / "run_logs"
 CKPT_NAME = "checkpoints_6.0"
-# The RLBot client (src/RLBotMain.cpp) doesn't build 6.0's ball-prediction obs yet, so a 6.0 checkpoint can't be packaged
-PACKAGING_BLOCKED = "6.0 bots can't be packaged yet: the RLBot client doesn't build the ball-prediction obs."
+# Packaging: the RLBot client builds the 6.0 ball-prediction obs itself (src/RLBotClient.cpp); package_bot.sh reads CKPT_DIR.
 RUN_SH = REPO / "tools" / "run_trainer.sh"
 WANDB_PROJECT = "gigalearncpp"
 
@@ -506,14 +505,12 @@ def do_build():
 
 
 def do_package(best, install):
-    if PACKAGING_BLOCKED:
-        raise ActionError(PACKAGING_BLOCKED)
     cmd = [str(REPO / "tools" / "package_bot.sh")]
     if best:
         cmd.append("--best")
     if not install:
         cmd.append("--no-install")
-    code, out = run_cmd(cmd, timeout=300, cwd=REPO)
+    code, out = run_cmd(cmd, timeout=600, cwd=REPO, env={"CKPT_DIR": str(BUILD / CKPT_NAME)})
     if code == 3:
         raise ActionError("Nothing new to release.\n" + out)
     if code != 0:
