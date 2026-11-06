@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <GigaLearnCPP/Learner.h>
+#include <GigaLearnCPP/Util/PolicyLRRamp.h>
 
 #ifdef GGL_VIZ_RLBOT
 // Viewer-only: hosts an RLBot bot as the opponent (see CMake's GGL_VIZ_RLBOT).
@@ -109,6 +110,10 @@ static constexpr float PHASE_B_RATING_TRIGGER = 1200.0f;
 static constexpr int PHASE_B_TRIGGER_STREAK = 3;
 static constexpr int PHASE_B_RESTART_EXIT_CODE = 99; // nonzero and outside the wrapper's stop set {0,130,143}
 static constexpr const char* PHASE_B_MARKER = "PHASE_B_ENGAGED";
+// PHASE B policy-LR ramp (2026-11-05, user-directed): on entering PHASE B the policy LR drops to 1/10 of its PHASE A value and rises
+// by 1/10 of that value every 50M steps (0.1x, 0.2x ... 1.0x; back to the PHASE A value 450M steps after the marker). The critic LR is
+// untouched; the shared trunk follows min(policy, critic) as always (PPOLearner::SetLearningRates). Schedule: Util/PolicyLRRamp.h.
+static constexpr int64_t PHASE_B_LR_STEP_TIMESTEPS = 50'000'000;
 
 // Team spirit for the zero-sum reward terms: own*(1-ts) + teamMean*ts - oppTeamMean.
 // An algebraic no-op in 1v1 (teamMean == own), so this only changes the 2v2/3v3 arenas.
@@ -287,7 +292,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// DELIBERATELY OFF (2026-11-03, user-directed): add it, with KickoffOutcome, only after the bot hits the ball and scores, so the
 		// kickoff terms do not give an early strong signal (ZeroSum charges the loser of every contested race). Audited and fixed
 		// 2026-11-02 (docs/REWARD_CHANGE_LOG.md); re-enable by restoring the line below at weight 60 and re-reading the log.
-		// { new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 60.f },
+		// 2026-11-05 Uncommented after 1.5B steps of Phase A, bot can hit the ball consistently now.
+		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 40.f },
 
 		// CONSECUTIVE AIR TOUCHES (2026-10-27): chain of airborne touches without landing
 		// (aerial dribble / juggle). Exact PBRS: Phi = 1 - exp(-(streak-1)/2); landing refunds
@@ -383,6 +389,8 @@ static int g_SkillArenas3v3 = 0;
 // Phase-B trigger state (iteration callback below)
 static bool g_PhaseB = false;
 static int g_PhaseBStreak = 0;
+static int64_t g_PhaseBEngageTs = -1;   // timestep the PHASE B marker was written at (-1: not in PHASE B / unreadable)
+static float g_PhaseBLRScale = 1.f;   // policy-LR scale currently applied by the PHASE B ramp
 
 // EXPLOITER RUN (--exploiter-auto / --slot N; docs/EXPLOITERS.md): goal-only reward, kickoff-only resets, and always
 // the PHASE B fleet (1v1/2v2/3v3), whatever the main run's phase. Set in main() before the Learner is built.
@@ -1637,6 +1645,16 @@ int main(int argc, char* argv[]) {
 	// If the marker read ever disappears again the symptom is that exact restart loop.
 	g_PhaseB = g_ExploiterMode || g_GCOMode || std::filesystem::exists(cfg.checkpointFolder / PHASE_B_MARKER);
 	TEAM_SPIRIT = g_PhaseB ? 0.6f : 0.3f; // 5.0 spirit schedule (see the declaration)
+	if (g_PhaseB && !g_ExploiterMode && !g_GCOMode) {
+		// The marker reads "engaged at ts N, Rating/1v1 R": N is where the policy-LR ramp starts.
+		std::ifstream markerIn(cfg.checkpointFolder / PHASE_B_MARKER);
+		std::string markerText((std::istreambuf_iterator<char>(markerIn)), std::istreambuf_iterator<char>());
+		auto at = markerText.find("ts ");
+		if (at != std::string::npos)
+			g_PhaseBEngageTs = std::atoll(markerText.c_str() + at + 3);
+		if (g_PhaseBEngageTs < 0)
+			RG_LOG("PHASE B policy-LR ramp: could not read the engage timestep from the marker; the ramp is OFF");
+	}
 	g_NumGames = cfg.numGames;
 	// GCO's own split (GCO_FRAC_*), rounded to the nearest arena (1024 games -> 342 / 341 / 341)
 	const float frac2v2 = g_GCOMode ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2;
@@ -1680,6 +1698,15 @@ int main(int argc, char* argv[]) {
 		learner->iterationCallback = [](Learner* learner, Report& report) {
 			report["Curriculum/Team Phase"] = g_PhaseB ? 1.0f : 0.0f;
 			report["Curriculum/Phase B Streak"] = (float)g_PhaseBStreak;
+			if (g_PhaseB && g_PhaseBEngageTs >= 0) {
+				float scale = GGL::PolicyLRRampScale((int64_t)learner->totalTimesteps, g_PhaseBEngageTs, PHASE_B_LR_STEP_TIMESTEPS);
+				if (scale != g_PhaseBLRScale) {
+					RG_LOG("PHASE B policy-LR ramp: scale " << g_PhaseBLRScale << " -> " << scale << " at ts " << learner->totalTimesteps);
+					learner->SetPolicyLRScale(scale);
+					g_PhaseBLRScale = scale;
+				}
+				report["Curriculum/Policy LR Scale"] = g_PhaseBLRScale;
+			}
 			if (g_PhaseB || !report.Has("Rating/1v1"))
 				return;
 			float rating = (float)report["Rating/1v1"];
@@ -1700,6 +1727,13 @@ int main(int argc, char* argv[]) {
 			RG_LOG("=============================================================");
 			learner->RequestSaveAndExit(PHASE_B_RESTART_EXIT_CODE);
 		};
+	}
+
+	// PHASE B policy-LR ramp: apply the scale for the checkpoint's timestep before the first iteration (after a restart or a resume).
+	if (!cfg.renderMode && g_PhaseB && g_PhaseBEngageTs >= 0) {
+		g_PhaseBLRScale = GGL::PolicyLRRampScale((int64_t)learner->totalTimesteps, g_PhaseBEngageTs, PHASE_B_LR_STEP_TIMESTEPS);
+		RG_LOG("PHASE B policy-LR ramp: engaged at ts " << g_PhaseBEngageTs << ", now ts " << learner->totalTimesteps << ", policy LR scale " << g_PhaseBLRScale);
+		learner->SetPolicyLRScale(g_PhaseBLRScale);
 	}
 
 	// Start learning!

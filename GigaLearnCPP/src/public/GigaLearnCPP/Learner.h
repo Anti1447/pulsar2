@@ -162,6 +162,8 @@ namespace GGL {
 
 		Learner(RLGC::EnvCreateFn envCreateFunc, LearnerConfig config, StepCallbackFn stepCallback = NULL);
 		void Start();
+		// Scales the policy LR to config.ppo.policyLR * scale (the critic LR is unchanged). Used by the PHASE B ramp in ExampleMain.cpp.
+		void SetPolicyLRScale(float scale);
 
 
 		void StartQuitKeyThread(std::atomic<bool>& quitPressed, std::thread& outThread);

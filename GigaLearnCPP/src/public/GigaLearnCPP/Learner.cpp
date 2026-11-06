@@ -1216,6 +1216,10 @@ void GGL::Learner::StartQuitKeyThread(std::atomic<bool>& quitPressed, std::threa
 	outThread.detach();
 }
 
+void GGL::Learner::SetPolicyLRScale(float scale) {
+	ppo->SetLearningRates(config.ppo.policyLR * scale, config.ppo.criticLR);
+}
+
 void GGL::Learner::Start() {
 
 	bool render = config.renderMode;
