@@ -13,9 +13,10 @@ namespace RLGC {
 	// backward - the same reverse-curriculum logic as AirDrillState, one rung higher.
 	//
 	// Two sub-modes, chosen per reset:
-	//   FLIP_RESET_READY  car airborne below a high ball, ROOF toward it (wheels
-	//                     first), flip already spent (hasJumped) so a wheel touch
-	//                     REGISTERS as a reset, drifting up into contact.
+	//   FLIP_RESET_READY  car airborne below a high ball, WHEELS toward it (roof away,
+	//                     wheels first), flip already spent (hasJumped) so a wheel touch
+	//                     REGISTERS as a reset, drifting up into contact. (Until 2026-11-07
+	//                     this put the ROOF toward the ball, a pose that cannot reset.)
 	//   AIR_CARRY         a ball moving toward the opponent net and rising, car just
 	//                     behind/under it at matched velocity, nose on it - the
 	//                     air-dribble carry, ready to keep nudging it goalward.
@@ -80,8 +81,8 @@ namespace RLGC {
 				Vec carPos = {};
 
 				if (flipReset) {
-					// Directly below the ball so "up" points at it; a small horizontal
-					// jitter keeps LookAt well-defined.
+					// Directly below the ball so "down" (the wheels) points at it; a small
+					// horizontal jitter keeps LookAt well-defined.
 					float drop = RandFloat(300, 520);
 					carPos = bs.pos + Vec(RandFloat(-200, 200), RandFloat(-200, 200), -drop);
 				} else {
@@ -99,12 +100,13 @@ namespace RLGC {
 				Vec toBall = (bs.pos - carPos);
 				Vec toBallN = toBall.Normalized();
 				if (flipReset) {
-					// ROOF toward the ball (wheels make contact = a reset). Forward is
-					// any in-plane direction; LookAt orthogonalizes against the up hint,
-					// so pass a horizontal forward and up = toBall.
+					// WHEELS toward the ball (wheel contact = a reset): the car's up axis
+					// points AWAY from the ball. Forward is any in-plane direction; LookAt
+					// orthogonalizes against the up hint, so pass a horizontal forward and
+					// up = -toBall.
 					Vec fwd = Vec(toBallN.y, -toBallN.x, 0);
 					if (fwd.Length() < 0.1f) fwd = Vec(1, 0, 0);
-					cs.rotMat = RotMat::LookAt(fwd.Normalized(), toBallN);
+					cs.rotMat = RotMat::LookAt(fwd.Normalized(), toBallN * -1.f);
 					// Flip already SPENT so a wheel touch registers as a reset.
 					cs.hasJumped = true;
 					cs.hasFlipped = true;

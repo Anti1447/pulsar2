@@ -381,6 +381,11 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live.
 		// { new ZeroSumReward(new UnifiedAirDribbleReward(), 0.3f), 40.f },    // v3 Plat 40 (not in Gold). Needs state.ballPred; 2.0s horizon (v3: 4s). UNTESTED.
 
+		// FlipResetReward re-enabled 2026-11-07 at user-directed weight 90 (60% of a goal) after the audit fix (wheels-first geometry,
+		// touch-step-or-next event; tests/test_flip_reset_reward.cpp). Pays ballFrac in [0,1] per reset, <= 1 per second. Paired with
+		// AirPlayState (0.15 of resets). Watch for ceiling/juggle farming: if resets/hour climbs without goals, cut the weight.
+		{ new ZeroSumReward(new FlipResetReward(), TEAM_SPIRIT), 90.f },
+
 		// The objective. Scorer +150 / conceder -150, exactly zero-sum.
 		{ new GoalReward(), 150 }
 	};
