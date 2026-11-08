@@ -20,8 +20,11 @@ namespace RLGC {
 
 // ============================================================================
 // UnifiedAirDribbleReward (2025-02-17)
-// Consolidates three separate air dribble rewards into one unified reward
-// with mode detection (offensive, defensive, general)
+// Originally three air dribble rewards (offensive, defensive, general) behind one mode switch; ONLY the offensive mode is implemented
+// here (the defensive/general evaluators were never ported). Notes below about Defensive/General describe the v3 original.
+//
+// Rev 6.0 (2026-11-07, audit): see the AUDIT FIXES block below. A lone jump-hit used to pay (~22-41 at weight 40) because the first
+// underside touch opened a sequence AND paid the entry bonus; it now needs a second roof-side touch before anything pays.
 //
 // Rev 3.0 changes (2026-02-24):
 //  - Added BallPredCache _ballCache + PreStep() override
@@ -38,6 +41,15 @@ namespace RLGC {
 //    direction (i.e. behind it, not just underneath), matching real-world
 //    air dribble technique for converting height into forward distance on
 //    the pop touch. Applied alongside undersideMul in GetReward().
+//
+// AUDIT FIXES (Rev 6.0, 2026-11-07; probe: one aerial pop paid 0.55-1.04 raw, 22-41 at weight 40, goal = 150):
+//  1. Nothing pays (nor releases the travel bonus) until the SECOND touch of a sequence (MIN_TOUCHES_TO_PAY). The opening touch pays 0.
+//  2. A touch only counts when it lands on the ROOF side: (ball - car) . car.up >= ROOF_CONTACT_MIN. A wheel/underside bump from below
+//     (the flip-reset pose) neither opens a sequence nor counts as a touch.
+//  3. The opponent-touch end trigger now looks at EVERY toucher this step (it used to `break` after the first one in player order, so a
+//     teammate or the owner listed first hid a simultaneous opponent touch).
+//  4. Weight: raw per-touch max is 4.5 and the sequence cap 65, so a full sequence is worth 65 x weight. The commented-out BuildRewards entry
+//     is re-derived to 2 (65 x 2 = 130, about one goal). Do not use 40.
 // ============================================================================
 class UnifiedAirDribbleReward : public Reward {
 private:
@@ -47,6 +59,7 @@ private:
         float timeElapsed = 0.0f;
         int touchCount = 0;
         bool exhausted = false;
+        int touchesSeen = 0;                  // roof-side touches in this sequence, including the opening one; nothing pays below MIN_TOUCHES_TO_PAY
         float startHeight = 0.0f;
         bool firstTouchProcessed = false;
         float boostAtStart     = -1.0f;  // boost level when sequence opened (-1 = unset)
@@ -106,6 +119,8 @@ private:
     // ========================================================================
     const float HARD_FAIL_UNDERSIDE_Z = 0.00f;   // ~90° — only truly bad angles end the sequence
     const float IDEAL_UNDERSIDE_Z     = 0.30f;   // old 70° line — now just "full quality," not pass/fail
+    const float ROOF_CONTACT_MIN      = 0.3f;     // (ball - car) . car.up: the ball must sit on the roof side for a touch to count
+    const int   MIN_TOUCHES_TO_PAY    = 2;        // a lone pop is not an air dribble
     const float MAX_CONTROL_DIST      = 1100.0f;  // UU — beyond this, no plausible dribble contact remains
     const float SCORING_TOUCH_BONUS   = 3.5f;    // flat bonus when a cap-exhausted sequence's scoring touch is bypassed through
 
@@ -252,6 +267,14 @@ private:
     // goal-mouth-bound trajectory, floored by having beaten a defender.
     // ========================================================================
 
+    // True when the ball is on the car's roof side (fix 2). Wheels/underside contact from below does not count.
+    bool RoofContact(const Player& player, const GameState& state) const {
+        Vec toBall = state.ball.pos - player.pos;
+        float d = toBall.Length();
+        if (d < 1e-3f) return false;
+        return player.rotMat.up.Dot(toBall * (1.0f / d)) >= ROOF_CONTACT_MIN;
+    }
+
     float ComputeOutcomeScore(const Player& player, const GameState& state, const SequenceState& seq) const {
         Vec oppGoal = (player.team == Team::BLUE) ?
             CommonValues::ORANGE_GOAL_BACK : CommonValues::BLUE_GOAL_BACK;
@@ -274,6 +297,10 @@ private:
     // Called from every sequence-ending path so outcome scoring is computed identically
     // regardless of whether it ended via opponent touch, disconnect, or a scoring touch.
     float ResolveSequence(const Player& player, const GameState& state, SequenceState& seq, bool wasCapBypass) const {
+        if (seq.touchesSeen < MIN_TOUCHES_TO_PAY) {   // fix 1: an unconfirmed sequence (one pop) releases nothing
+            seq.travelIntegralAccum = 0.0f;
+            return 0.0f;
+        }
         float outcomeScore = ComputeOutcomeScore(player, state, seq);
         constexpr float TRAVEL_INTEGRAL_NORM = 1.91e-7f;
         constexpr float TRAVEL_BONUS_SCALE   = 8.0f;
@@ -485,21 +512,17 @@ public:
     virtual void PreStep(const GameState& state) override {
         _ballCache.Update(state);
 
-        // Opponent-touch end-trigger (Rev 4.0): find who touched the ball this step (if
-        // anyone), then flag any active sequence whose owner is on the OTHER team as
-        // defended-away. Resolved (payout + erase) in the owner's next GetReward call,
-        // since PreStep itself can't return a reward.
-        for (const auto& toucher : state.players) {
-            if (!toucher.ballTouchedStep) continue;
-            for (auto& [ownerId, seq] : sequenceStates) {
-                if (ownerId == toucher.carId) continue;
-                for (const auto& owner : state.players) {
-                    if (owner.carId == ownerId && owner.team != toucher.team) {
-                        seq.endedByOpponentTouch = true;
-                    }
-                }
+        // Opponent-touch end-trigger (Rev 4.0; fix 3, Rev 6.0): flag any active sequence whose owner is on the OTHER team of ANY car
+        // that touched the ball this step. Resolved (payout + erase) in the owner's next GetReward call, since PreStep can't return a reward.
+        for (auto& [ownerId, seq] : sequenceStates) {
+            const Player* owner = nullptr;
+            for (const auto& p : state.players)
+                if (p.carId == ownerId) { owner = &p; break; }
+            if (!owner) continue;
+            for (const auto& toucher : state.players) {
+                if (!toucher.ballTouchedStep || toucher.carId == ownerId) continue;
+                if (toucher.team != owner->team) { seq.endedByOpponentTouch = true; break; }
             }
-            break;  // only need the first toucher this step
         }
 
         // Ball travel integral: accumulate height × step_distance once per frame
@@ -588,6 +611,7 @@ public:
                     newSeq.playerPosAtStart       = player.pos;
                     newSeq.initialBallVelocity    = state.ball.vel.Length();
                     newSeq.distanceToOpponentGoal = GetDistanceToOpponentGoal(player, state);
+                    newSeq.touchesSeen            = 1;   // the pre-flip touch is the opening touch
                     return PREFLIP_SETUP_BONUS;
                 }
                 if (pend.timeRemaining <= 0.0f) {
@@ -621,7 +645,7 @@ public:
         if (!hasActiveSequence && player.ballTouchedStep && state.prev
             && !player.isOnGround && state.ball.pos.z >= minBallHeight) {
             bool entryAngleOk = (carBallDist > 0.1f) && ((carFromBall.z / carBallDist) < -IDEAL_UNDERSIDE_Z);
-            if (entryAngleOk) {
+            if (entryAngleOk && RoofContact(player, state)) {
                 sequenceStates[id] = SequenceState();
                 SequenceState& newSeq = sequenceStates[id];
                 newSeq.startHeight            = state.ball.pos.z;
@@ -629,6 +653,8 @@ public:
                 newSeq.playerPosAtStart       = player.pos;
                 newSeq.initialBallVelocity    = state.ball.vel.Length();
                 newSeq.distanceToOpponentGoal = GetDistanceToOpponentGoal(player, state);
+                newSeq.touchesSeen            = 1;
+                return 0.0f;   // the opening touch pays nothing (fix 1)
             }
         }
 
@@ -669,6 +695,11 @@ public:
         if (!player.ballTouchedStep || !state.prev) {
             return 0.0f;
         }
+        // A touch off the roof side (wheels / underside bump) does not count (fix 2); the sequence itself stays open.
+        if (!RoofContact(player, state)) {
+            return 0.0f;
+        }
+        seq.touchesSeen++;
 
         // Underside contact quality: 0 at the new wide edge, 1 at/beyond the old 70° "ideal" line
         float undersideNormZ   = carFromBall.z / carBallDist;
@@ -717,7 +748,7 @@ public:
             }
         }
 
-        if (isScoringTouch && !seq.scoringTouchPaid) {
+        if (isScoringTouch && !seq.scoringTouchPaid && seq.touchesSeen >= MIN_TOUCHES_TO_PAY) {
             seq.scoringTouchPaid = true;
             reward += ResolveSequence(player, state, seq, /*wasCapBypass=*/seq.exhausted);
             // Deliberately NOT erased here — IsHeadingToGoalMouth is a BallPred prediction,
@@ -727,6 +758,8 @@ public:
 
         return (reward > EPS_REWARD_SKIP) ? reward : 0.0f;
     }
+
+    bool HasActiveSequence(uint32_t carId) const { return sequenceStates.find(carId) != sequenceStates.end(); }
 
     // Metrics accessors for W&B monitoring
     uint64_t GetOffensiveAttempts() const { return offensiveAttempts; }

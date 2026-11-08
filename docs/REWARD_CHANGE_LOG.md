@@ -12,6 +12,8 @@ never raise a weight more than +-50% in one step; a reward is not enabled until 
 
 ## Log (newest first)
 
+- 2026-11-07 | UnifiedAirDribbleReward audit fixes (not in the live stack): pays only from the 2nd roof-side touch, wheel/underside touches do not count, opponent-touch end trigger sees every toucher, suggested weight 40 -> 2 | A lone aerial pop paid 0.55-1.04 raw (22-41 at weight 40 vs GoalReward 150); full sequence cap 65 x 40 = 2600. | tests/test_unified_air_dribble.cpp (5 tests, suite 490/490); not run in training.
+
 - 2026-11-07 | FlipResetReward added to BuildRewards at weight 90, ZeroSumReward(TEAM_SPIRIT) (user-directed; above the +-50% step rule because it is a new term at a fixed value) | With the audit fix a real wheels-first reset pays up to 1.0 x 90 per reset (<= 1/s), so resets become a learnable event paired with the AirPlayState seeding. | pending: watch resets per hour vs goals; cut the weight if resets climb without goals (ceiling/juggle farm).
 
 - 2026-11-07 | FlipResetReward fixed (not in the live stack; scaffold) and AirPlayState flip-reset seeding corrected | Audit on RocketSim 0.3.5: the roof-toward-ball geometry could never produce a reset (0/75 engine resets) and the single-step event test missed ~58% of real wheel resets. Now wheels-toward-ball (-up . toBall >= 0.3), arm on a high-ball touch, pay when HasFlipReset() turns true within the touch step or the next. | tests/test_flip_reset_reward.cpp: 75/75 engine resets paid (was 32/76), roof-first never paid.

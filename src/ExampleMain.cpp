@@ -213,7 +213,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// charged for the victim's respawn tank), raised 4 -> 6, UNGATED. Zero-sum replaces the
 		// gate as anti-farm: mutual pad cycling cancels, denial is a real 1v1 skill, and gating a
 		// ZS term breaks its symmetry (positive side muted, mirror charged in full).
-		{ new ZeroSumReward(new GuardedPickupBoostReward(), TEAM_SPIRIT), 6.f },
+		// 2026-11-07: Weight increased 6 -> 7 to increase the bot's boost pad pickup rate. 
+		{ new ZeroSumReward(new GuardedPickupBoostReward(), TEAM_SPIRIT), 7.f },
 
 		// ---- The frontier terms ----------------------------------------------------
 		// Aerial STRIKE (replaces gated ZeroSum(TouchHeight) 15): AND of sustained flight and a
@@ -227,7 +228,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// impulse-scaled, 0.8s cooldown - bounded and unfarmable in sum. ANNEAL LATER:
 		// once aerial-touch share establishes (see docs/SCAFFOLD_ANNEAL_PLAN.md: a manual, pre-registered rule; no automatic trigger exists), step back toward 50 so the
 		// mature style isn't permanently air-warped.
-		{ new ZeroSumReward(new AerialTouchReward(), TEAM_SPIRIT), 120.f },
+		// 2026-11-07: Weight decreased 120 -> 50 at 5.8B steps. Bot is hitting high balls in different gamemodes more consistently now, so the formative window is over and the anneal plan calls for a step back toward 50.
+		{ new ZeroSumReward(new AerialTouchReward(), TEAM_SPIRIT), 50.f },
 
 		// Pre-touch aerial approach potential: pays the jump-and-climb toward a high ball
 		// immediately, refunds the whiff - the gradient that exists BEFORE the first air touch
@@ -265,7 +267,7 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// either justify 75 or walk it back. See research/reports/DEAD_CODE_AUDIT.md Q11.
 		// 75 -> 25 (2026-11-04, user-directed, after the reward audit: one big-pad pickup from empty was worth +73 weighted, half a Goal;
 		// at 25 it is +24). Lower again if its measured credit share is too high; the formula is unchanged.
-		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 25.f },
+		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 75.f },
 
 		// ESCALATE-1 (2026-07-16, user-directed): small time cost - urgency vs the
 		// measured stall/hover pathology. 0.01 -> ~4.5 per 30s episode (15Hz steps
@@ -301,7 +303,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-05 Uncommented after 1.5B steps of Phase A, bot can hit the ball consistently now.
 		// 2026-11-05 decreased weight from 40 down to 20. adding KickoffOutcomeReward at 20.f
 		// 2026-11-05 decreased weight from 20 down to 10. updated KickoffOutcomeReward weight to 30.f
-		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 10.f },
+		// 2026-11-07 commented out KickoffRaceReward after 5.8B steps, currently phase B to diversify kickoff strategy a bit in favor of KickoffOutcomeReward.
+		// { new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 10.f },
 
 		// CONSECUTIVE AIR TOUCHES (2026-10-27): chain of airborne touches without landing
 		// (aerial dribble / juggle). Exact PBRS: Phi = 1 - exp(-(streak-1)/2); landing refunds
@@ -311,7 +314,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// AerialTouch's ball-height scale, (z-150)/1300 clamped to [0,1], by softness, car height and ball horizontal speed
 		// (MultiAirTouch's), an opponent touch ends the chain, and the potential has a control-distance gate 150..1100 uu (2026-11-03). Measured
 		// 12% of credit density at 30 in REWARD_SHAPING.md §3.4. Watch Rewards/ConsecutiveAirTouchReward.
-		{ new ZeroSumReward(new ConsecutiveAirTouchReward(gamma), TEAM_SPIRIT), 40.f },
+		// 2026-11-07: Weight increased 40 -> 80 (user-directed) because the bot can now hit aerials consistently.
+		{ new ZeroSumReward(new ConsecutiveAirTouchReward(gamma), TEAM_SPIRIT), 80.f },
 			
 		// WALL-JUMP-TO-BALL (2026-10-27): exact PBRS, active only after leaving a wall into
 		// the air, Phi = exp(-dist/1410). Rewards wall exits toward the ball; exits away from
@@ -322,7 +326,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-02: the 0.064% figure predates a detector fix. OnWall() used the body-contact flag, which a car
 		// riding a wall on its wheels never sets, so the term could (almost) never fire; it now reads the car's roof
 		// direction (REWARD_CHANGE_LOG). Weight lowered 60 -> 30 (2026-11-02, user-directed) because one wall exit near the ball is worth ~+19 at 30 (+38 at 60); re-measure the share (log: act if it exceeds 2%).
-		{ new ZeroSumReward(new WallJumpToBallReward(gamma), TEAM_SPIRIT), 30.f },
+		// 2026-11-07: Weight increased 30 -> 40 (user-directed) because the bot can now hit aerials consistently.
+		{ new ZeroSumReward(new WallJumpToBallReward(gamma), TEAM_SPIRIT), 40.f },
 
 		// ======================================================================================
 		// PORTED FROM RLGymBot_v3 (branch v3-reward-port) - ALL DISABLED. Do not enable any of these without
@@ -376,15 +381,18 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// -- Movement / aerial
 		// RETIRED 2026-11-01: SupersonicReward - speed/energy is already priced by CarEnergyPotentialReward. Do not re-enable (bare positive income term; see docs/reward_scenarios/SupersonicReward_2026-11-01.md).
 		// Uncommented RolvWavedashReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 3.f weight.
-		{ new RolvWavedashReward(), 3.f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
+		// 2026-11-07: Weight increased 3 -> 4 (user-directed) to increase the bot's wavedash rate.
+		{ new RolvWavedashReward(), 4.f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
 		// { new ZeroSumReward(new PitchControlAerialReward(), 0.3f), 12.f },   // v3 Gold 12. needs a jump/pitch/second-jump sequence within 0.55s: check at tickSkip 8.
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live.
-		// { new ZeroSumReward(new UnifiedAirDribbleReward(), 0.3f), 40.f },    // v3 Plat 40 (not in Gold). Needs state.ballPred; 2.0s horizon (v3: 4s). UNTESTED.
+		// { new ZeroSumReward(new UnifiedAirDribbleReward(), 0.3f), 2.f },     // v3 Plat 40 does NOT carry over: raw sequence cap is 65, so 2 ~ one goal (audit 2026-11-07).
+		//   Needs state.ballPred; 2.0s horizon (v3: 4s). Pays only from the 2nd roof-side touch; tests/test_unified_air_dribble.cpp.
 
 		// FlipResetReward re-enabled 2026-11-07 at user-directed weight 90 (60% of a goal) after the audit fix (wheels-first geometry,
 		// touch-step-or-next event; tests/test_flip_reset_reward.cpp). Pays ballFrac in [0,1] per reset, <= 1 per second. Paired with
 		// AirPlayState (0.15 of resets). Watch for ceiling/juggle farming: if resets/hour climbs without goals, cut the weight.
-		{ new ZeroSumReward(new FlipResetReward(), TEAM_SPIRIT), 90.f },
+		// 2026-11-07: Weight increased 90 -> 120 to increase likelihood of hitting flip resets.
+		{ new ZeroSumReward(new FlipResetReward(), TEAM_SPIRIT), 120.f },
 
 		// The objective. Scorer +150 / conceder -150, exactly zero-sum.
 		{ new GoalReward(), 150 }
