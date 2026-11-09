@@ -36,6 +36,7 @@
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetSetupReward.h>
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetApproachReward.h>
 #include <RLGymCPP/Telemetry/CarryCatchTelemetry.h>
+#include <RLGymCPP/Telemetry/DemoTelemetry.h>
 #include <RLGymCPP/Rewards/FlickRewards.h>
 #include <RLGymCPP/Rewards/SupersonicReward.h>
 #include <RLGymCPP/Rewards/RolvWavedashReward.h>
@@ -200,7 +201,9 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// Demo: unchanged pair swing (75 = goal/2). TEAM_SPIRIT is 0 in PHASE A (was 0.5 once,
 		// an algebraic no-op in 1v1 that misleadingly implied a halving living in the weight).
 		// 2026-11-08: Increased weight from 37.5 -> 50 (user-directed) to increase the bot's demo rate.
-		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 50.0f },
+		// 2026-11-09: OffensiveDemoReward pays the same 50 at most, scaled by where the victim was (DemoGeometry.h): x(0.4..1.0) in 2v2/3v3,
+		// 1.0 in 1v1. Full value only for a victim inside (or within 400 uu of) the lane between the ball and the two opposing posts, near the ball. Revert: replace with `new DemoReward()`.
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 50.0f },
 
 		// ---- Hygiene conversions (PSD fitness cleanup) ----------------------------
 		// Proximity race: ZeroSum of an exact PBRS is still exact PBRS (Psi = Phi_own - Phi_opp),
@@ -802,9 +805,47 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 	// This doesn't really matter unless you have expensive metrics (which this example doesn't)
 	bool doExpensiveMetrics = (rand() % 4) == 0;
 
+	// Per-arena demo-window memory (Telemetry/DemoTelemetry.h). StepCallback runs on the single collection thread; states[i] is arena i.
+	static std::vector<DemoTelemetry::ArenaMem> demoMem;
+	if (demoMem.size() != states.size()) demoMem.assign(states.size(), DemoTelemetry::ArenaMem());
+
 	// Add our metrics
-	for (auto& state : states) {
+	for (size_t stateIdx = 0; stateIdx < states.size(); stateIdx++) {
+		const GameState& state = states[stateIdx];
+
+		// Demo telemetry (2026-11-09), every step (demos and goals are rare, so no sampling). Panels: see Telemetry/DemoTelemetry.h.
+		{
+			namespace DG = DemoGeometry;
+			DemoTelemetry::Advance(demoMem[stateIdx], state);
+			const bool teamGame = DG::IsTeamGame(state);
+			for (auto& player : state.players) {
+				if (!player.eventState.demo) continue;
+				DG::Sample d = DG::Evaluate(player, state);
+				report.AddAvg("Demo/Unresolved Rate", !d.valid);
+				if (!d.valid) continue;
+				report.AddAvg("Demo/Offensive Factor", d.f);
+				report.AddAvg("Demo/High Factor Share", d.f >= DemoTelemetry::HIGH_FACTOR);
+				report.AddAvg("Demo/Multiplier", d.mult);
+				report.AddAvg("Demo/Victim Line Dist", d.lineDist);
+				report.AddAvg("Demo/Victim Ball Dist", d.ballDist);
+				if (teamGame) report.AddAvg("Demo/Offensive Factor (team games)", d.f);
+			}
+			if (teamGame) {
+				for (Team t : { Team::BLUE, Team::ORANGE })
+					report.AddAvg("Demo/Own Demo Window Fraction", DemoTelemetry::WindowOpen(demoMem[stateIdx], t));
+				if (state.goalScored)
+					report.AddAvg("Demo/Goal After Own Demo", DemoTelemetry::WindowOpen(demoMem[stateIdx], DemoTelemetry::Scorer(state)));
+			}
+		}
+
 		if (doExpensiveMetrics) {
+			// Baseline for Demo/Offensive Factor: f of every opponent, as if each were the demo victim (team games, sampled).
+			if (DemoGeometry::IsTeamGame(state))
+				for (auto& player : state.players)
+					for (auto& opp : state.players)
+						if (opp.team != player.team)
+							report.AddAvg("Demo/Opp Mean Factor", DemoTelemetry::OppFactor(opp, player.team, state));
+
 			for (auto& player : state.players) {
 				report.AddAvg("Player/In Air Ratio", !player.isOnGround);
 				report.AddAvg("Player/Ball Touch Ratio", player.ballTouchedStep);
