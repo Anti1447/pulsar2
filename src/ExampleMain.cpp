@@ -33,6 +33,8 @@
 #include <RLGymCPP/Rewards/PassingSetupRewards.h>
 #include <RLGymCPP/Rewards/DribbleRewards.h>
 #include <RLGymCPP/Rewards/CatchBallOnCarReward.h>
+#include <RLGymCPP/Rewards/PlayerBall/FlipResetSetupReward.h>
+#include <RLGymCPP/Rewards/PlayerBall/FlipResetApproachReward.h>
 #include <RLGymCPP/Telemetry/CarryCatchTelemetry.h>
 #include <RLGymCPP/Rewards/FlickRewards.h>
 #include <RLGymCPP/Rewards/SupersonicReward.h>
@@ -403,6 +405,15 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// AirPlayState (0.15 of resets). Watch for ceiling/juggle farming: if resets/hour climbs without goals, cut the weight.
 		// 2026-11-07: Weight increased 90 -> 120 to increase likelihood of hitting flip resets.
 		{ new ZeroSumReward(new FlipResetReward(), TEAM_SPIRIT), 120.f },
+
+		// FLIP-RESET SHAPING (2026-11-09, user-directed; docs/reward_scenarios/FlipResetShaping_2026-11-09.md). Two stage rewards in front of FlipReset 120:
+		//  Setup 10   : ground control of the ball toward a wall/backboard/corner in the attacking half, scaled by boost (ramp 0.2..1 over 0..50), leaky-bucket capped.
+		//  Approach 20: after that setup the ball goes airborne; post-apex closing/underside/speed-match terms plus a one-shot contact bonus
+		//               (vz -600..+100 best -250, car 30-60 deg below the ball, away from the goal, handbrake x1.25).
+		// ONE lever with FlipReset: judge by FlipReset events per hour vs Goal rate; revert (delete both lines) if resets stay ~0 after ~500M steps,
+		// or if the bot farms wall carries (Setup share of per-term |r| > ~10%) without launches.
+		{ new ZeroSumReward(new FlipResetSetupReward(), TEAM_SPIRIT), 10.f },
+		{ new ZeroSumReward(new FlipResetApproachReward(), TEAM_SPIRIT), 20.f },
 
 		// The objective. 2026-11-09 (user-directed): scorer +150 (scored weight 1.00) / conceder -127.5 (concede weight 0.85).
 		// DELIBERATELY NOT zero-sum any more: every goal now nets +22.5 across the pair (see docs/REWARD_CHANGE_LOG.md).
