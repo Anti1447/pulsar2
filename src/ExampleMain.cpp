@@ -33,6 +33,7 @@
 #include <RLGymCPP/Rewards/PassingSetupRewards.h>
 #include <RLGymCPP/Rewards/DribbleRewards.h>
 #include <RLGymCPP/Rewards/CatchBallOnCarReward.h>
+#include <RLGymCPP/Telemetry/CarryCatchTelemetry.h>
 #include <RLGymCPP/Rewards/FlickRewards.h>
 #include <RLGymCPP/Rewards/SupersonicReward.h>
 #include <RLGymCPP/Rewards/RolvWavedashReward.h>
@@ -370,10 +371,13 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// { new ZeroSumReward(new DribbleReward(), TEAM_SPIRIT), 0.5f },
 		// Uncommented DribbleMasteryReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.5f weight.
 		// Commented out DribbleMasteryReward on 2026-11-05 - too easy to farm at this weight.
-		// { new ZeroSumReward(new DribbleMasteryReward(), TEAM_SPIRIT), 0.5f },
+		// Uncommented DribbleMasteryReward on 2026-11-08 after 9.2B steps of Phase B. Added at 0.25f weight. Audited the reward 2026-11-08.
+		// 2026-11-08: Weight increased 0.25 -> 0.5 (user-directed) to increase the bot's dribble mastery rate.
+		{ new ZeroSumReward(new DribbleMasteryReward(), TEAM_SPIRIT), 0.5f },
 		// Uncommented CatchBallOnCarReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.5f weight.
 		// Commented out CatchBallOnCarReward on 2026-11-05 - too easy to farm at this weight.
-		// { new ZeroSumReward(new CatchBallOnCarReward(), TEAM_SPIRIT), 0.5f },
+		// Uncommented CatchBallOnCarReward on 2026-11-08 after 9.2B steps of Phase B. Added at 0.25f weight. Audited the reward 2026-11-08.
+		{ new ZeroSumReward(new CatchBallOnCarReward(), TEAM_SPIRIT), 0.25f },
 		// Uncommented FlickReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 10.f weight.
 		// Commented out FlickReward on 2026-11-05 - too easy to farm at this weight.
 		// { new ZeroSumReward(new FlickReward(), TEAM_SPIRIT), 10.f },
@@ -800,6 +804,27 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 				report.AddAvg("Player/Aerial Touch Ratio",
 					player.ballTouchedStep && !player.isOnGround && state.ball.pos.z > 400);
 				report.AddAvg("Player/Demo Rate", (float)player.eventState.demo);
+
+				// Carry / catch telemetry (2026-11-08). State-only, so it reads the same with DribbleMastery and
+				// CatchBallOnCar in or out of the stack (Telemetry/CarryCatchTelemetry.h; audit docs/reward_scenarios/*_2026-11-08.md).
+				//   Carry/Time Fraction : share of player-steps with the ball carried on the roof/hood (the DribbleMastery gates).
+				//   Carry/Start Rate    : carries beginning per player-step. Mean carry length in seconds = Time Fraction / Start Rate * (8/120).
+				//   Carry/Toward Net Ratio, Carry/Canonical Ball Y, Carry/Speed: averaged over carry steps only (commitment vs circling).
+				//   Catch/Slowing Touch Rate  : first-contact touches that removed >= 35% of a >= 400 uu/s car-relative incoming ball speed (Rev 5).
+				//   Catch/Possession Catch Rate : those touches after which the ball sits on the car and moves with it.
+				{
+					namespace CCT = CarryCatchTelemetry;
+					bool carry = CCT::InCarry(player, state);
+					report.AddAvg("Carry/Time Fraction", carry);
+					report.AddAvg("Carry/Start Rate", carry && !CCT::InCarryPrev(player, state));
+					if (carry) {
+						report.AddAvg("Carry/Toward Net Ratio", CCT::CarryTowardOpp(player, state) > 0.4f);
+						report.AddAvg("Carry/Canonical Ball Y", CCT::CanonicalBallY(player, state));
+						report.AddAvg("Carry/Speed", player.vel.Length());
+					}
+					report.AddAvg("Catch/Slowing Touch Rate", CCT::SlowingTouch(player, state));
+					report.AddAvg("Catch/Possession Catch Rate", CCT::PossessionCatch(player, state));
+				}
 			}
 		}
 

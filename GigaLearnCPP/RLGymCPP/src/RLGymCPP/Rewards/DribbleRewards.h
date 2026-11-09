@@ -183,7 +183,13 @@ namespace RLGC {
     // DribbleMasteryReward (Rev 4.0: ~3x lower pay, taper to ~0, pay-scaled relative-closing penalty; Rev 3.0: car-frame carry geometry, speed band 1700-2200, threat-weighted additive
     // opponent penalty, flick-ready bonus, opp-touch cooldown, long-carry taper)
     // - Only counts dribbles when ball is near arena ground (absolute Z)
-    // - If dribble is NOT moving toward opponent's net, reduce reward by half
+    // - Rev 5.0 (2026-11-08, audit docs/reward_scenarios/DribbleMasteryReward_2026-11-08.md, findings 1 + circling):
+    //     * direction factor has NO floor: a carry not moving toward the opponent net pays 0 (was 0.5x). Circling and
+    //       own-goal-ward carries stop paying; full pay still needs ball-velocity . to-goal >= 0.4.
+    //     * field-position factor: pay x (0.3 at our own goal back .. 1.0 within 2500 uu of the opponent goal back, linear
+    //       in the ball's distance to the opponent goal back). A carry now pays more the closer it gets to a shot.
+    //   Not changed (deferred audit fixes): the carry reset on any broken gate (hysteresis) and the quality-blind boost term.
+    // - (Rev 4 and earlier) If dribble is NOT moving toward opponent's net, reduce reward by half
     // ============================================================================
     class DribbleMasteryReward : public Reward {
     private:
@@ -225,6 +231,11 @@ namespace RLGC {
 
         // After an opponent touches the ball, a carry can't (re)start for this long.
         float oppTouchCooldownSec = 0.75f;
+
+        // Rev 5.0 field-position factor: distance of the ball to the opponent goal back.
+        float fieldMinMult = 0.3f;                               // at our own goal back
+        float fieldFarDist = 2.0f * CommonValues::BACK_NET_Y;    // own goal back -> opponent goal back (12000)
+        float fieldNearDist = 2500.0f;                           // at or inside this: full pay
 
         // Opponent pressure: ADDITIVE per-step penalty, measured opponent -> ball.
         float opponentDangerRange = 600.0f;
@@ -371,7 +382,7 @@ namespace RLGC {
                 reward *= 1.0f - (1.0f - taperFloor) * u;
             }
 
-            // Direction: smooth 0.5x (away/sideways) -> 1.0x (toward opponent net, dot >= 0.4).
+            // Direction: 0x (away/sideways) -> 1.0x (toward opponent net, dot >= 0.4) (Rev 5.0; was 0.5x -> 1.0x).
             Vec opponentGoal = (player.team == Team::BLUE) ? CommonValues::ORANGE_GOAL_BACK : CommonValues::BLUE_GOAL_BACK;
             Vec toOpp = opponentGoal - state.ball.pos;
             float toOppLen = toOpp.Length();
@@ -382,8 +393,13 @@ namespace RLGC {
                 towardOpp = (ballSpeed > 1e-3f) ? state.ball.vel.Normalized().Dot(toOppN)
                                                 : player.rotMat.forward.Dot(toOppN);
             }
-            float dirMultiplier = 0.5f + 0.5f * RS_CLAMP(towardOpp / 0.4f, 0.0f, 1.0f);
+            // Rev 5.0: no floor. Sideways/away pays 0, full pay from dot >= 0.4.
+            float dirMultiplier = RS_CLAMP(towardOpp / 0.4f, 0.0f, 1.0f);
             reward *= dirMultiplier;
+
+            // Rev 5.0: more pay the closer the ball is to the opponent net (0.3x at our own goal back -> 1.0x within 2500 uu).
+            float fieldFrac = RS_CLAMP((fieldFarDist - toOppLen) / (fieldFarDist - fieldNearDist), 0.0f, 1.0f);
+            reward *= fieldMinMult + (1.0f - fieldMinMult) * fieldFrac;
 
             // Penalty = fixed part + multiple of this step's (final, positive) pay, so it scales with
             // what the bot stands to lose and can push an established carry net-negative.
