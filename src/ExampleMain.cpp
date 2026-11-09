@@ -404,8 +404,10 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-07: Weight increased 90 -> 120 to increase likelihood of hitting flip resets.
 		{ new ZeroSumReward(new FlipResetReward(), TEAM_SPIRIT), 120.f },
 
-		// The objective. Scorer +150 / conceder -150, exactly zero-sum.
-		{ new GoalReward(), 150 }
+		// The objective. 2026-11-09 (user-directed): scorer +150 (scored weight 1.00) / conceder -127.5 (concede weight 0.85).
+		// DELIBERATELY NOT zero-sum any more: every goal now nets +22.5 across the pair (see docs/REWARD_CHANGE_LOG.md).
+		// Revert: GoalReward() (concedeScale -1) restores the exact +-150.
+		{ new GoalReward(-0.85f), 150 }
 	};
 }
 
