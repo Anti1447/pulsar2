@@ -98,7 +98,8 @@ static constexpr int MAX_PLAYERS_PER_TEAM = 3;
 // for maintenance (guard bands 200/150 absorb a plateau; a hard 1v1 slide =
 // revert the fractions), SPS + GPU memory (numPlayers 3068 -> ~4094, bigger
 // inference batches).
-static constexpr float PHASE_B_FRAC_2V2 = 0.3333f;
+// 2026-11-09 (user-directed): 2v2 cut 0.3333 -> 0.1667, so the arena mix goes from 1/3 each to ~1v1 0.5 / 2v2 0.1667 / 3v3 0.3333. Revert: 0.3333f.
+static constexpr float PHASE_B_FRAC_2V2 = 0.1667f;
 static constexpr float PHASE_B_FRAC_3V3 = 0.3333f;
 
 // AUTOMATIC PHASE-B TRIGGER ("once 1v1 performs decently", made mechanical): when
@@ -196,7 +197,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// Touch quality (Nexto touch_accel): pays the impulse a touch gives the ball (a return of a fast ball pays too), limited by a per-player high-water
 		// mark of ball speed that an opponent touch resets (no re-pay for speed regained), ~10 total up to 110kph (2026-11-03),
 		// zero-sum so touches can't be co-farmed. Produced the 1933uu/s goal speed.
-		{ new ZeroSumReward(new TouchAccelReward(), TEAM_SPIRIT), 10.f },
+		// 2026-11-09: Weight decreased 10 -> 7.5 at ~19B steps (user-directed) to reduce the incentive to hit the ball hard for its own sake and give room to the possession/aerial mechanics.
+		{ new ZeroSumReward(new TouchAccelReward(), TEAM_SPIRIT), 7.5f },
 
 		// Demo: unchanged pair swing (75 = goal/2). TEAM_SPIRIT is 0 in PHASE A (was 0.5 once,
 		// an algebraic no-op in 1v1 that misleadingly implied a halving living in the weight).
@@ -237,14 +239,16 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// mature style isn't permanently air-warped.
 		// 2026-11-07: Weight decreased 120 -> 50 at 5.8B steps. Bot is hitting high balls in different gamemodes more consistently now, so the formative window is over and the anneal plan calls for a step back toward 50.
 		// 2026-11-08: Weight decreased 50 -> 30 at 12B steps. Bot is still hitting aerials more than other mechanics so decreasing weight to 30 to reduce the incentive for aerials and increase the incentive for other mechanics.
-		{ new ZeroSumReward(new AerialTouchReward(), TEAM_SPIRIT), 30.f },
+		// 2026-11-09: Weight decreased 30 -> 20 at ~19B steps (user-directed). Continuing the scaffold anneal (120 -> 50 -> 30 -> 20) now that aerial touches are established.
+		{ new ZeroSumReward(new AerialTouchReward(), TEAM_SPIRIT), 20.f },
 
 		// Pre-touch aerial approach potential: pays the jump-and-climb toward a high ball
 		// immediately, refunds the whiff - the gradient that exists BEFORE the first air touch
 		// ever lands. Exact PBRS: telescopes to ~0 net, cannot be farmed. NEVER gate.
 		// 5.0 SCAFFOLD: 20 -> 40 (denser pre-touch climb credit for the formative
 		// window; exact PBRS, same guarantees at any weight; anneal with AerialTouch)
-		{ new ZeroSumReward(new AirInterceptPotentialReward(gamma), TEAM_SPIRIT), 75.f },
+		// 2026-11-09: Weight decreased 75 -> 50 at ~19B steps (user-directed). Scaffold anneal, same direction as AerialTouch; exact PBRS, so no income to farm at either weight.
+		{ new ZeroSumReward(new AirInterceptPotentialReward(gamma), TEAM_SPIRIT), 50.f },
 
 
 		// THE defensive signal (the stack's first): engine-refereed save, guarded so only
@@ -356,7 +360,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// { new KickoffStandoffPenalty(), 70.f },                  // v3 Gold 70 (Diamond 300). terminal-step only; static metrics.
 		// -- Positioning penalties. Offside and TooFar apply in 1v1 too (no teammate => offside is never "covered", so the full penalty applies; TooFar has a 1v1 threshold). Only TeammateSpacing is team-only.
 		// Uncommented OffsidePenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.2f weight.
-		{ new OffsidePenalty(), 0.2f },                          // v3 Gold 0.3. raw range [-6,0] so worst case -1.8/step.
+		// 2026-11-09: Weight decreased 0.2 -> 0.1 (user-directed).
+		{ new OffsidePenalty(), 0.1f },                        // v3 Gold 0.3. raw range [-6,0] so worst case -1.8/step.
 		// Uncommented TooFarFromTheBallPenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.2f weight.
 		{ new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.2f },  // v3 Gold 0.3 (thresholds 1v1/2v2/3v3, ramp half-width).
 		// Uncommented TeammateSpacingPenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 1.f weight in preparation for Phase B. 
@@ -382,11 +387,13 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// Commented out DribbleMasteryReward on 2026-11-05 - too easy to farm at this weight.
 		// Uncommented DribbleMasteryReward on 2026-11-08 after 9.2B steps of Phase B. Added at 0.25f weight. Audited the reward 2026-11-08.
 		// 2026-11-08: Weight increased 0.25 -> 0.5 (user-directed) to increase the bot's dribble mastery rate.
-		{ new ZeroSumReward(new DribbleMasteryReward(), TEAM_SPIRIT), 0.5f },
+		// 2026-11-09: Weight doubled 0.5 -> 1.0 (user-directed).
+		{ new ZeroSumReward(new DribbleMasteryReward(), TEAM_SPIRIT), 1.0f },
 		// Uncommented CatchBallOnCarReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.5f weight.
 		// Commented out CatchBallOnCarReward on 2026-11-05 - too easy to farm at this weight.
 		// Uncommented CatchBallOnCarReward on 2026-11-08 after 9.2B steps of Phase B. Added at 0.25f weight. Audited the reward 2026-11-08.
-		{ new ZeroSumReward(new CatchBallOnCarReward(), TEAM_SPIRIT), 0.25f },
+		// 2026-11-09: Weight doubled 0.25 -> 0.5 (user-directed).
+		{ new ZeroSumReward(new CatchBallOnCarReward(), TEAM_SPIRIT), 0.5f },
 		// Uncommented FlickReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 10.f weight.
 		// Commented out FlickReward on 2026-11-05 - too easy to farm at this weight.
 		// { new ZeroSumReward(new FlickReward(), TEAM_SPIRIT), 10.f },
@@ -400,7 +407,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live..
 		// 2026-11-07: Added UnifiedAirDribbleReward at 5.8B steps (bot can already aerial at this point, so the formative window is over). Weight 2: a single roof-side touch is worth ~+1.5 at 2 
 		// (audit 2026-11-07). The raw sequence cap is 65, so 2 ~ one goal. Watch for ceiling/juggle farming: if the bot's air-touch rate climbs without goals, cut the weight.
-		{ new ZeroSumReward(new UnifiedAirDribbleReward(), TEAM_SPIRIT), 2.f },     // v3 Plat 40 does NOT carry over: raw sequence cap is 65, so 2 ~ one goal (audit 2026-11-07).
+		// 2026-11-09: Weight doubled 2 -> 4 (user-directed). Raw cap 65, so 4 ~ two goals at the cap; watch for ceiling/juggle farming.
+		{ new ZeroSumReward(new UnifiedAirDribbleReward(), TEAM_SPIRIT), 4.f },     // v3 Plat 40 does NOT carry over: raw sequence cap is 65, so 2 ~ one goal (audit 2026-11-07).
 		//   Needs state.ballPred; 2.0s horizon (v3: 4s). Pays only from the 2nd roof-side touch; tests/test_unified_air_dribble.cpp.
 
 		// FlipResetReward re-enabled 2026-11-07 at user-directed weight 90 (60% of a goal) after the audit fix (wheels-first geometry,
