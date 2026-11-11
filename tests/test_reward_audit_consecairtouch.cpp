@@ -265,33 +265,34 @@ TEST(ConsecAir2_a_hard_touch_adds_less_credit_than_a_soft_one) {
 
 // 2. CAR HEIGHT and 4. HORIZONTAL SPEED, and how the factors compose. The credit of one touch is the product of the four factors, checked here
 // directly on FullTouchCredit (the distance gate belongs to the potential, so a low car far under a high ball is tested through the factors).
-//   car z 267 (0.5) x ball z 800 (0.5) x softness |dv| = 250 (0.75) x horizontal ball speed 2650 (0.75) = 0.140625
+//   car z 267 (0.5) x ball z 800 (0.5) x softness |dv| = 250 (0.75) x horizontal ball speed 2650 (0.25, the floor since 2026-11-10) = 0.046875
 TEST(ConsecAir2_the_four_credit_factors_multiply) {
 	using R = ConsecutiveAirTouchReward;
 	GameState gs; gs.deltaTime = STEP_DT;
 	Player p = MakePlayer(1, 0, Team::BLUE, Vec(0, 0, 267)); p.vel = Vec(2400, 0, 0); p.isOnGround = false; p.ballTouchedStep = true;
 	gs.players.push_back(p);
 	gs.ball.pos = Vec(0, 0, 800); gs.ball.vel = Vec(2650, 0, 0);
-	CHECK_NEAR(R::FullTouchCredit(gs.players[0], gs), 0.5f * 0.5f * 0.75f * 0.75f, 1e-6f);
+	CHECK_NEAR(R::FullTouchCredit(gs.players[0], gs), 0.5f * 0.5f * 0.75f * 0.25f, 1e-6f);
 	// each factor alone moves it: a car at the floor adds nothing, a car at 517 doubles it
 	gs.players[0].pos = Vec(0, 0, 17);  CHECK_EQ(R::FullTouchCredit(gs.players[0], gs), 0.0f);
-	gs.players[0].pos = Vec(0, 0, 517); CHECK_NEAR(R::FullTouchCredit(gs.players[0], gs), 1.0f * 0.5f * 0.75f * 0.75f, 1e-6f);
+	gs.players[0].pos = Vec(0, 0, 517); CHECK_NEAR(R::FullTouchCredit(gs.players[0], gs), 1.0f * 0.5f * 0.75f * 0.25f, 1e-6f);
 }
 
-// 4. HORIZONTAL SPEED (MultiAirTouch's rule): 1 up to 2300 uu/s, 0.5 from 3000, linear between, waived within 3000 uu of the opponent goal back
+// 4. HORIZONTAL SPEED (2026-11-10, user-directed): 1 up to 2000 uu/s, 0.25 from 2600, linear between, waived within 3000 uu of the opponent goal back
 TEST(ConsecAir2_a_ball_flying_off_horizontally_is_damped_unless_near_the_opponent_goal) {
 	using R = ConsecutiveAirTouchReward;
-	CHECK_EQ(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(2300, 0, 0)), 1.0f);
-	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(2650, 0, 0)), 0.75f, 1e-6f);
-	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(3000, 0, 0)), 0.5f, 1e-6f);
-	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(0, 4000, 5000)), 0.5f, 1e-6f);   // vertical speed does not count, horizontal 4000 -> 0.5
+	CHECK_EQ(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(2000, 0, 0)), 1.0f);
+	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(2300, 0, 0)), 0.625f, 1e-6f);    // the car's top speed: 1 - 0.75 x 300/600
+	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(2600, 0, 0)), 0.25f, 1e-6f);
+	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(3000, 0, 0)), 0.25f, 1e-6f);    // floor, never below
+	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(0, 4000, 5000)), 0.25f, 1e-6f);   // vertical speed does not count, horizontal 4000 -> floor
 	CHECK_EQ(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 4500, 1000), Vec(3000, 0, 0)), 1.0f);            // within 3000 of the orange goal back (0, 6000): waived
-	CHECK_NEAR(R::HorizontalSpeedMul(Team::ORANGE, Vec(0, 4500, 1000), Vec(3000, 0, 0)), 0.5f, 1e-6f); // for orange the opponent goal is the other end
-	// in a chain: a touch that sends the ball off at 3000 uu/s adds half the credit
+	CHECK_NEAR(R::HorizontalSpeedMul(Team::ORANGE, Vec(0, 4500, 1000), Vec(3000, 0, 0)), 0.25f, 1e-6f); // for orange the opponent goal is the other end
+	// in a chain: a touch that sends the ball off at 3000 uu/s adds a quarter of the credit
 	ConsecutiveAirTouchReward r(1.0f);
-	CT fast = A(true); fast.ballVel = Vec(3000, 0, 0); fast.carVel = Vec(3000, 0, 0);   // dv 0 (soft), horizontal 3000 -> credit 0.5
+	CT fast = A(true); fast.ballVel = Vec(3000, 0, 0); fast.carVel = Vec(3000, 0, 0);   // dv 0 (soft), horizontal 3000 -> credit 0.25
 	auto v = Run(r, { A(true), fast, fast, fast });
-	CHECK_NEAR(Sum(v), 1.0f - expf(-(2.5f - 1.0f) / 2.0f), 1e-4f);                      // e = 1 + 0.5 * 3 = 2.5
+	CHECK_NEAR(Sum(v), 1.0f - expf(-(1.75f - 1.0f) / 2.0f), 1e-4f);                     // e = 1 + 0.25 * 3 = 1.75
 }
 
 // 3. OPPONENT TURNOVER: the chain ends when an opponent touches the ball on a step this player does not
@@ -359,4 +360,83 @@ TEST(ConsecAir2_zero_sum_2v2_values_at_team_spirit_0p3) {
 	CHECK_NEAR(v[3], -0.19673f, 1e-4f);
 	CHECK_NEAR(v[0] + v[1] + v[2] + v[3], 0.0f, 1e-5f);
 	delete zs;
+}
+
+// ============================================================================
+// 2026-11-10 (user-directed): HORIZONTAL SPEED damping steepened: 1.0 at <= 2000 uu/s, 0.25 at >= 2600, linear between (was 1.0 at 2300 -> 0.5 at 3000).
+// Report: docs/reward_scenarios/ConsecutiveAirTouchSpeed_2026-11-10.md. Hand derivations in the comments.
+// ============================================================================
+namespace {
+	float HM(float horiz) { return ConsecutiveAirTouchReward::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(horiz, 0, 0)); }
+}
+
+// m(v) = 1 - 0.75 (v - 2000) / 600 on [2000, 2600]. At 0.9x / 1.1x of each knee: 1800 -> 1 ; 2200 -> 1 - 0.75 x 200/600 = 0.75 ;
+// 2340 -> 1 - 0.75 x 340/600 = 0.575 ; 2860 -> 0.25
+TEST(ConsecAirSpeed_ramp_anchors_and_boundaries) {
+	CHECK_EQ(HM(0), 1.0f); CHECK_EQ(HM(1800), 1.0f); CHECK_EQ(HM(2000), 1.0f);
+	CHECK_NEAR(HM(2200), 0.75f, 1e-6f);
+	CHECK_NEAR(HM(2300), 0.625f, 1e-6f);   // the car's top speed
+	CHECK_NEAR(HM(2340), 0.575f, 1e-6f);
+	CHECK_NEAR(HM(2600), 0.25f, 1e-6f);
+	CHECK_NEAR(HM(2860), 0.25f, 1e-6f); CHECK_NEAR(HM(6000), 0.25f, 1e-6f);
+}
+TEST(ConsecAirSpeed_ramp_is_monotone_and_bounded) {
+	float last = 2.0f;
+	for (float v = 0; v <= 6000; v += 25) { float m = HM(v); CHECK(m <= last + 1e-6f); CHECK(m >= 0.25f - 1e-6f); CHECK(m <= 1.0f + 1e-6f); last = m; }
+}
+// Only x and y count: (1600, 1600, 0) is 2262.74 horizontal -> 1 - 0.75 x 262.74/600 = 0.671572 ; straight up at 5000 is not damped
+TEST(ConsecAirSpeed_only_horizontal_speed_counts) {
+	using R = ConsecutiveAirTouchReward;
+	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(1600, 1600, 0)), 0.671572f, 1e-4f);
+	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(1600, 1600, 4000)), 0.671572f, 1e-4f);
+	CHECK_EQ(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 0, 1000), Vec(0, 0, 5000)), 1.0f);
+}
+// The goal waiver is unchanged: within 3000 of the orange goal back (0, 6000) a 3000 uu/s ball still pays in full; two knees away it pays the floor
+TEST(ConsecAirSpeed_goal_waiver_is_unchanged) {
+	using R = ConsecutiveAirTouchReward;
+	CHECK_EQ(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 3100, 1000), Vec(2600, 0, 0)), 1.0f);   // 2900 from (0,6000)
+	CHECK_NEAR(R::HorizontalSpeedMul(Team::BLUE, Vec(0, 2900, 1000), Vec(2600, 0, 0)), 0.25f, 1e-6f);  // 3100 from it
+}
+// A chain on a ball that keeps leaving at speed: car follows (dv 0, softness 1). gamma 1, no landing => Sum = Phi(e_end).
+//   1500: credit 1 -> e = 1 + 4 = 5 -> 0.864665 ; 2400: m = 0.5 -> e = 3 -> 0.632121 ; 2700: m = 0.25 -> e = 2 -> 0.393469
+TEST(ConsecAirSpeed_a_faster_ball_builds_the_chain_more_slowly) {
+	auto chain = [](float speed) {
+		ConsecutiveAirTouchReward r(1.0f);
+		CT t = A(true); t.ballVel = Vec(speed, 0, 0); t.carVel = Vec(speed, 0, 0);
+		return Sum(Run(r, { A(true), t, t, t, t }));
+	};
+	float slow = chain(1500), mid = chain(2400), fast = chain(2700);
+	CHECK_NEAR(slow, 0.864665f, 1e-4f); CHECK_NEAR(mid, 0.632121f, 1e-4f); CHECK_NEAR(fast, 0.393469f, 1e-4f);
+	CHECK(slow > mid && mid > fast);
+}
+// Farming probe: the multiplier changes the RATE the potential saturates, never the ceiling, and a landing refunds all of it, so a fast-ball
+// juggle that ends in a landing nets 0 at gamma 1 (the PBRS telescope is untouched: the multiplier only scales what a touch adds to the state).
+TEST(ConsecAirSpeed_fast_chain_then_landing_nets_zero_at_gamma_one) {
+	ConsecutiveAirTouchReward r(1.0f);
+	CT t = A(true); t.ballVel = Vec(2400, 0, 0); t.carVel = Vec(2400, 0, 0);
+	std::vector<CT> fr = { A(true) };
+	for (int i = 0; i < 12; i++) fr.push_back(t);
+	fr.push_back(Gr());
+	CHECK_NEAR(Sum(Run(r, fr)), 0.0f, 1e-4f);
+}
+// One touch can add at most 0.25 of its normal credit once the ball leaves at >= 2600 horizontal, whatever the other factors say
+TEST(ConsecAirSpeed_a_touch_at_or_above_2600_adds_at_most_a_quarter) {
+	using R = ConsecutiveAirTouchReward;
+	GameState gs; gs.deltaTime = STEP_DT;
+	Player p = MakePlayer(1, 0, Team::BLUE, Vec(0, 0, 1000)); p.vel = Vec(2600, 0, 0); p.isOnGround = false; p.ballTouchedStep = true;
+	gs.players.push_back(p);
+	gs.ball.pos = Vec(0, 0, 1500); gs.ball.vel = Vec(2600, 0, 0);   // ball height credit 1, car height 1, softness 1
+	CHECK_NEAR(R::FullTouchCredit(gs.players[0], gs), 0.25f, 1e-6f);
+	gs.ball.vel = Vec(5000, 0, 0); gs.players[0].vel = gs.ball.vel;
+	CHECK_NEAR(R::FullTouchCredit(gs.players[0], gs), 0.25f, 1e-6f);
+}
+// DOCUMENTS (not endorses) the open question: nothing here is a HARD cap. A touch on a 2400 uu/s ball (above the car's 2300 top speed) still adds 0.5
+// credit if the car is level with the ball (softness 1) - possible only because the ball can be moving with or toward the car.
+TEST(ConsecAirSpeed_there_is_no_hard_cap_at_2300) {
+	using R = ConsecutiveAirTouchReward;
+	GameState gs; gs.deltaTime = STEP_DT;
+	Player p = MakePlayer(1, 0, Team::BLUE, Vec(0, 0, 1000)); p.vel = Vec(2300, 0, 0); p.isOnGround = false; p.ballTouchedStep = true;
+	gs.players.push_back(p);
+	gs.ball.pos = Vec(0, 0, 1500); gs.ball.vel = Vec(2400, 0, 0);   // dv 100 -> softness 1 - 0.04 = 0.96 ; m = 0.5
+	CHECK_NEAR(R::FullTouchCredit(gs.players[0], gs), 0.96f * 0.5f, 1e-5f);
 }

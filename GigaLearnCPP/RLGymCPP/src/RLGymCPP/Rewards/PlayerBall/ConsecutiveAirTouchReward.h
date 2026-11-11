@@ -51,8 +51,9 @@ namespace RLGC {
 	//   credit = ballHeight * softness * carHeight * horizontalSpeed
 	//   softness   = 1 - clamp(|car vel - ball vel| / 500, 0, 1)^2   (a controlled, carried touch ~1; a hard whack ~0)
 	//   carHeight  = clamp((car.z - 17) / (517 - 17), 0, 1)           (AirInterceptPotentialReward's car scale)
-	//   horizontal = 1 -> 0.5 as the ball's horizontal speed goes 2300 -> 3000 uu/s (the car cannot keep up), waived within 3000 uu of
-	//                the opponent goal (hard-shot intent); MultiAirTouch's rule
+	//   horizontal = 1 -> 0.25 as the ball's horizontal (x, y) speed goes 2000 -> 2600 uu/s (the car tops out at 2300 uu/s and cannot keep up),
+	//                waived within 3000 uu of the opponent goal (hard-shot intent). 2026-11-10 (user-directed): was 1 -> 0.5 over 2300 -> 3000
+	//                (MultiAirTouch's rule); steeper and lower so a ball the car cannot follow adds almost no chain credit.
 	//   turnover   : if an OPPONENT touches the ball on a step and this player does not, the chain ends (the streak resets, so the
 	//                banked potential is charged back like a landing: a possession-lost cost). Detected from the per-step touch flags,
 	//                NOT GameState::lastTouchCarID (that id is the highest player index on a same-step touch). A teammate's touch
@@ -68,10 +69,10 @@ namespace RLGC {
 		constexpr static float CAR_MIN_Z = AirInterceptPotentialReward::CAR_MIN_Z;   // car height credit 0 at or below this
 		constexpr static float CAR_FULL_Z = AirInterceptPotentialReward::CAR_FULL_Z; // car height credit 1 at or above this
 		constexpr static float SOFT_MAX_DV = 500.0f;         // |car vel - ball vel| at which softness reaches 0 (MultiAirTouch's 500)
-		constexpr static float HORIZ_VEL_LIMIT = 2300.0f;    // ball horizontal speed where the damping starts (MultiAirTouch's values)
-		constexpr static float HORIZ_VEL_MAX = 3000.0f;      // ...and reaches HORIZ_MIN_MUL
+		constexpr static float HORIZ_VEL_LIMIT = 2000.0f;    // ball horizontal speed where the damping starts (2026-11-10: was 2300)
+		constexpr static float HORIZ_VEL_MAX = 2600.0f;      // ...and reaches HORIZ_MIN_MUL (was 3000)
 		constexpr static float HORIZ_NEAR_GOAL = 3000.0f;    // damping is waived within this distance of the opponent goal back
-		constexpr static float HORIZ_MIN_MUL = 0.5f;
+		constexpr static float HORIZ_MIN_MUL = 0.25f;        // was 0.5
 		constexpr static float CONTROL_NEAR_DIST = 150.0f;   // car-ball centre distance of a contact: the control gate is 1 up to here
 		constexpr static float CONTROL_MAX_DIST = 1100.0f;   // the gate is 0 from here (UnifiedAirDribbleReward::MAX_CONTROL_DIST)
 		float gamma;
