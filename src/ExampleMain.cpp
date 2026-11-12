@@ -588,7 +588,8 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 	AirDrillState* airDrill = new AirDrillState();
 	result.stateSetter = new CombinedState({
 		// Ground touch bootstrap - the proven anti-freeze state
-		{ new BallNearCarState(600, 900), 0.30f },
+		// 2026-11-11: Weight decreased 0.30 -> 0.25 (user-directed) to make room for AirPlayState (0.15 -> 0.20).
+		{ new BallNearCarState(600, 900), 0.25f },
 		// Aerial takeoff/climb-to-touch drill (the completion rung)
 		{ airDrill, 0.20f },
 		// ADVANCED-AIR SEEDING (2026-07-20, user-directed): flip-reset-ready +
@@ -596,7 +597,11 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// can't shape unentered states. Strong 0.15 slice (biggest single air-
 		// exposure lever this run has had); paired with FlipResetReward. Carved
 		// from RandomState (0.30->0.25) and Kickoff (0.15->0.10).
-		{ new AirPlayState(), 0.15f },
+		// 2026-11-11 (user-directed): AirPlayState gained a WALL_TO_AIR mode (ball rolling 300..2300 uu/s at a side wall / corner / backboard with one blue car behind it,
+		// docs/reward_scenarios/AirPlayWall_2026-11-11.md): 30% of its resets. Weight raised 0.15 -> 0.20 the same day (user-directed; carved from BallNearCar 0.30 -> 0.25),
+		// so of ALL resets: wall 6%, flip-reset-ready 7% (was 7.5%), air-carry 7% (was 7.5%).
+		// Revert: new AirPlayState(900, 0.5f, 1500, 3000, 0.0f) at 0.15 restores the old mix exactly.
+		{ new AirPlayState(), 0.20f },
 		{ new KickoffState(), 0.10f },
 		// Sole source of chaotic/defensive/air-recovery states (bounds widened to corners/goal lines)
 		{ new RandomState(true, true, false), 0.25f },
