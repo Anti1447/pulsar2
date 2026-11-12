@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -52,7 +53,7 @@ BIND = ("127.0.0.1", int(os.environ.get("DASHBOARD_PORT", "8500")))
 # /api/golden 404'd from a stale service and the card hung). Bump BOTH this constant
 # and EXPECT_DASH_VERSION in dashboard.html whenever the API surface changes; the page
 # shows a "restart the dashboard" banner on mismatch.
-DASH_VERSION = "2026-07-25.1"
+DASH_VERSION = "2026-11-11.1"
 
 MAX_PIN_FAILURES = 5
 LOCKOUT_WINDOW_SECS = 15 * 60
@@ -325,6 +326,58 @@ def log_status():
 RESTARTS = trainer_report.RestartTracker()
 
 
+# Panels the trainer sends to W&B but never prints to its log (Demo/*, FlipReset/*, Carry/*, Rewards/*, Gauntlet/*, ...). This file stays
+# stdlib-only: wandb_panels.py (which needs the optional `wandb` package) runs in a child process and prints one JSON line.
+WANDB_HELPER = Path(__file__).with_name("wandb_panels.py")
+WANDB_POLL_SECS = 45
+
+
+class WandbPanels:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.data = None     # the helper's last good result
+        self.error = None    # why the last attempt failed, or None
+        self.started = False
+
+    def start(self):
+        with self.lock:
+            if self.started:
+                return
+            self.started = True
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            try:
+                r = subprocess.run(["nice", "-n", "19", sys.executable, str(WANDB_HELPER)], capture_output=True, text=True, timeout=90,
+                                   env={**os.environ, "TRAINERCTL_BUILD_DIR": str(BUILD_DIR)})
+                lines = [ln for ln in r.stdout.splitlines() if ln.strip().startswith("{")]
+                res = json.loads(lines[-1]) if lines else {"ok": False, "error": (r.stderr.strip().splitlines() or ["no output"])[-1][:160]}
+            except Exception as e:
+                res = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
+            with self.lock:
+                if res.get("ok"):
+                    self.data, self.error = res, None
+                else:
+                    self.error = res.get("error") or "failed"
+            time.sleep(WANDB_POLL_SECS)
+
+    def snapshot(self, have):
+        """Rows for every W&B panel the log report does not already carry. `have` = keys of the log report."""
+        with self.lock:
+            data, err = self.data, self.error
+        if not data:
+            return {"rows": [], "error": err or "starting", "state": None, "url": None, "age_secs": None}
+        def fmt(v):
+            return str(int(v)) if float(v).is_integer() and abs(v) < 1e15 else f"{v:.6g}"
+        rows = [{"k": k, "v": fmt(v)} for k, v in sorted(data["panels"].items()) if k not in have]
+        return {"rows": rows, "error": err, "state": data.get("state"), "url": data.get("url"), "step": data.get("step"),
+                "age_secs": int(time.time() - data["fetched"])}
+
+
+WANDB = WandbPanels()
+
+
 def metrics_status():
     """The trainer's newest report block, plus how many times the wrapper has had
     to relaunch it. Everything the console prints, without streaming the log —
@@ -334,8 +387,12 @@ def metrics_status():
         path = str((LOG_DIR / "latest.log").resolve())
     except Exception:
         return {"report": None, "restarts": None}
-    return {"report": trainer_report.latest_report(path),
-            "restarts": RESTARTS.update(path)}
+    report = trainer_report.latest_report(path)
+    WANDB.start()
+    have = set(report["numbers"]) if report else set()
+    return {"report": report,
+            "restarts": RESTARTS.update(path),
+            "wandb": WANDB.snapshot(have)}
 
 
 def checkpoint_status():

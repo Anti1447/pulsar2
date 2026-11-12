@@ -165,7 +165,7 @@
 </div>
 
 <details id="telemetry">
-  <summary>Full telemetry — every row the trainer prints this iteration</summary>
+  <summary>Full telemetry — every row the trainer prints this iteration, plus the panels only W&amp;B has</summary>
   <div class="card" id="telebody" style="margin-top:8px">(open to load)</div>
 </details>
 
@@ -207,7 +207,7 @@
 let PIN = null;
 // Must match DASH_VERSION in dashboard.py (see the comment there): the page comes from
 // disk, the service from memory - after a git pull they can diverge until ↻ Dashboard.
-const EXPECT_DASH_VERSION = "2026-07-25.1";
+const EXPECT_DASH_VERSION = "2026-11-11.1";
 
 const $ = id => document.getElementById(id);
 function toast(msg, ms = 3500) {
@@ -233,6 +233,7 @@ function num(metrics, key, digits) {
 }
 
 let LAST_REPORT = null;
+let LAST_WANDB = null;
 
 async function refresh() {
   try {
@@ -254,6 +255,7 @@ async function refresh() {
     const met = s.metrics || {};
     const rep = met.report;
     LAST_REPORT = rep;
+    LAST_WANDB = met.wandb || null;
     const n = rep ? rep.numbers : null;
     $("s-steps").textContent = fmtSteps(n ? n["Total Timesteps"] : s.checkpoint.steps);
     $("s-sps").textContent = n && n["Overall Steps/Second"]
@@ -328,13 +330,17 @@ async function refresh() {
 // report change shows up on the page without touching this file.
 function renderTelemetry() {
   const box = $("telebody");
-  if (!LAST_REPORT) { box.textContent = "(no report block in the log yet)"; return; }
+  const wb = LAST_WANDB && LAST_WANDB.rows ? LAST_WANDB.rows : [];
+  if (!LAST_REPORT && !wb.length) { box.textContent = "(no report block in the log yet)"; return; }
+  // Log rows first, then the panels only W&B has (marked wb), grouped by the same "Group/Key" rule.
+  const allRows = (LAST_REPORT ? LAST_REPORT.rows : []).map(r => ({ k: r.k, v: r.v, sub: r.sub, wb: false }))
+    .concat(wb.map(r => ({ k: r.k, v: r.v, sub: false, wb: true })));
   // A "Prefix/" is only a group if at least two keys share it. Without this,
   // "Collection Steps/Second" and "Overall Steps/Second" each invent a one-row
   // section — they are throughput scalars that happen to contain a slash, not a
   // subsystem. Counting first keeps the rule schema-free.
   const prefixCount = new Map();
-  for (const r of LAST_REPORT.rows) {
+  for (const r of allRows) {
     const slash = r.k.indexOf("/");
     if (slash > 0) {
       const p = r.k.slice(0, slash);
@@ -342,16 +348,25 @@ function renderTelemetry() {
     }
   }
   const groups = new Map();
-  for (const r of LAST_REPORT.rows) {
+  for (const r of allRows) {
     const slash = r.k.indexOf("/");
     const prefix = slash > 0 ? r.k.slice(0, slash) : null;
     const grouped = prefix && prefixCount.get(prefix) > 1;
     const g = grouped ? prefix : "General";
     const label = grouped ? r.k.slice(slash + 1) : r.k;
     if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push({ label, v: r.v, sub: r.sub });
+    groups.get(g).push({ label, v: r.v, sub: r.sub, wb: r.wb });
   }
   box.textContent = "";
+  if (LAST_WANDB) {
+    const note = document.createElement("div");
+    note.className = "kv";
+    const nk = document.createElement("span"); nk.className = "k sub"; nk.textContent = "W&B panels";
+    const nv = document.createElement("span"); nv.className = "v";
+    nv.textContent = LAST_WANDB.error === "starting" ? "loading…" : LAST_WANDB.error && !wb.length ? "unavailable: " + LAST_WANDB.error
+      : wb.length + " extra (marked ·W&B)" + (LAST_WANDB.age_secs != null ? ", " + ago(LAST_WANDB.age_secs) : "") + (LAST_WANDB.error ? " · last refresh failed" : "");
+    note.appendChild(nk); note.appendChild(nv); box.appendChild(note);
+  }
   for (const [g, rows] of groups) {
     const sec = document.createElement("div");
     sec.className = "tgroup";
@@ -363,7 +378,7 @@ function renderTelemetry() {
       kv.className = "kv";
       const k = document.createElement("span");
       k.className = "k" + (r.sub ? " sub" : "");
-      k.textContent = r.label;
+      k.textContent = r.label + (r.wb ? " ·W&B" : "");
       const v = document.createElement("span");
       v.className = "v";
       v.textContent = r.v;
