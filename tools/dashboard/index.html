@@ -225,6 +225,8 @@ function renderHeader() {
     parts.push(w.url ? '<a href="' + esc(w.url) + '" target="_blank" rel="noopener">run ' + esc(w.id) + '</a>' : '<span>run <code>' + esc(w.id) + '</code></span>');
     if (w.cloud && w.cloud.step != null) parts.push('<span class="muted">cloud at step ' + esc(w.cloud.step) + (w.cloud.state ? " · " + esc(w.cloud.state) : "") + '</span>');
     if (w.cloud && w.cloud.error) parts.push('<span class="muted" title="' + esc(w.cloud.error) + '">cloud check failed</span>');
+    if (w.sync) parts.push('<span class="muted" title="Panels the trainer does not print to its log (Demo/*, FlipReset/*, Rewards/*, Gauntlet/*, ...) are pulled from the W&amp;B run every 45 s; their history is re-sampled every 30 min.">' +
+      (w.sync.extKeys || 0) + ' panels from W&amp;B' + (w.sync.backfillTotal && w.sync.backfillDone < w.sync.backfillTotal ? " · loading history " + w.sync.backfillDone + "/" + w.sync.backfillTotal : "") + '</span>');
     if (w.mode === "offline") parts.push('<span class="muted">' + (w.loggedIn ? 'logged in: restart training to sync online' : 'run <code>wandb login</code> once to sync online') + '</span>');
   } else parts.push('<span class="chip"><span class="dot" style="background:var(--muted)"></span>No W&amp;B run found yet</span>');
   parts.push('<span class="muted">· ' + S.rows.toLocaleString() + " iterations of history</span>");
@@ -403,6 +405,9 @@ var PRESETS = {
     return [{ name: "Overview", defs: defs }]; } },
   team: { label: "Team play", build: function () { return [{ name: "Team play: ratings by mode", defs: [
     { keys: ["Rating/2v2"], emptyMsg: TEAM_WAIT }, { keys: ["Rating/3v3"], emptyMsg: TEAM_WAIT }, { keys: ["Rating/1v1"].filter(has) }].filter(function (d) { return d.keys.length; }) }]; } },
+  mech: { label: "Demos & mechanics", build: function () { var WAIT = "From W&B: appears after the first sync (about a minute after the dashboard starts), or this metric is not logged yet.";
+    return [{ name: "Demos", defs: singles(/^Demo\//), emptyMsg: WAIT }, { name: "Flip resets", defs: singles(/^FlipReset\//), emptyMsg: WAIT },
+      { name: "Carry & catch", defs: singles(/^Carry\/|^Catch\//), emptyMsg: WAIT }]; } },
   learning: { label: "Learning", build: function () { return [{ name: "Learning health", defs: singles(/loss|update magnitude|entropy|kl|clip|grad|accuracy|corr|effrank|dead units|beta|residual/i) }]; } },
   skill: { label: "Skill & opponent", build: function () { return [{ name: "Skill & opponent", defs: singles(/^rating\/|^nexto\/|goals|win/i) }]; } },
   timing: { label: "Speed", build: function () { return [{ name: "Speed", defs: [{ keys: ["Collection Steps/Second", "Consumption Steps/Second", "Overall Steps/Second"].filter(has) },

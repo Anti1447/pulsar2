@@ -6,8 +6,11 @@ Run it with tools/dashboard/run_dashboard.sh (or RUN_DASHBOARD.bat on Windows), 
 Data: the server tails the trainer's report blocks in run_logs/train-*.log, so a new iteration shows up in about a
 second (the W&B API only refreshes about once a minute). All logs are merged in order; when a run is restarted from
 an older checkpoint, the rows that were rolled back are dropped, so the charts always show the surviving history.
-The latest W&B run is followed too: its id, link and online/offline state come from build/wandb/latest-run, and when
-you are logged in (wandb login) the server also asks the W&B API how far the cloud copy has got.
+The latest W&B run is followed too: its id and online/offline state come from build/wandb/latest-run. The trainer prints
+only a curated block to its log, but every panel (Demo/*, FlipReset/*, Carry/*, Rewards/*, Gauntlet/*, ...) goes to W&B, so
+when you are logged in (wandb login; the key may be for api.wandb.ai or api.forge.coreweave.com) a background thread, WandbSync,
+pulls every panel the log does not carry from the cloud run and merges it into the same charts (2026-11-11): a sampled
+history per panel when it first appears and every 30 minutes, and the newest iterations every 45 seconds.
 
 Controls: start training, stop (saves a checkpoint after the current iteration, same as pressing Q), kill, rebuild,
 package the newest or strongest-rated checkpoint as an RLBot bot. Listens on 127.0.0.1 only; anything that changes
@@ -68,6 +71,7 @@ class Store:
         self.stop_seen = False
         self.saving = False
         self.notes = deque(maxlen=60)  # interesting log lines (saves, stops, errors)
+        self.ext = set()  # columns filled from the W&B cloud copy (panels the trainer prints to no log); see WandbSync
 
     def next_fid(self):
         with self.lock:
@@ -102,12 +106,53 @@ class Store:
                 col = self.cols.get(k)
                 if col is None:
                     col = self.cols[k] = [None] * n
+                self.ext.discard(k)  # a key the log carries is the log's, whatever W&B filled in before
                 col.append(v)
             for col in self.cols.values():
                 if len(col) < n + 1:
                     col.append(None)
             if arrival:
                 self.live.append(arrival)
+
+    def log_keys(self):
+        with self.lock:
+            return set(self.cols) - self.ext
+
+    def _nearest_row(self, ts):
+        """Row whose Total Timesteps is nearest `ts`, or None when it is more than ~2 rows away. Caller holds the lock."""
+        n = len(self.xs)
+        if n == 0:
+            return None
+        j = bisect.bisect_left(self.xs, ts)
+        i = min((c for c in (j - 1, j) if 0 <= c < n), key=lambda c: abs(self.xs[c] - ts))
+        tol = 2.0 * (self.xs[-1] - self.xs[0]) / (n - 1) if n > 1 else 0.0
+        return i if abs(self.xs[i] - ts) <= tol else None
+
+    def ext_apply(self, key, pts):
+        """Fill a column the log does not carry from W&B points [(Total Timesteps, value)]. Returns how many landed on a row.
+        A column that comes from the log is never touched."""
+        with self.lock:
+            if key in self.cols and key not in self.ext:
+                return 0
+            col = self.cols.get(key)
+            if col is None:
+                col = self.cols[key] = [None] * len(self.xs)
+                self.ext.add(key)
+            put = 0
+            for ts, v in pts:
+                if v is None or not math.isfinite(v):
+                    continue
+                i = self._nearest_row(ts)
+                if i is not None:
+                    col[i] = v
+                    put += 1
+            return put
+
+    def ext_clear(self):
+        with self.lock:
+            for k in list(self.ext):
+                self.cols.pop(k, None)
+            self.ext.clear()
 
     def query(self, keys, x0, x1, maxpts, axis):
         """Rows in [x0, x1], thinned to about maxpts. Each output point is one bucket of `stride` rows: its x is the
@@ -372,21 +417,157 @@ def releases():
     return out[:8]
 
 
-_wandb_api = {"t": 0, "data": None}
+_MANGLED = re.compile(r"^(Rewards/)N4RLGC(\d+)(.+)$")
+
+
+def pretty_key(k):
+    """The trainer names Rewards/* panels by the C++ type's mangled name (Rewards/N4RLGC10DemoRewardE): show Rewards/DemoReward."""
+    m = _MANGLED.match(k)
+    if not m:
+        return k
+    n = int(m.group(2))
+    name = m.group(3)[:n]
+    if len(name) != n:
+        return k
+    return m.group(1) + name + (" (VerifiedShot)" if "shotVerified" in m.group(3) else "")
+
+
+WANDB_POLL_SECS = 45          # newest iterations
+WANDB_BACKFILL_SECS = 1800    # sampled history of every W&B-only panel, again
+WANDB_SAMPLES = 1500          # points per panel in that history
+WANDB_WORKERS = 4
+
+
+class WandbSync(threading.Thread):
+    """Pulls the panels the trainer prints to no log (everything the W&B run has beyond the curated stdout block) into the Store.
+
+    Why: the C++ trainer prints a curated summary to its log and sends the FULL report (Demo/*, FlipReset/*, Carry/*, Catch/*,
+    Rewards/*, Gauntlet/*, ...) to W&B only, so a dashboard that tails the log never saw the newest panels. The run is found
+    from build/wandb/latest-run (the run id is the same across restarts of a lineage: the trainer resumes it) and the entity from the
+    saved login (the key may be for api.wandb.ai or api.forge.coreweave.com; the SDK reads ~/.netrc itself).
+
+    Two feeds, both read-only on the W&B side:
+      * tail   : scan_history from the last step seen: complete rows (every panel logged at that step) for the newest iterations;
+      * history: history(keys=[panel, "Total Timesteps"], samples=1500), one call per panel (a multi-key call returns only rows that
+                 have ALL keys, which would cut a panel that started recently to a handful of rows), 4 calls at once, when a panel is
+                 first seen and again every WANDB_BACKFILL_SECS.
+    Values land on the Store row with the nearest Total Timesteps (Store.ext_apply); a panel the log carries is never overwritten.
+    """
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.status = {"state": None, "name": None, "url": None, "path": None, "step": None, "timesteps": None, "checked": None,
+                       "error": None, "extKeys": 0, "backfillDone": 0, "backfillTotal": 0, "backfilled": None}
+        self.path = None
+        self.last_step = None
+        self.fetched = set()
+        self.backfill_at = 0.0
+        self._api = None
+
+    def run(self):
+        while True:
+            try:
+                self.tick()
+            except Exception as e:
+                self.status["error"] = f"{type(e).__name__}: {str(e)[:160]}"
+                self.status["checked"] = time.time()
+            time.sleep(WANDB_POLL_SECS)
+
+    def tick(self):
+        target = (BUILD / "wandb" / "latest-run").resolve()
+        name = target.name
+        if not name.startswith("run-"):  # offline-run-*, or no run yet
+            self.status.update(state="offline" if name.startswith("offline-run") else None, error=None, checked=time.time())
+            return
+        run_id = name.rsplit("-", 1)[-1]
+        import wandb
+        if self._api is None:
+            self._api = wandb.Api(timeout=30)
+        path = f"{os.environ.get('WANDB_ENTITY') or self._api.default_entity}/{WANDB_PROJECT}/{run_id}"
+        if path != self.path:  # a new lineage: forget the old one's panels
+            store.ext_clear()
+            self.path, self.last_step, self.fetched, self.backfill_at = path, None, set(), 0.0
+        run = self._api.run(path)
+        summ = dict(run.summary)
+        numeric = [k for k, v in summ.items() if not k.startswith("_") and isinstance(v, (int, float)) and not isinstance(v, bool)]
+        self.status.update(state=run.state, name=run.name, url=run.url, path=path, step=summ.get("_step"),
+                           timesteps=summ.get("Total Timesteps"), error=None, checked=time.time())
+        logkeys = store.log_keys()
+        wonly = [k for k in numeric if pretty_key(k) not in logkeys]
+        self.tail(run, wonly)
+        due = time.time() - self.backfill_at > WANDB_BACKFILL_SECS
+        need = wonly if due else [k for k in wonly if k not in self.fetched]
+        if need:
+            self.backfill(path, need)
+            if due:
+                self.backfill_at = time.time()
+        with store.lock:
+            self.status["extKeys"] = len(store.ext)
+
+    def tail(self, run, wonly):
+        last = getattr(run, "lastHistoryStep", None)
+        if last is None:
+            last = self.status.get("step")
+        if last is None:
+            return
+        start = self.last_step + 1 if self.last_step is not None else max(0, last - 5)
+        start = max(start, last - 400)  # a long gap is the history feed's job
+        if start > last:
+            return
+        wanted = set(wonly)
+        pts = {}
+        top = self.last_step if self.last_step is not None else -1
+        for r in run.scan_history(min_step=start, max_step=last + 1, page_size=200):
+            ts = r.get("Total Timesteps")
+            top = max(top, r.get("_step", top))
+            if ts is None:
+                continue
+            for k in wanted:
+                v = r.get(k)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    pts.setdefault(k, []).append((ts, v))
+        for k, p in pts.items():
+            store.ext_apply(pretty_key(k), p)
+        self.last_step = top
+
+    def backfill(self, path, keys):
+        import concurrent.futures
+        import wandb
+        tl = threading.local()
+
+        def fetch(k):
+            if not hasattr(tl, "run"):
+                tl.run = wandb.Api(timeout=60).run(path)
+            rows = tl.run.history(samples=WANDB_SAMPLES, keys=[k, "Total Timesteps"], pandas=False)
+            return k, [(r["Total Timesteps"], r[k]) for r in rows
+                       if isinstance(r.get(k), (int, float)) and r.get("Total Timesteps") is not None]
+
+        self.status.update(backfillDone=0, backfillTotal=len(keys))
+        with concurrent.futures.ThreadPoolExecutor(WANDB_WORKERS) as ex:
+            futs = [ex.submit(fetch, k) for k in keys]
+            for f in concurrent.futures.as_completed(futs):
+                try:
+                    k, pts = f.result()
+                except Exception as e:
+                    self.status["error"] = f"history: {type(e).__name__}: {str(e)[:120]}"
+                    continue
+                store.ext_apply(pretty_key(k), pts)
+                self.fetched.add(k)
+                self.status["backfillDone"] += 1
+        self.status["backfilled"] = time.time()
+
+
+wandb_sync = WandbSync()
 
 
 def wandb_info():
-    """The newest local W&B run (build/wandb/latest-run), plus the cloud copy's progress if we can ask."""
-    info = {"mode": None, "id": None, "name": None, "url": None, "dir": None, "loggedIn": False, "cloud": None}
+    """The newest local W&B run (build/wandb/latest-run), plus what WandbSync learned from the cloud copy."""
+    info = {"mode": None, "id": None, "name": None, "url": None, "dir": None, "loggedIn": False, "cloud": None, "sync": None}
     try:
         latest = (BUILD / "wandb" / "latest-run").resolve()
         info["dir"] = latest.name
         info["mode"] = "offline" if latest.name.startswith("offline-run") else "online"
         info["id"] = latest.name.rsplit("-", 1)[-1]
-        for logf in sorted((latest / "logs").glob("debug*.log")):
-            m = re.search(r"https://[^\s\"']+/runs/\w+", logf.read_text(errors="replace"))
-            if m:
-                info["url"] = m.group(0)
         meta = read_json(latest / "files" / "wandb-summary.json") or {}
         info["localStep"] = meta.get("_step")
     except Exception:
@@ -399,24 +580,12 @@ def wandb_info():
                 info["loggedIn"] = True
     except Exception:
         pass
-    if info["mode"] == "online" and info["loggedIn"] and info["url"]:
-        if time.time() - _wandb_api["t"] > 30:
-            _wandb_api["t"] = time.time()
-            threading.Thread(target=_fetch_wandb_cloud, args=(info["url"],), daemon=True).start()
-        info["cloud"] = _wandb_api["data"]
+    if info["mode"] == "online" and info["loggedIn"]:
+        st = dict(wandb_sync.status)
+        info["url"] = st.get("url")
+        info["cloud"] = {k: st.get(k) for k in ("state", "name", "step", "timesteps", "checked", "error")}
+        info["sync"] = {k: st.get(k) for k in ("extKeys", "backfillDone", "backfillTotal", "backfilled")}
     return info
-
-
-def _fetch_wandb_cloud(url):
-    try:
-        import wandb
-        path = "/".join(url.split("://", 1)[1].split("/", 1)[1].replace("/runs/", "/").split("/")[:3])
-        run = wandb.Api(timeout=20).run(path)
-        s = run.summary
-        _wandb_api["data"] = {"state": run.state, "name": run.name, "step": s.get("_step"),
-                              "timesteps": s.get("Total Timesteps"), "checked": time.time()}
-    except Exception as e:
-        _wandb_api["data"] = {"error": f"{type(e).__name__}: {str(e)[:160]}", "checked": time.time()}
 
 
 # --------------------------------------------------------------------------------------------- actions
@@ -614,7 +783,7 @@ def state():
     return {
         "now": now, "rows": n, "epoch": store.epoch, "last": last, "age": age, "iterSeconds": itsec,
         "trainer": tr, "latest": latest, "prev10": p10, "prev60": p60,
-        "keys": sorted(store.cols), "alerts": alerts,
+        "keys": sorted(store.cols), "extKeys": sorted(store.ext), "alerts": alerts,
         "log": store.log_path, "notes": [{"t": t, "msg": m} for t, m in list(store.notes)[:8]],
         "checkpoints": cached("ckpt", 5, checkpoints), "releases": cached("rel", 5, releases),
         "wandb": cached("wandb", 3, wandb_info), "build": build_status(), "activity": list(activity)[:25],
@@ -701,6 +870,7 @@ def main():
     args = ap.parse_args()
     t = Tailer()
     t.start()
+    wandb_sync.start()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://localhost:{args.port}"
     print(f"Pulsar2 dashboard: {url}   (Ctrl+C stops the dashboard; training keeps running)", flush=True)
