@@ -42,6 +42,7 @@
 #include <RLGymCPP/Telemetry/FlipResetTelemetry.h>
 #include <RLGymCPP/Rewards/FlickRewards.h>
 #include <RLGymCPP/Rewards/SupersonicReward.h>
+#include <array>
 #include <RLGymCPP/Rewards/RolvWavedashReward.h>
 #include <RLGymCPP/Rewards/PitchControlAerialReward.h>
 #include <RLGymCPP/Rewards/MultiAirTouchReward.h>
@@ -212,7 +213,11 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 1.0 in 1v1. Full value only for a victim inside (or within 400 uu of) the lane between the ball and the two opposing posts, near the ball. Revert: replace with `new DemoReward()`.
 		// 2026-11-10: Weight increased 50 -> 75 (user-directed). Best demo now pays 75 (the old flat 50 x 1.5), the worst 0.4 x 75 = 30. This is +50%, the step-rule limit.
 		// 2026-11-12: Weight increased 75 -> 125 (user-directed). Best demo now pays 125, the worst 0.4 x 125 = 50. NOTE this is +67%, beyond the usual +50% step rule: user's explicit call.
-		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 125.0f },
+		// 2026-11-12 (user-directed): OffensiveDemoReward 125 -> 75 and the flat DemoReward re-added at 37.5 (below). Doctrine: get the COARSE, low-conditional reward
+		// to a high enough frequency first, then rely on the conditional one to refine placement. Stacked, a demo pays 37.5 + 75 x (0.4..1.0) = 67.5..112.5
+		// (both ZeroSum x TEAM_SPIRIT). Revert: delete the DemoReward line, OffensiveDemoReward back to 125.
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 75.0f },
+		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 37.5f },
 
 		// ---- Hygiene conversions (PSD fitness cleanup) ----------------------------
 		// Proximity race: ZeroSum of an exact PBRS is still exact PBRS (Psi = Phi_own - Phi_opp),
@@ -409,7 +414,11 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// RETIRED 2026-11-01: SupersonicReward - speed/energy is already priced by CarEnergyPotentialReward. Do not re-enable (bare positive income term; see docs/reward_scenarios/SupersonicReward_2026-11-01.md).
 		// Uncommented RolvWavedashReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 3.f weight.
 		// 2026-11-07: Weight increased 3 -> 4 (user-directed) to increase the bot's wavedash rate.
-		{ new RolvWavedashReward(), 4.f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
+		// 2026-11-12 (user-directed): RolvWavedashReward weight 5 -> 2.5 (the file said 4.f at this edit; the request named 5) and the simple WavedashReward (CommonRewards.h:
+		// pays 1.0 on landing on the step after a flip began airborne) added at 5.f, NOT zero-sum (bare per-player income, ~5 per wavedash: farmable only by repeating
+		// wavedashes, each needs a jump+flip+landing cycle). Telemetry: Wavedash/* panels count WavedashReward::Condition. Revert: delete the WavedashReward line, Rolv back to 4.
+		{ new RolvWavedashReward(), 2.5f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
+		{ new WavedashReward(), 5.f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
 		// { new ZeroSumReward(new PitchControlAerialReward(), 0.3f), 12.f },   // v3 Gold 12. needs a jump/pitch/second-jump sequence within 0.55s: check at tickSkip 8.
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live..
 		// 2026-11-07: Added UnifiedAirDribbleReward at 5.8B steps (bot can already aerial at this point, so the formative window is over). Weight 2: a single roof-side touch is worth ~+1.5 at 2 
@@ -847,6 +856,21 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 		// Demo telemetry (2026-11-09), every step (demos and goals are rare, so no sampling). Panels: see Telemetry/DemoTelemetry.h.
 		{
 			namespace DG = DemoGeometry;
+			{ // wavedash counts (2026-11-12): WavedashReward::Condition only. Per player-episode mean (flushed when the next episode's first state arrives), per iteration, cumulative.
+				static std::vector<std::array<int, 6>> wdEp; static std::vector<char> wdSeen; static double wdCum = 0;
+				if (wdEp.size() != states.size()) { wdEp.assign(states.size(), std::array<int, 6>{}); wdSeen.assign(states.size(), 0); }
+				if (!state.prev) {
+					if (wdSeen[stateIdx]) for (size_t i = 0; i < state.players.size() && i < 6; i++) report.AddAvg("Wavedash/Per Episode", wdEp[stateIdx][i]);
+					wdEp[stateIdx] = std::array<int, 6>{};
+				}
+				wdSeen[stateIdx] = 1;
+				int nWd = 0;
+				for (size_t i = 0; i < state.players.size(); i++)
+					if (WavedashReward::Condition(state.players[i])) { nWd++; if (i < 6) wdEp[stateIdx][i]++; }
+				wdCum += nWd;
+				report["Wavedash/Total"] += nWd;
+				report["Wavedash/Total Cumulative"] = wdCum;
+			}
 			DemoTelemetry::Advance(demoMem[stateIdx], state);
 			{ // demo COUNTS (2026-11-12): one per bumper flagged eventState.demo this step. Per episode (arena, all players; flushed when the next episode's
 			  // first state arrives, the running one is reported next iteration), per iteration, and cumulative since this process started.

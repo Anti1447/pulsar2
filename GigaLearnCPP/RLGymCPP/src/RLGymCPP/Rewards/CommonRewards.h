@@ -125,15 +125,13 @@ namespace RLGC {
 
 	class WavedashReward : public Reward {
 	public:
-		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) {
-			if (!player.prev)
-				return 0;
+		// The exact trigger, shared with the Wavedash/* telemetry in ExampleMain (2026-11-12) so the measurement cannot drift from the reward.
+		static bool Condition(const Player& player) {
+			return player.prev && player.isOnGround && (player.prev->isFlipping && !player.prev->isOnGround);
+		}
 
-			if (player.isOnGround && (player.prev->isFlipping && !player.prev->isOnGround)) {
-				return 1;
-			} else {
-				return 0;
-			}
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) {
+			return Condition(player) ? 1.0f : 0.0f;
 		}
 	};
 
