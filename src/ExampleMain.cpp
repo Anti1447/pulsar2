@@ -37,6 +37,8 @@
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetApproachReward.h>
 #include <RLGymCPP/Telemetry/CarryCatchTelemetry.h>
 #include <RLGymCPP/Telemetry/DemoTelemetry.h>
+#include <RLGymCPP/Rewards/PlayerBall/FlipResetTouchReward.h>
+#include <RLGymCPP/Telemetry/FlipResetTelemetry.h>
 #include <RLGymCPP/Rewards/FlickRewards.h>
 #include <RLGymCPP/Rewards/SupersonicReward.h>
 #include <RLGymCPP/Rewards/RolvWavedashReward.h>
@@ -427,6 +429,11 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// or if the bot farms wall carries (Setup share of per-term |r| > ~10%) without launches.
 		{ new ZeroSumReward(new FlipResetSetupReward(), TEAM_SPIRIT), 10.f },
 		{ new ZeroSumReward(new FlipResetApproachReward(), TEAM_SPIRIT), 20.f },
+		// 2026-11-11 (user-directed): COARSE flip-reset reward, no geometry/height gates: pays 1.0 when the player touched the ball on the previous step and
+		// HasFlipReset() has just turned true (false -> true). Weight 30 is a starting guess (a quarter of FlipReset 120). Coarse on purpose: a wall/ramp exit
+		// without jumping also sets HasFlipReset(), so a touch just before one pays too; FlipReset/* telemetry (After Touch vs Any) measures it.
+		// Revert: delete this line.
+		{ new ZeroSumReward(new FlipResetTouchReward(), TEAM_SPIRIT), 30.f },
 
 		// The objective. 2026-11-09 (user-directed): scorer +150 (scored weight 1.00) / conceder -127.5 (concede weight 0.85).
 		// DELIBERATELY NOT zero-sum any more: every goal now nets +22.5 across the pair (see docs/REWARD_CHANGE_LOG.md).
@@ -846,6 +853,37 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 				if (state.goalScored)
 					report.AddAvg("Demo/Goal After Own Demo", DemoTelemetry::WindowOpen(demoMem[stateIdx], DemoTelemetry::Scorer(state)));
 			}
+		}
+
+		// Flip-reset telemetry (2026-11-11), every step. Panels (all per player unless noted; Telemetry/FlipResetTelemetry.h):
+		//   FlipReset/Any Rate, FlipReset/After Touch Rate : HasFlipReset false->true edges per player-step, any cause / after a ball touch the step before.
+		//   FlipReset/Per Episode Any, FlipReset/Per Episode After Touch : mean count per player-episode (flushed when the next episode starts).
+		//   FlipReset/Episode Has After Touch Share : share of player-episodes with at least one.
+		//   FlipReset/Total Any, FlipReset/Total After Touch : counts this iteration; ...Cumulative: since this process started.
+		{
+			static std::vector<FlipResetTelemetry::EpisodeMem> frMem;
+			static double frCumAny = 0, frCumTouch = 0;
+			if (frMem.size() != states.size()) frMem.assign(states.size(), FlipResetTelemetry::EpisodeMem());
+			FlipResetTelemetry::EpisodeMem& m = frMem[stateIdx];
+			if (!state.prev) { // first step of a new episode: report the one that just ended
+				if (FlipResetTelemetry::HasEpisode(m))
+					for (int i = 0; i < m.nPlayers; i++) {
+						report.AddAvg("FlipReset/Per Episode Any", m.any[i]);
+						report.AddAvg("FlipReset/Per Episode After Touch", m.afterTouch[i]);
+						report.AddAvg("FlipReset/Episode Has After Touch Share", m.afterTouch[i] > 0);
+					}
+				m = FlipResetTelemetry::EpisodeMem();
+			}
+			FlipResetTelemetry::StepEvents ev = FlipResetTelemetry::Observe(m, state);
+			for (auto& player : state.players) {
+				report.AddAvg("FlipReset/Any Rate", FlipResetTouchReward::ResetEdge(player));
+				report.AddAvg("FlipReset/After Touch Rate", FlipResetTouchReward::ResetAfterTouch(player));
+			}
+			report["FlipReset/Total Any"] += ev.any;
+			report["FlipReset/Total After Touch"] += ev.afterTouch;
+			frCumAny += ev.any; frCumTouch += ev.afterTouch;
+			report["FlipReset/Total Any Cumulative"] = frCumAny;
+			report["FlipReset/Total After Touch Cumulative"] = frCumTouch;
 		}
 
 		if (doExpensiveMetrics) {
