@@ -213,3 +213,61 @@ TEST(demo_telemetry_scorer_and_baseline) {
 	Fix f(Vec(0, 0, 93), { { Vec(1000, 0, 17), Vec(1000, 0, 17) } }, true, 1);
 	CHECK_NEAR(DemoTelemetry::OppFactor(f.cur.players[2], Team::BLUE, f.cur), 0.51239f, 1e-3f); // same number the reward uses
 }
+
+// ---- credit checks (2026-11-11): DemoPlausible and StateEventCheck ----
+namespace {
+	// bumper (blue) at (0,-1000), victim (orange) `gap` uu ahead; the bumper's supersonic flag on the previous / current step is set by the args.
+	struct CC {
+		GameState prev, cur;
+		CC(float gap, bool ssPrev, bool ssCur, bool flagDemo, bool flagDemoed, bool victimRose, bool sameTeamVictim = false) {
+			auto mk = [&](Vec pos, Team t) { return MakePlayer(t == Team::BLUE ? 1 : 2, 0, t, pos); };
+			Player b0 = mk(Vec(0, -1000, 17), Team::BLUE), v0 = mk(Vec(0, -1000 + gap, 17), sameTeamVictim ? Team::BLUE : Team::ORANGE);
+			b0.isSupersonic = ssPrev;
+			prev.players = { b0, v0 };
+			Player b1 = b0, v1 = v0;
+			b1.isSupersonic = ssCur; b1.eventState.demo = flagDemo;
+			v1.eventState.demoed = flagDemoed; v1.isDemoed = victimRose;
+			cur.players = { b1, v1 };
+			cur.prev = &prev;
+			for (int i = 0; i < 2; i++) cur.players[i].prev = &prev.players[i];
+		}
+	};
+}
+TEST(DemoCredit_plausible_needs_supersonic_and_closeness) {
+	using namespace DemoTelemetry;
+	{ CC c(150, true, true, true, true, true);   CHECK(DemoPlausible(c.cur.players[0], c.cur.players[1])); }
+	{ CC c(150, false, true, true, true, true);  CHECK(DemoPlausible(c.cur.players[0], c.cur.players[1])); }  // flag flipped inside the step
+	{ CC c(150, true, false, true, true, true);  CHECK(DemoPlausible(c.cur.players[0], c.cur.players[1])); }
+	{ CC c(150, false, false, true, true, true); CHECK(!DemoPlausible(c.cur.players[0], c.cur.players[1])); } // never supersonic
+	{ CC c(PLAUSIBLE_MAX_DIST * 0.9f, true, true, true, true, true); CHECK(DemoPlausible(c.cur.players[0], c.cur.players[1])); }
+	{ CC c(PLAUSIBLE_MAX_DIST * 1.1f, true, true, true, true, true); CHECK(!DemoPlausible(c.cur.players[0], c.cur.players[1])); } // 3000 uu apart is the misrouted case
+	{ CC c(3000, true, true, true, true, true);  CHECK(!DemoPlausible(c.cur.players[0], c.cur.players[1])); }
+}
+TEST(DemoCredit_plausible_reads_positions_before_the_step) { // the engine has moved the demoed car to its respawn point
+	using namespace DemoTelemetry;
+	CC c(150, true, true, true, true, true);
+	c.cur.players[1].pos = Vec(0, -4500, 17);
+	CHECK(DemoPlausible(c.cur.players[0], c.cur.players[1]));
+}
+TEST(DemoCredit_state_event_check_consistent_cases_do_not_mismatch) {
+	using namespace DemoTelemetry;
+	CC ok(150, true, true, true, true, true);   auto a = StateEventCheck(ok.cur);
+	CHECK(a.evaluable); CHECK(a.anything); CHECK(!a.mismatch);                      // flags and the rise agree
+	CC quiet(150, true, true, false, false, false); auto b = StateEventCheck(quiet.cur);
+	CHECK(b.evaluable); CHECK(!b.anything); CHECK(!b.mismatch);                     // nothing happened, nothing flagged
+}
+TEST(DemoCredit_state_event_check_catches_misrouted_and_missing_events) {
+	using namespace DemoTelemetry;
+	CC flagNoRise(150, true, true, true, true, false);   CHECK(StateEventCheck(flagNoRise.cur).mismatch);   // flags in an arena where nobody was demoed
+	CC riseNoFlag(150, true, true, false, false, true);  CHECK(StateEventCheck(riseNoFlag.cur).mismatch);   // a demo whose event never arrived
+	CC wrongVictim(150, true, true, true, true, true);
+	wrongVictim.cur.players[1].eventState.demoed = false; wrongVictim.cur.players[0].eventState.demoed = true; // victim flag on the bumper, not the demoed car
+	CHECK(StateEventCheck(wrongVictim.cur).mismatch);
+	CC bumperOnly(150, true, true, true, false, true);   CHECK(StateEventCheck(bumperOnly.cur).mismatch);    // demo flag without a demoed flag
+	CC sameTeam(150, true, true, true, true, true, /*sameTeamVictim=*/true); CHECK(StateEventCheck(sameTeam.cur).mismatch); // no opposite-team pair
+}
+TEST(DemoCredit_state_event_check_is_not_evaluable_on_the_first_step) {
+	using namespace DemoTelemetry;
+	GameState s; s.players.push_back(MakePlayer(1, 0, Team::BLUE, Vec(0, 0, 17))); s.players[0].eventState.demo = true;
+	CHECK(!StateEventCheck(s).evaluable);
+}

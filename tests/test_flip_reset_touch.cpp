@@ -137,3 +137,24 @@ TEST(FRT_telemetry_first_step_counts_nothing_and_the_reward_matches_the_predicat
 		CHECK_EQ(r.GetReward(c0.players[0], c0, false), FlipResetTouchReward::ResetAfterTouch(c0.players[0]) ? 1.0f : 0.0f);
 	}
 }
+
+// ---- FlipResetAirTouchReward (2026-11-12): same rule, ball must be > 400 uu high at the TOUCH step ----
+#include <RLGymCPP/Rewards/PlayerBall/FlipResetAirTouchReward.h>
+namespace {
+	std::vector<float> RunAir(float touchBallZ, float nowBallZ, bool touch = true) {
+		Fr a = Spent(touch); a.ballZ = touchBallZ; Fr b = Reset(false); b.ballZ = nowBallZ;
+		std::vector<Fr> frames = { a, b };
+		std::vector<GameState> st(2);
+		for (int i = 0; i < 2; i++) { st[i].deltaTime = STEP_DT; st[i].ball.pos = Vec(0, 0, frames[i].ballZ); st[i].players.push_back(Mk(frames[i])); }
+		st[1].prev = &st[0]; st[1].players[0].prev = &st[0].players[0];
+		FlipResetAirTouchReward r; return { r.GetReward(st[0].players[0], st[0], false), r.GetReward(st[1].players[0], st[1], false) };
+	}
+}
+TEST(FRAT_pays_above_the_threshold) { CHECK_EQ(RunAir(401.0f, 401.0f)[1], 1.0f); }
+TEST(FRAT_boundary_is_strict) { CHECK_EQ(RunAir(400.0f, 400.0f)[1], 0.0f); CHECK_EQ(RunAir(399.0f, 399.0f)[1], 0.0f); }
+TEST(FRAT_height_is_read_at_the_touch_step_not_now) { CHECK_EQ(RunAir(500.0f, 300.0f)[1], 1.0f); CHECK_EQ(RunAir(300.0f, 500.0f)[1], 0.0f); }
+TEST(FRAT_still_needs_the_touch) { CHECK_EQ(RunAir(900.0f, 900.0f, false)[1], 0.0f); }
+TEST(FRAT_first_step_of_an_episode_pays_nothing) {
+	GameState s; s.deltaTime = STEP_DT; s.ball.pos = Vec(0, 0, 900); s.players.push_back(Mk(Reset(true)));
+	FlipResetAirTouchReward r; CHECK_EQ(r.GetReward(s.players[0], s, false), 0.0f);
+}

@@ -38,6 +38,7 @@
 #include <RLGymCPP/Telemetry/CarryCatchTelemetry.h>
 #include <RLGymCPP/Telemetry/DemoTelemetry.h>
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetTouchReward.h>
+#include <RLGymCPP/Rewards/PlayerBall/FlipResetAirTouchReward.h>
 #include <RLGymCPP/Telemetry/FlipResetTelemetry.h>
 #include <RLGymCPP/Rewards/FlickRewards.h>
 #include <RLGymCPP/Rewards/SupersonicReward.h>
@@ -210,7 +211,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-09: OffensiveDemoReward pays the same 50 at most, scaled by where the victim was (DemoGeometry.h): x(0.4..1.0) in 2v2/3v3,
 		// 1.0 in 1v1. Full value only for a victim inside (or within 400 uu of) the lane between the ball and the two opposing posts, near the ball. Revert: replace with `new DemoReward()`.
 		// 2026-11-10: Weight increased 50 -> 75 (user-directed). Best demo now pays 75 (the old flat 50 x 1.5), the worst 0.4 x 75 = 30. This is +50%, the step-rule limit.
-		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 75.0f },
+		// 2026-11-12: Weight increased 75 -> 125 (user-directed). Best demo now pays 125, the worst 0.4 x 125 = 50. NOTE this is +67%, beyond the usual +50% step rule: user's explicit call.
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 125.0f },
 
 		// ---- Hygiene conversions (PSD fitness cleanup) ----------------------------
 		// Proximity race: ZeroSum of an exact PBRS is still exact PBRS (Psi = Phi_own - Phi_opp),
@@ -434,7 +436,13 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// HasFlipReset() has just turned true (false -> true). Weight 30 is a starting guess (a quarter of FlipReset 120). Coarse on purpose: a wall/ramp exit
 		// without jumping also sets HasFlipReset(), so a touch just before one pays too; FlipReset/* telemetry (After Touch vs Any) measures it.
 		// Revert: delete this line.
-		{ new ZeroSumReward(new FlipResetTouchReward(), TEAM_SPIRIT), 30.f },
+		// 2026-11-12: Weight increased 30 -> 120 (user-directed, 4x; now equal to FlipReset's old 120). Watch FlipReset/After Touch Rate vs Any Rate: if the gap
+		// (wall/ramp exits farmed for the coarse edge) widens instead of After Touch growing with real resets, revert to 30.
+		// 2026-11-12: Weight decreased 120 -> 60 (user-directed) when FlipResetAirTouchReward (below) took over the high-ball share.
+		{ new ZeroSumReward(new FlipResetTouchReward(), TEAM_SPIRIT), 60.f },
+		// 2026-11-12 (user-directed): FlipResetAirTouchReward = the same rule, but only when the ball was above z=400 at the touch. Stacks with the line above:
+		// a high-ball reset pays 60 + 120 = 180, a low-ball/wall one 60. Telemetry: FlipReset/Air After Touch Rate. Revert: delete this line, set the above back to 120.
+		{ new ZeroSumReward(new FlipResetAirTouchReward(), TEAM_SPIRIT), 120.f },
 
 		// The objective. 2026-11-09 (user-directed): scorer +150 (scored weight 1.00) / conceder -127.5 (concede weight 0.85).
 		// DELIBERATELY NOT zero-sum any more: every goal now nets +22.5 across the pair (see docs/REWARD_CHANGE_LOG.md).
@@ -851,7 +859,16 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 				report.AddAvg("Demo/Multiplier", d.mult);
 				report.AddAvg("Demo/Victim Line Dist", d.lineDist);
 				report.AddAvg("Demo/Victim Ball Dist", d.ballDist);
+				if (const Player* victim = DG::FindVictim(player, state))
+					report.AddAvg("Demo/Implausible Rate", !DemoTelemetry::DemoPlausible(player, *victim));
 				if (teamGame) report.AddAvg("Demo/Offensive Factor (team games)", d.f);
+			}
+			{ // are the demo flags on the cars whose isDemoed really rose? (Telemetry/DemoTelemetry.h, tests/test_envset_event_routing.cpp)
+				DemoTelemetry::CreditCheck chk = DemoTelemetry::StateEventCheck(state);
+				if (chk.evaluable && chk.anything) {
+					report.AddAvg("Demo/Event-State Mismatch Rate", chk.mismatch);
+					report["Demo/Events Checked"] += 1;
+				}
 			}
 			if (teamGame) {
 				for (Team t : { Team::BLUE, Team::ORANGE })
@@ -884,6 +901,7 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 			for (auto& player : state.players) {
 				report.AddAvg("FlipReset/Any Rate", FlipResetTouchReward::ResetEdge(player));
 				report.AddAvg("FlipReset/After Touch Rate", FlipResetTouchReward::ResetAfterTouch(player));
+				report.AddAvg("FlipReset/Air After Touch Rate", FlipResetAirTouchReward::AirResetAfterTouch(player, state));
 			}
 			report["FlipReset/Total Any"] += ev.any;
 			report["FlipReset/Total After Touch"] += ev.afterTouch;
