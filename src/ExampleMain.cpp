@@ -848,6 +848,20 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 		{
 			namespace DG = DemoGeometry;
 			DemoTelemetry::Advance(demoMem[stateIdx], state);
+			{ // demo COUNTS (2026-11-12): one per bumper flagged eventState.demo this step. Per episode (arena, all players; flushed when the next episode's
+			  // first state arrives, the running one is reported next iteration), per iteration, and cumulative since this process started.
+				static std::vector<int> demoEp; static std::vector<char> demoEpSeen; static double demoCum = 0;
+				if (demoEp.size() != states.size()) { demoEp.assign(states.size(), 0); demoEpSeen.assign(states.size(), 0); }
+				if (!state.prev) {
+					if (demoEpSeen[stateIdx]) report.AddAvg("Demo/Per Episode", demoEp[stateIdx]);
+					demoEp[stateIdx] = 0;
+				}
+				demoEpSeen[stateIdx] = 1;
+				int nDemo = 0; for (auto& pl : state.players) if (pl.eventState.demo) nDemo++;
+				demoEp[stateIdx] += nDemo; demoCum += nDemo;
+				report["Demo/Total"] += nDemo;
+				report["Demo/Total Cumulative"] = demoCum;
+			}
 			const bool teamGame = DG::IsTeamGame(state);
 			for (auto& player : state.players) {
 				if (!player.eventState.demo) continue;
