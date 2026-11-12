@@ -99,7 +99,8 @@ static constexpr int MAX_PLAYERS_PER_TEAM = 3;
 // revert the fractions), SPS + GPU memory (numPlayers 3068 -> ~4094, bigger
 // inference batches).
 // 2026-11-09 (user-directed): 2v2 cut 0.3333 -> 0.1667, so the arena mix goes from 1/3 each to ~1v1 0.5 / 2v2 0.1667 / 3v3 0.3333. Revert: 0.3333f.
-static constexpr float PHASE_B_FRAC_2V2 = 0.1667f;
+// 2026-11-10 (user directed): increased 2v2 from 0.1667 -> 0.3333, so the arena mix goes from ~1v1 0.5 / 2v2 0.1667 / 3v3 0.3333 to ~1v1 0.5 / 2v2 0.3333 / 3v3 0.1667.
+static constexpr float PHASE_B_FRAC_2V2 = 0.3333f;
 static constexpr float PHASE_B_FRAC_3V3 = 0.3333f;
 
 // AUTOMATIC PHASE-B TRIGGER ("once 1v1 performs decently", made mechanical): when
@@ -205,7 +206,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-08: Increased weight from 37.5 -> 50 (user-directed) to increase the bot's demo rate.
 		// 2026-11-09: OffensiveDemoReward pays the same 50 at most, scaled by where the victim was (DemoGeometry.h): x(0.4..1.0) in 2v2/3v3,
 		// 1.0 in 1v1. Full value only for a victim inside (or within 400 uu of) the lane between the ball and the two opposing posts, near the ball. Revert: replace with `new DemoReward()`.
-		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 50.0f },
+		// 2026-11-10: Weight increased 50 -> 75 (user-directed). Best demo now pays 75 (the old flat 50 x 1.5), the worst 0.4 x 75 = 30. This is +50%, the step-rule limit.
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 75.0f },
 
 		// ---- Hygiene conversions (PSD fitness cleanup) ----------------------------
 		// Proximity race: ZeroSum of an exact PBRS is still exact PBRS (Psi = Phi_own - Phi_opp),
