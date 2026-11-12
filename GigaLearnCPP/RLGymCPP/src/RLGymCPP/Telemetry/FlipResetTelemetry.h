@@ -1,6 +1,7 @@
 #pragma once
 #include "../Gamestates/GameState.h"
 #include "../Rewards/PlayerBall/FlipResetTouchReward.h"
+#include "../Rewards/PlayerBall/FlipResetAirTouchReward.h"
 #include <vector>
 
 // ============================================================================
@@ -25,9 +26,10 @@ namespace RLGC {
 			int nPlayers = 0;
 			int any[MAX_PLAYERS] = {};
 			int afterTouch[MAX_PLAYERS] = {};
+			int airAfterTouch[MAX_PLAYERS] = {}; // afterTouch with the ball above FlipResetAirTouchReward::AIR_BALL_Z at the touch (2026-11-12)
 		};
 
-		struct StepEvents { int any = 0, afterTouch = 0; };
+		struct StepEvents { int any = 0, afterTouch = 0, airAfterTouch = 0; };
 
 		// Count this state's events into the episode memory; returns the totals over players for this step.
 		inline StepEvents Observe(EpisodeMem& m, const GameState& s) {
@@ -38,6 +40,7 @@ namespace RLGC {
 				const Player& p = s.players[i];
 				if (FlipResetTouchReward::ResetEdge(p)) { m.any[i]++; ev.any++; }
 				if (FlipResetTouchReward::ResetAfterTouch(p)) { m.afterTouch[i]++; ev.afterTouch++; }
+				if (FlipResetAirTouchReward::AirResetAfterTouch(p, s)) { m.airAfterTouch[i]++; ev.airAfterTouch++; }
 			}
 			return ev;
 		}

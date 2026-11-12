@@ -158,3 +158,17 @@ TEST(FRAT_first_step_of_an_episode_pays_nothing) {
 	GameState s; s.deltaTime = STEP_DT; s.ball.pos = Vec(0, 0, 900); s.players.push_back(Mk(Reset(true)));
 	FlipResetAirTouchReward r; CHECK_EQ(r.GetReward(s.players[0], s, false), 0.0f);
 }
+
+TEST(FRAT_telemetry_counts_air_after_touch_separately) {
+	auto Pair = [](float touchZ, FlipResetTelemetry::EpisodeMem& m) {
+		Fr a = Spent(true); a.ballZ = touchZ; Fr b = Reset(false); b.ballZ = touchZ;
+		std::vector<GameState> st(2); Fr fr[2] = { a, b };
+		for (int i = 0; i < 2; i++) { st[i].deltaTime = STEP_DT; st[i].ball.pos = Vec(0, 0, fr[i].ballZ); st[i].players.push_back(Mk(fr[i])); }
+		st[1].prev = &st[0]; st[1].players[0].prev = &st[0].players[0];
+		FlipResetTelemetry::Observe(m, st[0]); return FlipResetTelemetry::Observe(m, st[1]);
+	};
+	FlipResetTelemetry::EpisodeMem hi, lo;
+	auto eh = Pair(900.0f, hi), el = Pair(300.0f, lo);
+	CHECK_EQ(eh.afterTouch, 1); CHECK_EQ(eh.airAfterTouch, 1); CHECK_EQ(hi.airAfterTouch[0], 1);
+	CHECK_EQ(el.afterTouch, 1); CHECK_EQ(el.airAfterTouch, 0); CHECK_EQ(lo.airAfterTouch[0], 0);
+}

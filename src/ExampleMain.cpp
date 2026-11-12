@@ -885,7 +885,7 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 		//   FlipReset/Total Any, FlipReset/Total After Touch : counts this iteration; ...Cumulative: since this process started.
 		{
 			static std::vector<FlipResetTelemetry::EpisodeMem> frMem;
-			static double frCumAny = 0, frCumTouch = 0;
+			static double frCumAny = 0, frCumTouch = 0, frCumAir = 0;
 			if (frMem.size() != states.size()) frMem.assign(states.size(), FlipResetTelemetry::EpisodeMem());
 			FlipResetTelemetry::EpisodeMem& m = frMem[stateIdx];
 			if (!state.prev) { // first step of a new episode: report the one that just ended
@@ -894,6 +894,7 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 						report.AddAvg("FlipReset/Per Episode Any", m.any[i]);
 						report.AddAvg("FlipReset/Per Episode After Touch", m.afterTouch[i]);
 						report.AddAvg("FlipReset/Episode Has After Touch Share", m.afterTouch[i] > 0);
+						report.AddAvg("FlipReset/Per Episode Air After Touch", m.airAfterTouch[i]);
 					}
 				m = FlipResetTelemetry::EpisodeMem();
 			}
@@ -905,9 +906,11 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 			}
 			report["FlipReset/Total Any"] += ev.any;
 			report["FlipReset/Total After Touch"] += ev.afterTouch;
-			frCumAny += ev.any; frCumTouch += ev.afterTouch;
+			frCumAny += ev.any; frCumTouch += ev.afterTouch; frCumAir += ev.airAfterTouch;
 			report["FlipReset/Total Any Cumulative"] = frCumAny;
 			report["FlipReset/Total After Touch Cumulative"] = frCumTouch;
+			report["FlipReset/Total Air After Touch"] += ev.airAfterTouch;
+			report["FlipReset/Total Air After Touch Cumulative"] = frCumAir;
 		}
 
 		if (doExpensiveMetrics) {
