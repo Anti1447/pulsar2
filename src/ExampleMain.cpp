@@ -101,7 +101,8 @@ static constexpr int MAX_PLAYERS_PER_TEAM = 3;
 // revert the fractions), SPS + GPU memory (numPlayers 3068 -> ~4094, bigger
 // inference batches).
 // 2026-11-09 (user-directed): 2v2 cut 0.3333 -> 0.1667, so the arena mix goes from 1/3 each to ~1v1 0.5 / 2v2 0.1667 / 3v3 0.3333. Revert: 0.3333f.
-// 2026-11-10 (user directed): increased 2v2 from 0.1667 -> 0.3333, so the arena mix goes from ~1v1 0.5 / 2v2 0.1667 / 3v3 0.3333 to ~1v1 0.5 / 2v2 0.3333 / 3v3 0.1667.
+// 2026-11-10 (user directed): 2v2 raised back from 0.1667 -> 0.3333. PHASE_B_FRAC_3V3 below is still 0.3333, so the arena mix is 1/3 each (342 1v1 / 341 2v2 / 341 3v3 at 1024 games),
+// as confirmed by the trainer log on 2026-11-11 and kept deliberately (user: "Leave 1/3 each"). To get ~1v1 0.5 / 2v2 0.3333 / 3v3 0.1667, lower PHASE_B_FRAC_3V3 to 0.1667f.
 static constexpr float PHASE_B_FRAC_2V2 = 0.3333f;
 static constexpr float PHASE_B_FRAC_3V3 = 0.3333f;
 
