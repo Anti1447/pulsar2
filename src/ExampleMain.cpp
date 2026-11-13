@@ -216,7 +216,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-12 (user-directed): OffensiveDemoReward 125 -> 75 and the flat DemoReward re-added at 37.5 (below). Doctrine: get the COARSE, low-conditional reward
 		// to a high enough frequency first, then rely on the conditional one to refine placement. Stacked, a demo pays 37.5 + 75 x (0.4..1.0) = 67.5..112.5
 		// (both ZeroSum x TEAM_SPIRIT). Revert: delete the DemoReward line, OffensiveDemoReward back to 125.
-		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 75.0f },
+		// 2026-11-12: OffensiveDemoReward weight increased 75 -> 93.75 (+25%, user-directed). Stacked with the flat DemoReward (46.875) a demo pays 84.4..140.6.
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 93.75f },
 		// 2026-11-12: Flat DemoReward weight increased 37.5 -> 46.875 (+25%, user-directed; coarse-rewards-first).
 		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 46.875f },
 
@@ -454,7 +455,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		{ new ZeroSumReward(new FlipResetTouchReward(), TEAM_SPIRIT), 75.f },
 		// 2026-11-12 (user-directed): FlipResetAirTouchReward = the same rule, but only when the ball was above z=400 at the touch. Stacks with the line above:
 		// a high-ball reset pays 60 + 120 = 180, a low-ball/wall one 60. Telemetry: FlipReset/Air After Touch Rate. Revert: delete this line, set the above back to 120.
-		{ new ZeroSumReward(new FlipResetAirTouchReward(), TEAM_SPIRIT), 120.f },
+		// 2026-11-12: FlipResetAirTouchReward weight increased 120 -> 150 (+25%, user-directed). A high-ball reset now pays 75 + 150 = 225 (> Goal 150).
+		{ new ZeroSumReward(new FlipResetAirTouchReward(), TEAM_SPIRIT), 150.f },
 
 		// The objective. 2026-11-09 (user-directed): scorer +150 (scored weight 1.00) / conceder -127.5 (concede weight 0.85).
 		// DELIBERATELY NOT zero-sum any more: every goal now nets +22.5 across the pair (see docs/REWARD_CHANGE_LOG.md).
