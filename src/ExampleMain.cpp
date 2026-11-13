@@ -633,10 +633,12 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// docs/reward_scenarios/AirPlayWall_2026-11-11.md): 30% of its resets. Weight raised 0.15 -> 0.20 the same day (user-directed; carved from BallNearCar 0.30 -> 0.25),
 		// so of ALL resets: wall 6%, flip-reset-ready 7% (was 7.5%), air-carry 7% (was 7.5%).
 		// Revert: new AirPlayState(900, 0.5f, 1500, 3000, 0.0f) at 0.15 restores the old mix exactly.
-		{ new AirPlayState(), 0.20f },
+		// 2026-11-12 (user-directed): AirPlayState 0.20 -> 0.30, carved from RandomState 0.25 -> 0.15 (the user gave no donor; Random is the broad catch-all and keeps 0.15).
+		// Of ALL resets now: wall 9%, flip-reset-ready ~10.5%, air-carry ~10.5%. Revert: 0.20 / Random 0.25.
+		{ new AirPlayState(), 0.30f },
 		{ new KickoffState(), 0.10f },
 		// Sole source of chaotic/defensive/air-recovery states (bounds widened to corners/goal lines)
-		{ new RandomState(true, true, false), 0.25f },
+		{ new RandomState(true, true, false), 0.15f },
 	});
 	result.terminalConditions = terminalConditions;
 
