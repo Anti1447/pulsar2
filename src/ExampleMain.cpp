@@ -424,7 +424,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		{ new RolvWavedashReward(), 2.5f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
 		// 2026-11-12: Weight increased 5 -> 6.25 (+25%, user-directed; coarse-rewards-first).
 		// 2026-11-12 (later): 6.25 -> 7.81 (+25%, user-directed).
-		{ new WavedashReward(), 7.81f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
+		// 2026-11-12 (later): 7.81 -> 10 (user-directed).
+		{ new WavedashReward(), 10.f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
 		// { new ZeroSumReward(new PitchControlAerialReward(), 0.3f), 12.f },   // v3 Gold 12. needs a jump/pitch/second-jump sequence within 0.55s: check at tickSkip 8.
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live..
 		// 2026-11-07: Added UnifiedAirDribbleReward at 5.8B steps (bot can already aerial at this point, so the formative window is over). Weight 2: a single roof-side touch is worth ~+1.5 at 2 
@@ -456,12 +457,15 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-12: Weight decreased 120 -> 60 (user-directed) when FlipResetAirTouchReward (below) took over the high-ball share.
 		// 2026-11-12: Coarse FlipResetTouchReward weight increased 60 -> 75 (+25%, user-directed; coarse-rewards-first). The Air variant (120) is unchanged.
 		// 2026-11-12 (later): coarse FlipResetTouchReward DECREASED 75 -> 56.25 (-25%, user-directed).
-		{ new ZeroSumReward(new FlipResetTouchReward(), TEAM_SPIRIT), 56.25f },
+		// 2026-11-12 (later): COMMENTED OUT (user-directed); FlipResetAirTouchReward carries flip-reset credit alone. FlipReset/* telemetry still reads its predicates.
+		// Revert: uncomment (weight was 56.25).
+		// { new ZeroSumReward(new FlipResetTouchReward(), TEAM_SPIRIT), 56.25f },
 		// 2026-11-12 (user-directed): FlipResetAirTouchReward = the same rule, but only when the ball was above z=400 at the touch. Stacks with the line above:
 		// a high-ball reset pays 60 + 120 = 180, a low-ball/wall one 60. Telemetry: FlipReset/Air After Touch Rate. Revert: delete this line, set the above back to 120.
 		// 2026-11-12: FlipResetAirTouchReward weight increased 120 -> 150 (+25%, user-directed). A high-ball reset now pays 75 + 150 = 225 (> Goal 150).
 		// 2026-11-12 (later): 150 -> 187.5 (+25%, user-directed). High-ball reset now pays 56.25 + 187.5 = 243.75.
-		{ new ZeroSumReward(new FlipResetAirTouchReward(), TEAM_SPIRIT), 187.5f },
+		// 2026-11-12 (later): 187.5 -> 250 (user-directed; > Goal 150, now the only flip-reset term).
+		{ new ZeroSumReward(new FlipResetAirTouchReward(), TEAM_SPIRIT), 250.f },
 
 		// The objective. 2026-11-09 (user-directed): scorer +150 (scored weight 1.00) / conceder -127.5 (concede weight 0.85).
 		// DELIBERATELY NOT zero-sum any more: every goal now nets +22.5 across the pair (see docs/REWARD_CHANGE_LOG.md).
