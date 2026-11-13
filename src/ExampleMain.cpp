@@ -217,11 +217,11 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// to a high enough frequency first, then rely on the conditional one to refine placement. Stacked, a demo pays 37.5 + 75 x (0.4..1.0) = 67.5..112.5
 		// (both ZeroSum x TEAM_SPIRIT). Revert: delete the DemoReward line, OffensiveDemoReward back to 125.
 		// 2026-11-12: OffensiveDemoReward weight increased 75 -> 93.75 (+25%, user-directed). Stacked with the flat DemoReward (46.875) a demo pays 84.4..140.6.
-		// 2026-11-12 (later): 93.75 -> 117.1875 (+25%, user-directed).
-		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 117.1875f },
+		// 2026-11-12 (later): 93.75 -> 117.19 (+25%, user-directed).
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 117.19f },
 		// 2026-11-12: Flat DemoReward weight increased 37.5 -> 46.875 (+25%, user-directed; coarse-rewards-first).
-		// 2026-11-12 (later): 46.875 -> 58.59375 (+25%, user-directed). Stacked demo payout 105.5..175.8.
-		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 58.59375f },
+		// 2026-11-12 (later): 46.875 -> 58.59 (+25%, user-directed). Stacked demo payout 105.5..175.8.
+		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 58.59f },
 
 		// ---- Hygiene conversions (PSD fitness cleanup) ----------------------------
 		// Proximity race: ZeroSum of an exact PBRS is still exact PBRS (Psi = Phi_own - Phi_opp),
@@ -423,8 +423,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// wavedashes, each needs a jump+flip+landing cycle). Telemetry: Wavedash/* panels count WavedashReward::Condition. Revert: delete the WavedashReward line, Rolv back to 4.
 		{ new RolvWavedashReward(), 2.5f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
 		// 2026-11-12: Weight increased 5 -> 6.25 (+25%, user-directed; coarse-rewards-first).
-		// 2026-11-12 (later): 6.25 -> 7.8125 (+25%, user-directed).
-		{ new WavedashReward(), 7.8125f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
+		// 2026-11-12 (later): 6.25 -> 7.81 (+25%, user-directed).
+		{ new WavedashReward(), 7.81f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
 		// { new ZeroSumReward(new PitchControlAerialReward(), 0.3f), 12.f },   // v3 Gold 12. needs a jump/pitch/second-jump sequence within 0.55s: check at tickSkip 8.
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live..
 		// 2026-11-07: Added UnifiedAirDribbleReward at 5.8B steps (bot can already aerial at this point, so the formative window is over). Weight 2: a single roof-side touch is worth ~+1.5 at 2 
