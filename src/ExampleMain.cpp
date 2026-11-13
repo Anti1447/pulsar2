@@ -204,7 +204,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// mark of ball speed that an opponent touch resets (no re-pay for speed regained), ~10 total up to 110kph (2026-11-03),
 		// zero-sum so touches can't be co-farmed. Produced the 1933uu/s goal speed.
 		// 2026-11-09: Weight decreased 10 -> 7.5 at ~19B steps (user-directed) to reduce the incentive to hit the ball hard for its own sake and give room to the possession/aerial mechanics.
-		{ new ZeroSumReward(new TouchAccelReward(), TEAM_SPIRIT), 7.5f },
+		// 2026-11-13: Weight restored 7.5 -> 10 (user-directed; it was 10 before the 2026-11-10 decrease).
+		{ new ZeroSumReward(new TouchAccelReward(), TEAM_SPIRIT), 10.f },
 
 		// Demo: unchanged pair swing (75 = goal/2). TEAM_SPIRIT is 0 in PHASE A (was 0.5 once,
 		// an algebraic no-op in 1v1 that misleadingly implied a halving living in the weight).
@@ -388,7 +389,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		{ new TeammateSpacingPenalty(1000.f, 1500.f), 2.f },     // v3 Gold 3.0 (thresholds 2v2/3v3). Team only: returns 0 in 1v1.
 		// -- Scoring / touch
 		// Uncommented GoalSpeedReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 50.f weight. (1/3 of a goal)
-		{ new ZeroSumReward(new GoalSpeedReward(), TEAM_SPIRIT), 50.f },  // v3 Gold 300 (Plat 120, Diamond 70, spirit 1.0). Needs eventState.goal from the GameEventTracker facade - unverified. static metrics.
+		// 2026-11-13: Weight increased 50 -> 75 (+50%, user-directed).
+		{ new ZeroSumReward(new GoalSpeedReward(), TEAM_SPIRIT), 75.f },  // v3 Gold 300 (Plat 120, Diamond 70, spirit 1.0). Needs eventState.goal from the GameEventTracker facade - unverified. static metrics.
 		// { new ZeroSumReward(new TouchBallToGoalAccelReward(), 0.3f), 30.f },  // v3 Gold 30; v3 used it INSTEAD OF TouchAccelReward - pulsar has TouchAccel (10) live, so they overlap.
 		// -- Rotation (team). ProgressiveRotation wraps Retreat + InstantSpacing + RoleAwareness, so it overlaps the three below it; v3 Gold ran all at 3.
 		// { new ActiveSupportingPositionReward(), 3.f },           // v3 Gold 3 (Plat 7). 2v2+ only (game size >= 4). static metrics shared across instances.
