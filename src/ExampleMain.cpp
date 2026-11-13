@@ -218,10 +218,12 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// (both ZeroSum x TEAM_SPIRIT). Revert: delete the DemoReward line, OffensiveDemoReward back to 125.
 		// 2026-11-12: OffensiveDemoReward weight increased 75 -> 93.75 (+25%, user-directed). Stacked with the flat DemoReward (46.875) a demo pays 84.4..140.6.
 		// 2026-11-12 (later): 93.75 -> 117.19 (+25%, user-directed).
-		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 117.19f },
+		// 2026-11-13: OffensiveDemoReward 117.19 -> 58.59 (-50%, user-directed).
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 58.59f },
 		// 2026-11-12: Flat DemoReward weight increased 37.5 -> 46.875 (+25%, user-directed; coarse-rewards-first).
 		// 2026-11-12 (later): 46.875 -> 58.59 (+25%, user-directed). Stacked demo payout 105.5..175.8.
-		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 58.59f },
+		// 2026-11-13: flat DemoReward 58.59 -> 29.30 (-50%, user-directed). Stacked demo payout now 52.7..87.9.
+		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 29.30f },
 
 		// ---- Hygiene conversions (PSD fitness cleanup) ----------------------------
 		// Proximity race: ZeroSum of an exact PBRS is still exact PBRS (Psi = Phi_own - Phi_opp),
@@ -425,7 +427,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-12: Weight increased 5 -> 6.25 (+25%, user-directed; coarse-rewards-first).
 		// 2026-11-12 (later): 6.25 -> 7.81 (+25%, user-directed).
 		// 2026-11-12 (later): 7.81 -> 10 (user-directed).
-		{ new WavedashReward(), 10.f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
+		// 2026-11-13: 10 -> 5 (-50%, user-directed).
+		{ new WavedashReward(), 5.f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
 		// { new ZeroSumReward(new PitchControlAerialReward(), 0.3f), 12.f },   // v3 Gold 12. needs a jump/pitch/second-jump sequence within 0.55s: check at tickSkip 8.
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live..
 		// 2026-11-07: Added UnifiedAirDribbleReward at 5.8B steps (bot can already aerial at this point, so the formative window is over). Weight 2: a single roof-side touch is worth ~+1.5 at 2 
@@ -465,7 +468,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-12: FlipResetAirTouchReward weight increased 120 -> 150 (+25%, user-directed). A high-ball reset now pays 75 + 150 = 225 (> Goal 150).
 		// 2026-11-12 (later): 150 -> 187.5 (+25%, user-directed). High-ball reset now pays 56.25 + 187.5 = 243.75.
 		// 2026-11-12 (later): 187.5 -> 250 (user-directed; > Goal 150, now the only flip-reset term).
-		{ new ZeroSumReward(new FlipResetAirTouchReward(), TEAM_SPIRIT), 250.f },
+		// 2026-11-13: 250 -> 125 (-50%, user-directed).
+		{ new ZeroSumReward(new FlipResetAirTouchReward(), TEAM_SPIRIT), 125.f },
 
 		// The objective. 2026-11-09 (user-directed): scorer +150 (scored weight 1.00) / conceder -127.5 (concede weight 0.85).
 		// DELIBERATELY NOT zero-sum any more: every goal now nets +22.5 across the pair (see docs/REWARD_CHANGE_LOG.md).
