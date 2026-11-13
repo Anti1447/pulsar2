@@ -217,7 +217,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// to a high enough frequency first, then rely on the conditional one to refine placement. Stacked, a demo pays 37.5 + 75 x (0.4..1.0) = 67.5..112.5
 		// (both ZeroSum x TEAM_SPIRIT). Revert: delete the DemoReward line, OffensiveDemoReward back to 125.
 		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 75.0f },
-		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 37.5f },
+		// 2026-11-12: Flat DemoReward weight increased 37.5 -> 46.875 (+25%, user-directed; coarse-rewards-first).
+		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 46.875f },
 
 		// ---- Hygiene conversions (PSD fitness cleanup) ----------------------------
 		// Proximity race: ZeroSum of an exact PBRS is still exact PBRS (Psi = Phi_own - Phi_opp),
@@ -418,7 +419,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// pays 1.0 on landing on the step after a flip began airborne) added at 5.f, NOT zero-sum (bare per-player income, ~5 per wavedash: farmable only by repeating
 		// wavedashes, each needs a jump+flip+landing cycle). Telemetry: Wavedash/* panels count WavedashReward::Condition. Revert: delete the WavedashReward line, Rolv back to 4.
 		{ new RolvWavedashReward(), 2.5f },                      // v3 Gold 20. wavedash = landing on a step where the car is/was flipping: check at tickSkip 8.
-		{ new WavedashReward(), 5.f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
+		// 2026-11-12: Weight increased 5 -> 6.25 (+25%, user-directed; coarse-rewards-first).
+		{ new WavedashReward(), 6.25f },                          // CommonRewards.h: 1.0 on the landing step after a flip began airborne. Bare, not zero-sum.
 		// { new ZeroSumReward(new PitchControlAerialReward(), 0.3f), 12.f },   // v3 Gold 12. needs a jump/pitch/second-jump sequence within 0.55s: check at tickSkip 8.
 		// { new ZeroSumReward(new MultiAirTouchReward(), 0.3f), 50.f },        // v3 Gold 50 (Plat 60). Overlaps ConsecutiveAirTouchReward (40) already live..
 		// 2026-11-07: Added UnifiedAirDribbleReward at 5.8B steps (bot can already aerial at this point, so the formative window is over). Weight 2: a single roof-side touch is worth ~+1.5 at 2 
@@ -448,7 +450,8 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-12: Weight increased 30 -> 120 (user-directed, 4x; now equal to FlipReset's old 120). Watch FlipReset/After Touch Rate vs Any Rate: if the gap
 		// (wall/ramp exits farmed for the coarse edge) widens instead of After Touch growing with real resets, revert to 30.
 		// 2026-11-12: Weight decreased 120 -> 60 (user-directed) when FlipResetAirTouchReward (below) took over the high-ball share.
-		{ new ZeroSumReward(new FlipResetTouchReward(), TEAM_SPIRIT), 60.f },
+		// 2026-11-12: Coarse FlipResetTouchReward weight increased 60 -> 75 (+25%, user-directed; coarse-rewards-first). The Air variant (120) is unchanged.
+		{ new ZeroSumReward(new FlipResetTouchReward(), TEAM_SPIRIT), 75.f },
 		// 2026-11-12 (user-directed): FlipResetAirTouchReward = the same rule, but only when the ball was above z=400 at the touch. Stacks with the line above:
 		// a high-ball reset pays 60 + 120 = 180, a low-ball/wall one 60. Telemetry: FlipReset/Air After Touch Rate. Revert: delete this line, set the above back to 120.
 		{ new ZeroSumReward(new FlipResetAirTouchReward(), TEAM_SPIRIT), 120.f },
