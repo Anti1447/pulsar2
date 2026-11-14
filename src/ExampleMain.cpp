@@ -37,6 +37,8 @@
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetApproachReward.h>
 #include <RLGymCPP/Telemetry/CarryCatchTelemetry.h>
 #include <RLGymCPP/Telemetry/DemoTelemetry.h>
+#include <RLGymCPP/Telemetry/DemoFunnelTelemetry.h>
+#include <RLGymCPP/StateSetters/DemoLaneState.h>
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetTouchReward.h>
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetAirTouchReward.h>
 #include <RLGymCPP/Telemetry/FlipResetTelemetry.h>
@@ -220,11 +222,13 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// 2026-11-12: OffensiveDemoReward weight increased 75 -> 93.75 (+25%, user-directed). Stacked with the flat DemoReward (46.875) a demo pays 84.4..140.6.
 		// 2026-11-12 (later): 93.75 -> 117.19 (+25%, user-directed).
 		// 2026-11-13: OffensiveDemoReward 117.19 -> 58.59 (-50%, user-directed).
-		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 58.59f },
+		// 2026-11-13: OffensiveDemoReward 58.59 -> 117.18 (+100%, user-directed). Revert: 58.59.
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 117.18f },
 		// 2026-11-12: Flat DemoReward weight increased 37.5 -> 46.875 (+25%, user-directed; coarse-rewards-first).
 		// 2026-11-12 (later): 46.875 -> 58.59 (+25%, user-directed). Stacked demo payout 105.5..175.8.
 		// 2026-11-13: flat DemoReward 58.59 -> 29.30 (-50%, user-directed). Stacked demo payout now 52.7..87.9.
-		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 29.30f },
+		// 2026-11-13: flat DemoReward 29.30 -> 58.60 (+100%, user-directed). Stacked payout now 105.4..175.8. Revert: 29.30.
+		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 58.60f },
 
 		// ---- Hygiene conversions (PSD fitness cleanup) ----------------------------
 		// Proximity race: ZeroSum of an exact PBRS is still exact PBRS (Psi = Phi_own - Phi_opp),
@@ -627,7 +631,9 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 	result.stateSetter = new CombinedState({
 		// Ground touch bootstrap - the proven anti-freeze state
 		// 2026-11-11: Weight decreased 0.30 -> 0.25 (user-directed) to make room for AirPlayState (0.15 -> 0.20).
-		{ new BallNearCarState(600, 900), 0.25f },
+		// 2026-11-13 (user-directed): DemoLaneState 0.10 added; carved from BallNearCar 0.25 -> 0.20 and RandomState 0.15 -> 0.10 (AirPlay, which was just raised, untouched).
+		// Revert: delete the DemoLane line, BallNearCar 0.25, Random 0.15.
+		{ new BallNearCarState(600, 900), 0.20f },
 		// Aerial takeoff/climb-to-touch drill (the completion rung)
 		{ airDrill, 0.20f },
 		// ADVANCED-AIR SEEDING (2026-07-20, user-directed): flip-reset-ready +
@@ -644,7 +650,8 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		{ new AirPlayState(), 0.30f },
 		{ new KickoffState(), 0.10f },
 		// Sole source of chaotic/defensive/air-recovery states (bounds widened to corners/goal lines)
-		{ new RandomState(true, true, false), 0.15f },
+		// 2026-11-13 (user-directed): DemoLaneState removed from the mix (header/test kept); its 0.10 went to RandomState 0.10 -> 0.20. BallNearCar stays 0.20.
+		{ new RandomState(true, true, false), 0.20f },
 	});
 	result.terminalConditions = terminalConditions;
 
@@ -850,14 +857,17 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
 		cfg.exploiter.policyLRStepInterval = 200'000;
 
-	// Same learners as an exploiter: the auxiliary ones that shape or measure main's shaped-reward play are off
+	// Same learners as an exploiter: the auxiliary ones that shape or measure main's shaped-reward play are off.
+	// EXCEPTION (2026-11-14, user-directed, branch gco-goalcritic; docs/GCO_CRITIC_VARIANT.md): the long-horizon GOAL
+	// CRITIC is ON (main's settings: gamma 0.9994, beta 0.25). One lever: V-dagger, geo, gap sensor and reachability
+	// stay off, V_real stays seeded. Its head has no files in the old checkpoints_gco, so it starts fresh on resume.
+	// Revert: put `cfg.ppo.goalCritic.enabled = false;` back.
 	cfg.ppo.reachability.enabled = false;
-	cfg.ppo.goalCritic.enabled = false;
 	cfg.ppo.vdagEnabled = false;
 	cfg.ppo.geoEnabled = false;
 	cfg.gapSensor.enabled = false;
 
-	cfg.metricsRunName = "gco-gated-lr";
+	cfg.metricsRunName = "gco-goalcritic";
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
@@ -894,6 +904,23 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 				report["Wavedash/Total Cumulative"] = wdCum;
 			}
 			DemoTelemetry::Advance(demoMem[stateIdx], state);
+			{ // demo FUNNEL (2026-11-13, measurement only; Telemetry/DemoFunnelTelemetry.h): near -> closing -> supersonic -> attempt -> demo.
+				static std::vector<DemoFunnel::ArenaMem> funnelMem; static double attemptsCum = 0;
+				if (funnelMem.size() != states.size()) funnelMem.assign(states.size(), DemoFunnel::ArenaMem());
+				for (auto& pl : state.players) {
+					if (pl.isDemoed) continue;
+					DemoFunnel::Stage st = DemoFunnel::Evaluate(pl, state);
+					report.AddAvg("Demo/Funnel Near Rate", st.near);
+					report.AddAvg("Demo/Funnel Closing Rate", st.closing);
+					report.AddAvg("Demo/Funnel Supersonic Rate", st.supersonic);
+				}
+				DemoFunnel::Out fo = DemoFunnel::Advance(funnelMem[stateIdx], state);
+				attemptsCum += fo.attempts;
+				report["Demo/Funnel Attempts"] += fo.attempts;
+				report["Demo/Funnel Attempts Cumulative"] = attemptsCum;
+				for (char c : fo.closed) report.AddAvg("Demo/Attempt Conversion", (float)c);
+				for (char u : fo.unattempted) report.AddAvg("Demo/Unattempted Demo Share", (float)u);
+			}
 			{ // demo COUNTS (2026-11-12): one per bumper flagged eventState.demo this step. Per episode (arena, all players; flushed when the next episode's
 			  // first state arrives, the running one is reported next iteration), per iteration, and cumulative since this process started.
 				static std::vector<int> demoEp; static std::vector<char> demoEpSeen; static double demoCum = 0;
@@ -1748,6 +1775,10 @@ int main(int argc, char* argv[]) {
 		struct { ExternalBotKind kind; const char* path; } externalBots[] = {
 			{ ExternalBotKind::GALACTUS_V2, "../rlbot-run/galactus_v2" },
 			{ ExternalBotKind::CHRONOS_V2, "../rlbot-run/chronos_v2" },
+			// 2026-11-14 (user-directed): Dice (V1XT1/Dice-BotPackV5), a 1v1/2v2 GigaLearn bot. It serves only the 1v1 and 2v2 arenas;
+			// 3v3 arenas play as self-play on its iterations. The 15% serve share is now split four ways (3.75% each, was 5%).
+			// Revert: delete this line.
+			{ ExternalBotKind::DICE, "../rlbot-run/dice" },
 			{ ExternalBotKind::NEXTO, "../rlbot-run/nexto/nexto-model.pt" },
 		};
 		for (auto& bot : externalBots) {
@@ -1772,10 +1803,6 @@ int main(int argc, char* argv[]) {
 		// each of those bots, a trend line that does not move with the training. About 15 s every 50 iterations.
 		cfg.gauntlet.enabled = true;
 		cfg.gauntlet.everyIterations = 50;
-			// 2026-11-14 (user-directed): Dice (V1XT1/Dice-BotPackV5), a 1v1/2v2 GigaLearn bot. It serves only the 1v1 and 2v2 arenas;
-			// 3v3 arenas play as self-play on its iterations. The 15% serve share is now split four ways (3.75% each, was 5%).
-			// Revert: delete this line.
-			{ ExternalBotKind::DICE, "../rlbot-run/dice" },
 		cfg.gauntlet.gamesPerBot = 96;
 		cfg.gauntlet.maxGameTime = 60.f;
 		cfg.gauntlet.envCreateFn = [](int) { return MakeEnv(1, false); };
