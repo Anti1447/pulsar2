@@ -518,7 +518,11 @@ static bool g_ExploiterMode = false;
 
 // GCO RUN (--gco; docs/GCO.md): main's opponents with the exploiter's env (goal-only reward, kickoffs, PHASE B fleet)
 static bool g_GCOMode = false;
-static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco";
+// 2026-11-14 (user-directed): `--gco` is now GCO ON THE CURRENT MAIN LINEAGE (6.1: ball-prediction obs, GELU nets, all four external bots,
+// the 6.0 exploiter pool), seeded from checkpoints_6.1 into its own folder. The original 5.3-lineage GCO is `--gco-5.3` (g_GCOLegacy).
+static bool g_GCOLegacy = false;
+static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco_6.1";
+static const char* GCO_LEGACY_CHECKPOINT_FOLDER = "checkpoints_gco";
 // What a 20s no-touch timeout costs every car in a GCO game, in goals (a goal is +-1)
 static constexpr float GCO_TIMEOUT_PENALTY = 0.5f;
 // GCO's mode split, for training and the skill tracker alike: 1/3 of the arenas each. Rows scale with players, so the
@@ -526,8 +530,9 @@ static constexpr float GCO_TIMEOUT_PENALTY = 0.5f;
 // 6/12, 4/12, 2/12 (30% / 40% / 30% of rows); 6/11, 3/11, 2/11 would give even rows.
 static constexpr float GCO_FRAC_2V2 = 1.f / 3;
 static constexpr float GCO_FRAC_3V3 = 1.f / 3;
-// The main lineage GCO was seeded from (checkpoints_6.0 can't seed it: different obs)
-static const char* GCO_SOURCE_FOLDER = "checkpoints_5.3";
+// The main lineage GCO is seeded from (--gco-5.3 seeds from 5.3: a different obs, so the two lineages can't cross)
+static const char* GCO_SOURCE_FOLDER = "checkpoints_6.1";
+static const char* GCO_LEGACY_SOURCE_FOLDER = "checkpoints_5.3";
 
 // BALL-PREDICTION OBS (6.0 lineage, 2026-11-01, user-directed): the padded obs gains the ball's predicted pos + vel
 // every 0.25s out to 2s (8 slices, 48 floats, appended after the presence flags; AdvancedObsPadded.h). The common
@@ -867,7 +872,7 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 	cfg.ppo.geoEnabled = false;
 	cfg.gapSensor.enabled = false;
 
-	cfg.metricsRunName = "gco-goalcritic";
+	cfg.metricsRunName = g_GCOLegacy ? "gco-goalcritic" : "gco-6.1";
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
@@ -1072,7 +1077,7 @@ int main(int argc, char* argv[]) {
 	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg;
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
-	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false;
+	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false;
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -1097,6 +1102,9 @@ int main(int argc, char* argv[]) {
 			runTogether = (arg == "--together");
 		} else if (arg == "--gco") {
 			gcoArg = true;
+		} else if (arg == "--gco-5.3") {
+			gcoArg = true;
+			gcoLegacyArg = true;
 		} else if (arg == "--gco-from" && i + 1 < argc) {
 			gcoFromArg = argv[++i];
 			gcoArg = true;
@@ -1106,14 +1114,15 @@ int main(int argc, char* argv[]) {
 			std::cout << "Unknown argument \"" << arg << "\". Options: --exploiter-auto, --slot <N>, --new-exploiter, "
 				<< "--exploiter <checkpoint folder>, --exploiter-name <name>, --exploiter-steps <N>, "
 				<< "--finish-exploiter [name], --discard-exploiter [name], --together, --alone, "
-				<< "--gco, --gco-from <checkpoint folder>, --no-exploiter-pool\n";
+				<< "--gco, --gco-5.3, --gco-from <checkpoint folder>, --no-exploiter-pool\n";
 			return 1;
 		}
 	}
 	bool exploiterRunArg = exploiterAuto || !exploiterSnapshotArg.empty() || !exploiterNameArg.empty() || newExploiter
 		|| exploiterStepsArg > 0 || slotGiven;
 	// Main 6.0 and its exploiters use the ball-prediction obs; the GCO lineage (and exploiters targeting it) keep 5.3's
-	g_BallPredObs = !gcoArg;
+	g_GCOLegacy = gcoLegacyArg;
+	g_BallPredObs = !gcoLegacyArg;
 
 	// Initialize RocketSim with collision meshes (run from the repo/build dir;
 	// provision them with tools/get_collision_meshes.sh if missing)
@@ -1770,7 +1779,7 @@ int main(int argc, char* argv[]) {
 		// 2026-11-05 (user-directed): Nexto is back in the main 6.0 pool as the third bot (it plays the air constantly
 		// and is a fixed yardstick). The 15% share is split between the three by a uniform pick per serve iteration
 		// (5% each; total unchanged). Weights: rlbot-run/galactus_v2 and rlbot-run/chronos_v2, from each repo's
-		// rlbot/ folder, and rlbot-run/nexto. GCO serves Nexto only.
+		// rlbot/ folder, and rlbot-run/nexto. The 5.3-lineage GCO (--gco-5.3) serves Nexto only; --gco (6.1) serves all four.
 		// All are optional: a missing model file only drops that bot (logged).
 		struct { ExternalBotKind kind; const char* path; } externalBots[] = {
 			{ ExternalBotKind::GALACTUS_V2, "../rlbot-run/galactus_v2" },
@@ -1782,7 +1791,7 @@ int main(int argc, char* argv[]) {
 			{ ExternalBotKind::NEXTO, "../rlbot-run/nexto/nexto-model.pt" },
 		};
 		for (auto& bot : externalBots) {
-			if (gcoArg && bot.kind != ExternalBotKind::NEXTO)
+			if (gcoLegacyArg && bot.kind != ExternalBotKind::NEXTO) // the 5.3 GCO lineage's obs can't feed the 6.0 bots
 				continue;
 			std::filesystem::path file = bot.kind == ExternalBotKind::NEXTO ? std::filesystem::path(bot.path)
 				: std::filesystem::path(bot.path) / "POLICY.lt";
@@ -1827,8 +1836,8 @@ int main(int argc, char* argv[]) {
 	// exploiters folder is the original exploiters/ (the 5.3 lineage's); main 6.0 has its own.
 	std::filesystem::path mainCheckpointFolder = cfg.checkpointFolder;
 	if (gcoArg) {
-		cfg.checkpointFolder = GCO_CHECKPOINT_FOLDER;
-		mainCheckpointFolder = GCO_SOURCE_FOLDER;
+		cfg.checkpointFolder = g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER;
+		mainCheckpointFolder = g_GCOLegacy ? GCO_LEGACY_SOURCE_FOLDER : GCO_SOURCE_FOLDER;
 	}
 	ConfigureExploiterSettings(cfg);
 	std::filesystem::path exploitersRoot = cfg.exploiterPool.exploitersFolder;
