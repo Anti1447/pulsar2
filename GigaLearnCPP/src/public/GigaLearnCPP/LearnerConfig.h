@@ -57,6 +57,7 @@ namespace GGL {
 		NEXTO,        // path = TorchScript module (rlbot-run/nexto/nexto-model.pt)
 		GALACTUS_V2,  // path = folder with SHARED_HEAD.lt + POLICY.lt
 		CHRONOS_V2,   // path = folder with SHARED_HEAD.lt + POLICY.lt
+		DICE,         // path = folder with SHARED_HEAD.lt + POLICY.lt (V1XT1/Dice-BotPackV5; 1v1 and 2v2 arenas only)
 	};
 	struct ExternalBotSpec {
 		ExternalBotKind kind;

@@ -13,9 +13,10 @@ build() { # name define sources...
     "$HERE/ref_obs.cpp" $RSM "$@" -o "build/ref_$name"
   echo "built build/ref_$name"
 }
-G=$SRC/galactus/inc/RLGymCPP; C=$SRC/chronos/inc/RLGymCPP
+G=$SRC/galactus/inc/RLGymCPP; C=$SRC/chronos/inc/RLGymCPP; D=$SRC/dice/inc/RLGymCPP
 build galactus REF_GALACTUS $G/ObsBuilders/GalactusOBS.cpp $G/ActionParsers/DefaultAction.cpp $G/GameStates/StateUtil.cpp
 build chronos REF_CHRONOS $C/ObsBuilders/AdvancedObsPadded.cpp $C/ObsBuilders/AdvancedObs.cpp $C/ActionParsers/DefaultAction.cpp $C/GameStates/StateUtil.cpp
+build dice REF_DICE $D/ObsBuilders/AdvancedObsPadded.cpp $D/ObsBuilders/AdvancedObs.cpp $D/ActionParsers/DefaultAction.cpp $D/GameStates/StateUtil.cpp
 
 # The original bots' own model code (GigaLearnCPP/Models.h, InferenceModels.cpp) against libtorch
 TL=GigaLearnCPP/libtorch
@@ -29,3 +30,4 @@ buildmodel() { # name define
 }
 buildmodel galactus REF_GALACTUS
 buildmodel chronos REF_CHRONOS
+buildmodel dice REF_DICE

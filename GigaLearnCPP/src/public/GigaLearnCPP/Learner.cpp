@@ -328,8 +328,9 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 			if (spec.kind == ExternalBotKind::NEXTO)
 				externalOpps.push_back(std::make_shared<NextoOpponent>(spec.path, device));
 			else
-				externalOpps.push_back(std::make_shared<GGLBotOpponent>(spec.kind == ExternalBotKind::GALACTUS_V2
-					? GGLBotKind::GALACTUS_V2 : GGLBotKind::CHRONOS_V2, spec.path, device));
+				externalOpps.push_back(std::make_shared<GGLBotOpponent>(
+					spec.kind == ExternalBotKind::GALACTUS_V2 ? GGLBotKind::GALACTUS_V2
+					: spec.kind == ExternalBotKind::DICE ? GGLBotKind::DICE : GGLBotKind::CHRONOS_V2, spec.path, device));
 		}
 		for (auto& opp : externalOpps)
 			opp->temperature = config.externalOpponent.sampleTemperature;
@@ -1862,6 +1863,23 @@ void GGL::Learner::Start() {
 			// end of collection: an index into the exploiter run's own opponents, or into main's pool
 			// of imported exploiters (-1 = neither)
 			int exploiterOppIdx = -1, poolMemberIdx = -1;
+
+			// External bots with a team-size limit (ExternalOpponent::MaxTeamSize) serve only the arenas inside it.
+			// An arena outside it is NOT served: both of its teams play as the live policy this iteration, and the
+			// yardstick counters skip it (arenaServed). Empty = every arena is served.
+			std::vector<uint8_t> arenaServed;
+			auto fnArenaServable = [&](int extIdx, const GameState& gs) {
+				int perTeam[2] = { 0, 0 };
+				for (auto& pl : gs.players)
+					perTeam[(int)pl.team]++;
+				return RS_MAX(perTeam[0], perTeam[1]) <= externalOpps[extIdx]->MaxTeamSize();
+			};
+			auto fnServedArenaCount = [&](int extIdx) {
+				int n = 0;
+				for (auto& gs : envSet->state.gameStates)
+					n += fnArenaServable(extIdx, gs);
+				return n;
+			};
 			if (!render) {
 				RG_ASSERT(config.trainAgainstOldChance >= 0 && config.trainAgainstOldChance <= 1);
 				std::uniform_real_distribution<float> oppRoll(0.0f, 1.0f);
@@ -1887,9 +1905,15 @@ void GGL::Learner::Start() {
 						// One bot for the whole fleet this iteration, uniform over the configured ones
 						std::uniform_int_distribution<size_t> pickBot(0, externalOpps.size() - 1);
 						externalOppIdx = (int)pickBot(oppRng);
-						externalOpps[externalOppIdx]->BeginServe(numPlayers);
-						externalStats[externalOppIdx].serveIters++;
-						extMonitor.BeginServe((int)envSet->arenas.size());
+						// A bot with a team-size limit (Dice: 2) only serves the arenas it can play; with none in the fleet this
+						// iteration is plain self-play rather than a serve with nothing to serve.
+						if (fnServedArenaCount(externalOppIdx) == 0) {
+							externalOppIdx = -1;
+						} else {
+							externalOpps[externalOppIdx]->BeginServe(numPlayers);
+							externalStats[externalOppIdx].serveIters++;
+							extMonitor.BeginServe((int)envSet->arenas.size());
+						}
 					} else if (roll < externalShare + poolShare) {
 						poolMemberIdx = exploiterPool->SampleTraining(oppRoll(oppRng));
 						if (poolMemberIdx >= 0)
@@ -1916,10 +1940,16 @@ void GGL::Learner::Start() {
 				newPlayerIndices.clear();
 				oldPlayerIndices.clear();
 				oldVersionPlayerMask.assign(numPlayers, false);
-				int i = 0;
+				arenaServed.clear();
+				if (externalOppIdx >= 0)
+					for (auto& state : envSet->state.gameStates)
+						arenaServed.push_back(fnArenaServable(externalOppIdx, state));
+				int i = 0, arenaIdx = 0;
 				for (auto& state : envSet->state.gameStates) {
+					const bool served = arenaServed.empty() || arenaServed[arenaIdx];
+					arenaIdx++;
 					for (auto& player : state.players) {
-						if (player.team == team) {
+						if (served && player.team == team) {
 							oldVersionPlayerMask[i] = true;
 							oldPlayerIndices.push_back(i);
 						} else {
@@ -2351,10 +2381,12 @@ void GGL::Learner::Start() {
 						// nothing to skip; if it is ever switched on, add the skip HERE and in extMonitor.Step.
 						if (oppExternal) {
 							extMonitor.Step(envSet->state.gameStates, extStartedFresh, envSet->state.terminals, oppTeam,
-								config.tickSkip, *externalPlay[externalOppIdx]);
+								config.tickSkip, *externalPlay[externalOppIdx], arenaServed.empty() ? NULL : &arenaServed);
 							int nArenas = (int)envSet->state.gameStates.size();
 							for (int arenaIdx = 0; arenaIdx < nArenas; arenaIdx++) {
 								auto& gs = envSet->state.gameStates[arenaIdx];
+								if (!arenaServed.empty() && !arenaServed[arenaIdx])
+									continue;
 								if (gs.goalScored) {
 									if (RS_TEAM_FROM_Y(gs.ball.pos.y) == oppTeam)
 										externalStats[externalOppIdx].goalsFor++;
@@ -3668,12 +3700,20 @@ void GGL::Learner::Start() {
 						"ChronosV2/GD per 1k Steps (1v1)",
 						"ChronosV2/Kickoff Bot First Touch %",
 						"ChronosV2/Touch Share Bot %",
+						"Dice/Goals For",
+						"Dice/Goals Against",
+						"Dice/Serve Iters",
+						"Dice/GD per 1k Steps (1v1)",
+						"Dice/GD per 1k Steps (2v2)",
+						"Dice/Kickoff Bot First Touch %",
+						"Dice/Touch Share Bot %",
 						"",
 						"Gauntlet/Mean Win %",
 						"Gauntlet/Mean First Touch Us %",
 						"Gauntlet/Nexto/Win %",
 						"Gauntlet/GalactusV2/Win %",
 						"Gauntlet/ChronosV2/Win %",
+						"Gauntlet/Dice/Win %",
 						"",
 						// Permanent reference set: the non-inflating skill read. Ref/Oldest Share is
 						// the headline - the oldest reference is never evicted, so that series is

@@ -159,8 +159,9 @@ namespace {
 			if (name == "Nexto") return std::make_shared<GGL::NextoOpponent>("rlbot-run/nexto/nexto-model.pt", dev);
 			if (name == "GalactusV2") return std::make_shared<GGL::GGLBotOpponent>(GGL::GGLBotKind::GALACTUS_V2, "rlbot-run/galactus_v2", dev);
 			if (name == "ChronosV2") return std::make_shared<GGL::GGLBotOpponent>(GGL::GGLBotKind::CHRONOS_V2, "rlbot-run/chronos_v2", dev);
+			if (name == "Dice") return std::make_shared<GGL::GGLBotOpponent>(GGL::GGLBotKind::DICE, "rlbot-run/dice", dev); // 1v1/2v2 only; not in the default round robin
 			if (name == "Random") { auto r = std::make_shared<RandomController>(); r->env = env.get(); return r; }
-			std::cerr << "unknown bot \"" << name << "\" (Nexto, GalactusV2, ChronosV2, Random)" << std::endl;
+			std::cerr << "unknown bot \"" << name << "\" (Nexto, GalactusV2, ChronosV2, Dice, Random)" << std::endl;
 			return nullptr;
 		};
 		auto a = make(nameA);

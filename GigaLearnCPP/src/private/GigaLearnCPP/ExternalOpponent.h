@@ -25,6 +25,11 @@ namespace GGL {
 
 		virtual ~ExternalOpponent() = default;
 
+		// Largest team size (players per team) of an arena this bot can play in. The Learner leaves an arena that exceeds it
+		// out of the serve: both of its teams play as the live policy that iteration, and the arena is skipped by the
+		// yardstick counters. Default: no limit.
+		virtual int MaxTeamSize() const { return 1 << 20; }
+
 		// Called once when a serve iteration begins (it picks up arenas mid-episode)
 		virtual void BeginServe(int numPlayers) {}
 

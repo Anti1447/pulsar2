@@ -34,10 +34,11 @@ static json V(const Vec& v) { return json::array({ v.x, v.y, v.z }); }
 static json Act8(const Action& a) { return json::array({ a.throttle, a.steer, a.pitch, a.yaw, a.roll, a.jump, a.boost, a.handbrake }); }
 
 // Observation geometry shared by both bots: [prefix][self 29][2 teammate slots][3 opponent slots][suffix]
-struct Layout { int obsSize, prefix, suffix; };
-static const Layout LAYOUT_GALACTUS = { 258, 54, 30 };   // 9 + 8 + 34 + 3 (nearest big pad) = 54, then self; 5 ball-pred samples (30) after
-static const Layout LAYOUT_CHRONOS = { 225, 51, 0 };     // 9 + 8 + 34, then self
-constexpr int BLOCK = 29, TEAMMATE_SLOTS = 2, OPPONENT_SLOTS = 3;
+struct Layout { int obsSize, prefix, suffix, teammateSlots, opponentSlots; };
+static const Layout LAYOUT_GALACTUS = { 258, 54, 30, 2, 3 };   // 9 + 8 + 34 + 3 (nearest big pad) = 54, then self; 5 ball-pred samples (30) after
+static const Layout LAYOUT_DICE = { 167, 51, 0, 1, 2 };       // AdvancedObsPadded(2): 1 teammate slot, 2 opponent slots
+static const Layout LAYOUT_CHRONOS = { 225, 51, 0, 2, 3 };     // 9 + 8 + 34, then self
+constexpr int BLOCK = 29;
 
 static std::vector<std::vector<float>> Blocks(const std::vector<float>& obs, const Layout& L, int from, int count) {
 	std::vector<std::vector<float>> out;
@@ -48,9 +49,9 @@ static std::vector<std::vector<float>> Blocks(const std::vector<float>& obs, con
 
 // Same observation with the teammate and opponent slots sorted by content (a canonical order)
 static std::vector<float> Canonical(const std::vector<float>& obs, const Layout& L) {
-	int teamFrom = L.prefix + BLOCK, oppFrom = teamFrom + TEAMMATE_SLOTS * BLOCK;
-	auto team = Blocks(obs, L, teamFrom, TEAMMATE_SLOTS);
-	auto opp = Blocks(obs, L, oppFrom, OPPONENT_SLOTS);
+	int teamFrom = L.prefix + BLOCK, oppFrom = teamFrom + L.teammateSlots * BLOCK;
+	auto team = Blocks(obs, L, teamFrom, L.teammateSlots);
+	auto opp = Blocks(obs, L, oppFrom, L.opponentSlots);
 	// Sorted by value, with a coarse key so 1e-7 noise cannot reorder two different players
 	auto key = [](const std::vector<float>& a, const std::vector<float>& b) {
 		for (size_t i = 0; i < a.size(); i++) {
@@ -65,20 +66,20 @@ static std::vector<float> Canonical(const std::vector<float>& obs, const Layout&
 	std::vector<float> out(obs.begin(), obs.begin() + teamFrom);
 	for (auto& b : team) out.insert(out.end(), b.begin(), b.end());
 	for (auto& b : opp) out.insert(out.end(), b.begin(), b.end());
-	out.insert(out.end(), obs.begin() + oppFrom + OPPONENT_SLOTS * BLOCK, obs.end());
+	out.insert(out.end(), obs.begin() + oppFrom + L.opponentSlots * BLOCK, obs.end());
 	return out;
 }
 
 static std::vector<float> Shuffled(const std::vector<float>& obs, const Layout& L) {
-	int teamFrom = L.prefix + BLOCK, oppFrom = teamFrom + TEAMMATE_SLOTS * BLOCK;
-	auto team = Blocks(obs, L, teamFrom, TEAMMATE_SLOTS);
-	auto opp = Blocks(obs, L, oppFrom, OPPONENT_SLOTS);
+	int teamFrom = L.prefix + BLOCK, oppFrom = teamFrom + L.teammateSlots * BLOCK;
+	auto team = Blocks(obs, L, teamFrom, L.teammateSlots);
+	auto opp = Blocks(obs, L, oppFrom, L.opponentSlots);
 	std::shuffle(team.begin(), team.end(), golden::Rng());
 	std::shuffle(opp.begin(), opp.end(), golden::Rng());
 	std::vector<float> out(obs.begin(), obs.begin() + teamFrom);
 	for (auto& b : team) out.insert(out.end(), b.begin(), b.end());
 	for (auto& b : opp) out.insert(out.end(), b.begin(), b.end());
-	out.insert(out.end(), obs.begin() + oppFrom + OPPONENT_SLOTS * BLOCK, obs.end());
+	out.insert(out.end(), obs.begin() + oppFrom + L.opponentSlots * BLOCK, obs.end());
 	return out;
 }
 
@@ -88,6 +89,7 @@ static int Gen(const char* outPath) {
 		return 2;
 	GGLBotOpponent galactus(GGLBotKind::GALACTUS_V2, "../rlbot-run/galactus_v2", torch::kCPU);
 	GGLBotOpponent chronos(GGLBotKind::CHRONOS_V2, "../rlbot-run/chronos_v2", torch::kCPU);
+	GGLBotOpponent dice(GGLBotKind::DICE, "../rlbot-run/dice", torch::kCPU);
 	DefaultAction ours;
 
 	json out;
@@ -136,7 +138,7 @@ static int Gen(const char* outPath) {
 		}
 		snap["preds"] = preds;
 
-		json portG = json::array(), portC = json::array();
+		json portG = json::array(), portC = json::array(), portD = json::array();
 		for (int i = 0; i < n; i++) {
 			std::vector<float> obs(galactus.obsSize);
 			std::vector<uint8_t> mask(galactus.actions.size());
@@ -149,9 +151,19 @@ static int Gen(const char* outPath) {
 			chronos.BuildChronosObs(obsC.data(), gs.players[i], gs);
 			chronos.BuildMask(maskC.data(), gs.players[i]);
 			portC.push_back({ { "obs", obsC }, { "mask", maskC }, { "mirrored", GGLBotOpponent::MirroredForChronos(gs.players[i]) } });
+
+			// Dice plays 1v1 and 2v2 only (its obs builder aborts with 3 players on a team): no rows for a 3v3 state
+			if (n <= 4) {
+				std::vector<float> obsD(dice.obsSize);
+				std::vector<uint8_t> maskD(dice.actions.size());
+				dice.BuildDiceObs(obsD.data(), gs.players[i], gs);
+				dice.BuildMask(maskD.data(), gs.players[i]);
+				portD.push_back({ { "obs", obsD }, { "mask", maskD }, { "mirrored", false } });
+			}
 		}
 		snap["port_galactus"] = portG;
 		snap["port_chronos"] = portC;
+		snap["port_dice"] = portD;
 		out["snapshots"].push_back(std::move(snap));
 	};
 	golden::GenerateStates(Snapshot);
@@ -182,10 +194,11 @@ static float MaxDiff(const std::vector<float>& a, const std::vector<float>& b, i
 	return worst;
 }
 
-static int Judge(const char* statesPath, const char* refGPath, const char* refCPath, const char* modelGPath, const char* modelCPath) {
+static int Judge(const char* statesPath, const char* refGPath, const char* refCPath, const char* refDPath,
+	const char* modelGPath, const char* modelCPath, const char* modelDPath) {
 	json states = json::parse(std::ifstream(statesPath));
-	json refs[2] = { json::parse(std::ifstream(refGPath)), json::parse(std::ifstream(refCPath)) };
-	json refModels[2] = { json::parse(std::ifstream(modelGPath)), json::parse(std::ifstream(modelCPath)) };
+	json refs[3] = { json::parse(std::ifstream(refGPath)), json::parse(std::ifstream(refCPath)), json::parse(std::ifstream(refDPath)) };
+	json refModels[3] = { json::parse(std::ifstream(modelGPath)), json::parse(std::ifstream(modelCPath)), json::parse(std::ifstream(modelDPath)) };
 	const bool cuda = torch::cuda::is_available();
 	if (cuda) {
 		at::globalContext().setAllowTF32CuBLAS(true); // as in training
@@ -193,17 +206,18 @@ static int Judge(const char* statesPath, const char* refGPath, const char* refCP
 	}
 
 	DefaultAction ours;
-	const char* names[2] = { "GalactusV2", "ChronosV2" };
-	const Layout layouts[2] = { LAYOUT_GALACTUS, LAYOUT_CHRONOS };
-	const char* portKeys[2] = { "port_galactus", "port_chronos" };
+	const char* names[3] = { "GalactusV2", "ChronosV2", "Dice" };
+	const Layout layouts[3] = { LAYOUT_GALACTUS, LAYOUT_CHRONOS, LAYOUT_DICE };
+	const char* portKeys[3] = { "port_galactus", "port_chronos", "port_dice" };
+	const GGLBotKind kinds[3] = { GGLBotKind::GALACTUS_V2, GGLBotKind::CHRONOS_V2, GGLBotKind::DICE };
+	const char* folders[3] = { "../rlbot-run/galactus_v2", "../rlbot-run/chronos_v2", "../rlbot-run/dice" };
 	bool allOk = true;
 
-	for (int b = 0; b < 2; b++) {
-		GGLBotOpponent cpu(b == 0 ? GGLBotKind::GALACTUS_V2 : GGLBotKind::CHRONOS_V2,
-			b == 0 ? "../rlbot-run/galactus_v2" : "../rlbot-run/chronos_v2", torch::kCPU);
+	for (int b = 0; b < 3; b++) {
+		GGLBotOpponent cpu(kinds[b], folders[b], torch::kCPU);
 		std::unique_ptr<GGLBotOpponent> gpu;
 		if (cuda)
-			gpu = std::make_unique<GGLBotOpponent>(cpu.kind, b == 0 ? "../rlbot-run/galactus_v2" : "../rlbot-run/chronos_v2", torch::kCUDA);
+			gpu = std::make_unique<GGLBotOpponent>(cpu.kind, folders[b], torch::kCUDA);
 		const Layout& L = layouts[b];
 		const int numActions = (int)cpu.actions.size();
 		Tally t;
@@ -214,6 +228,8 @@ static int Judge(const char* statesPath, const char* refGPath, const char* refCP
 			auto& snap = states["snapshots"][si];
 			auto& ref = refs[b]["snapshots"][si];
 			const int n = snap["n"].get<int>();
+			if (b == 2 && n > 4) // Dice: no 3v3 states (no port rows, no reference rows)
+				continue;
 			for (int i = 0; i < n; i++) {
 				t.rows++;
 				std::string tag = snap["tag"].get<std::string>() + " p" + std::to_string(i) + " (team " + std::to_string(snap["players"][i]["team"].get<int>()) + ")";
@@ -228,16 +244,16 @@ static int Judge(const char* statesPath, const char* refGPath, const char* refCP
 				if (portObs.size() != refObs.size()) { t.obsFail++; t.Note(tag + " obs size " + std::to_string(portObs.size()) + " vs " + std::to_string(refObs.size())); continue; }
 
 				// observation: prefix and suffix exactly, slots as sets
-				int teamFrom = L.prefix + BLOCK, oppFrom = teamFrom + TEAMMATE_SLOTS * BLOCK;
+				int teamFrom = L.prefix + BLOCK, oppFrom = teamFrom + L.teammateSlots * BLOCK;
 				std::vector<float> pa(portObs.begin(), portObs.begin() + teamFrom), ra(refObs.begin(), refObs.begin() + teamFrom);
 				int first = -1;
 				float d = MaxDiff(pa, ra, &first);
-				std::vector<float> ps(portObs.begin() + oppFrom + OPPONENT_SLOTS * BLOCK, portObs.end()), rs(refObs.begin() + oppFrom + OPPONENT_SLOTS * BLOCK, refObs.end());
+				std::vector<float> ps(portObs.begin() + oppFrom + L.opponentSlots * BLOCK, portObs.end()), rs(refObs.begin() + oppFrom + L.opponentSlots * BLOCK, refObs.end());
 				int firstS = -1;
 				float dS = MaxDiff(ps, rs, &firstS);
 				std::string where = first >= 0 ? "obs index " + std::to_string(first) : (firstS >= 0 ? "suffix index " + std::to_string(firstS) : "");
 				for (int g = 0; g < 2 && where.empty(); g++) {
-					int from = g == 0 ? teamFrom : oppFrom, cnt = g == 0 ? TEAMMATE_SLOTS : OPPONENT_SLOTS;
+					int from = g == 0 ? teamFrom : oppFrom, cnt = g == 0 ? L.teammateSlots : L.opponentSlots;
 					auto pb = Blocks(portObs, L, from, cnt), rb = Blocks(refObs, L, from, cnt);
 					for (auto& r : rb) {
 						int best = -1; float bd = 1e9f;
@@ -343,8 +359,8 @@ int main(int argc, char** argv) {
 			golden::Rng().seed(std::stoull(argv[3]));
 		return Gen(argv[2]);
 	}
-	if (mode == "judge" && argc >= 7)
-		return Judge(argv[2], argv[3], argv[4], argv[5], argv[6]);
-	std::cerr << "usage: OpponentGoldenGGL gen <states.json> [seed] | judge <states.json> <ref_galactus.json> <ref_chronos.json> <model_galactus.json> <model_chronos.json>\n";
+	if (mode == "judge" && argc >= 9)
+		return Judge(argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8]);
+	std::cerr << "usage: OpponentGoldenGGL gen <states.json> [seed] | judge <states.json> <ref_galactus.json> <ref_chronos.json> <ref_dice.json> <model_galactus.json> <model_chronos.json> <model_dice.json>\n";
 	return 2;
 }

@@ -32,6 +32,11 @@ int main(int argc, char** argv) {
 	sharedHeadCfg.layerSizes = { 1024, 1024 };
 	policyCfg.layerSizes = { 1024, 1024, 1024, 1024 };
 	sharedHeadCfg.activationType = policyCfg.activationType = GGL::ModelActivationType::LEAKY_RELU;
+#elif defined(REF_DICE)
+	obsSize = 167;
+	sharedHeadCfg.layerSizes = { 900, 900 };
+	policyCfg.layerSizes = { 900, 900, 900 };
+	sharedHeadCfg.activationType = policyCfg.activationType = GGL::ModelActivationType::LEAKY_RELU;
 #else
 	obsSize = 225;
 	sharedHeadCfg.layerSizes = { 960, 960 };

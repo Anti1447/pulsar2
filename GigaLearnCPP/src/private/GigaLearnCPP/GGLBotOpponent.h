@@ -10,6 +10,7 @@ namespace GGL {
 	enum class GGLBotKind {
 		GALACTUS_V2,  // SoldierDoge/GalactusV2, checkpoint 201.35B
 		CHRONOS_V2,   // KingJake3113/Chronos
+		DICE,         // V1XT1/Dice-BotPackV5: stock AdvancedObsPadded(2), 167 floats; 1v1 and 2v2 only
 	};
 
 	// EXTERNAL TRAINING OPPONENTS from the RLBot v5 botpack (2026-11-01, user-directed: stronger
@@ -29,6 +30,10 @@ namespace GGL {
 	//     (`i > numGroundActions`).
 	//   - Actions: their table is ours row for row (checked at construction). Chronos parses an
 	//     x-mirrored car's action with steer/yaw/roll negated, mapped back onto our table.
+	//   - Dice (2026-11-14): the stock AdvancedObsPadded(2), 167 floats: no x-mirror, no ball prediction, shuffled
+	//     teammate/opponent slots, boost-pad values clamped to <= 0.999, and the same GetBoostPadTimers typo as Chronos
+	//     (the opposite frame's timers; its GameState.h has it). Its obs builder aborts with more than 2 players per
+	//     team, so MaxTeamSize() is 2 and the Learner leaves 3v3 arenas out of its serve.
 	// Inference is deterministic (argmax), as both bots play in RLBot.
 	//
 	// Action delay: both were trained with actionDelay 7 (the new action takes effect on the last
@@ -64,6 +69,8 @@ namespace GGL {
 		void BuildGalactusObs(float* out, const RLGC::Player& player, const RLGC::GameState& state,
 			const RLGC::BallPredictor& pred);
 		void BuildChronosObs(float* out, const RLGC::Player& player, const RLGC::GameState& state);
+		void BuildDiceObs(float* out, const RLGC::Player& player, const RLGC::GameState& state);
+		int MaxTeamSize() const override { return kind == GGLBotKind::DICE ? 2 : (1 << 20); }
 		void BuildMask(uint8_t* out, const RLGC::Player& player);
 
 		// Their net's argmax for each row of obs/masks (numRows x obsSize / x actions.size())

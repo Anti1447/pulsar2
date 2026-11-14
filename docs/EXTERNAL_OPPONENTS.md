@@ -141,3 +141,21 @@ For extra noise in the opponents' play, every external bot can pick its action b
 3. **1.3 "deterministic across repeats":** only true for Nexto; Galactus and Chronos can vary because of the slot shuffle (it is part of the original behaviour, not a port bug).
 4. **Missing tooling:** the WSL python has no `torch` or `rlgym_compat`, so the Nexto Python reference needs an environment (`rlbot-run/nexto/requirements.txt`: `rlgym_compat` from JPK314, torch 2.4.1 cpu, numpy 1). Installing it is a download and needs your go-ahead. Galactus and Chronos have no Python reference; their reference is their C++ obs builders, which can be compiled from the pinned commits.
 5. **No ACCIDENT found.** The three open Nexto questions are closed (see the VERIFIED rows). Result of the Nexto golden run (`tools/opponent_golden`, 192 recorded states, 768 observations, 1v1/2v2/3v3, both teams): worst observation difference 4.95e-6 (limit 1e-5), logits within 5e-5, 0 argmax differences on CPU and CUDA, `Act()` returns the net's argmax every time. Galactus and Chronos: see the golden results above (also PASS).
+
+## Dice (added 2026-11-14, user-directed; 1v1 and 2v2 only)
+V1XT1/Dice-BotPackV5 @ a3b9bd6, weights `rlbot/{SHARED_HEAD,POLICY}.lt` in `rlbot-run/dice/` (no license file: not for redistribution). A stock GigaLearn bot, so it loads into our own Model classes like Galactus/Chronos.
+| Item | Original | Port | Verdict |
+|---|---|---|---|
+| Obs | `AdvancedObsPadded(2)`, 167 floats: ball 9 + prevAction 8 + 34 pads + self 29 + 1 teammate slot + 2 opponent slots; slots shuffled | `GGLBotOpponent::BuildDiceObs`; same, shuffle on (`GGL_BOT_SHUFFLE=0` turns it off) | EXACT |
+| Pad values | 1 if active, else 1/(1+t) clamped to [.., 0.999]; t < 0 treated as 0 | same | EXACT |
+| Pad timers | `GetBoostPadTimers(inverted)` returns the OPPOSITE frame's timers (the same typo as Chronos) | same typo kept on purpose | EXACT (quirk kept) |
+| No x-mirror, no ball prediction | yes | yes | EXACT |
+| Net | shared head 900x2, policy 900x3, LayerNorm, LeakyReLU | same | EXACT |
+| Mask, 90 actions | same `DefaultAction` as Galactus (air mask from `i > numGroundActions`) | their table mapped row for row, hard-fail on a miss | EXACT |
+| Pick | `InferAction(..., deterministic = true)`; `actionDelay = tickSkip - 1` | argmax; our actionDelay 7 | EXACT |
+| Team size | its builder aborts with more than 2 per team | `MaxTeamSize() = 2`; the Learner leaves bigger arenas out of its serve | ON PURPOSE |
+
+**Serve gate (Learner.cpp, `arenaServed`):** on an iteration where Dice is picked, only arenas with at most 2 per team are served; in every other arena BOTH teams play as the live policy and the arena is skipped by the Goals For/Against counters and `ExternalPlayMonitor::Step`. If no arena in the fleet qualifies, the iteration is plain self-play and `Serve Iters` is not incremented. The 15% serve share is split uniformly over the four bots (3.75% each; was 5% with three).
+
+**Golden test (`tools/opponent_golden/run_ggl.sh`, Dice added, 384 rows from the 1v1/2v2 states):** obs worst difference 2.4e-7, mask, all 90 action rows, network logits (max difference 0) and picks all identical. Mutation check: Dice's timers taken from the correct frame, and the 0.999 clamp dropped, were each caught (114 obs failures each). `tools/opponent_loop` (Dice added): all checks pass; 3v3 arenas get no rows from the bot.
+**Not tested:** the Learner's own gate (the loop check restates it) has not been run in a live trainer; Dice's strength against our policy is unmeasured.

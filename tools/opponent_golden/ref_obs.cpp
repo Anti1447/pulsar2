@@ -4,12 +4,13 @@
 // ORIGINAL GameState/Player types, and runs the original observation builder, action mask and action parser:
 //   ./ref_galactus states.json out.json     (build with -DREF_GALACTUS)
 //   ./ref_chronos  states.json out.json     (build with -DREF_CHRONOS)
+//   ./ref_dice     states.json out.json     (build with -DREF_DICE; 3v3 states are skipped)
 #include <RLGymCPP/GameStates/GameState.h>
 #include <RLGymCPP/GameStates/StateUtil.h>
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
 #ifdef REF_GALACTUS
 #include <RLGymCPP/ObsBuilders/GalactusOBS.h>
-#else
+#else // Chronos and Dice both use their own AdvancedObsPadded
 #include <RLGymCPP/ObsBuilders/AdvancedObsPadded.h>
 #endif
 
@@ -63,6 +64,10 @@ int main(int argc, char** argv) {
 	RLGC::GalactusOBS obsBuilder(3);
 	RLGC::DefaultAction act;
 	out["bot"] = "galactus";
+#elif defined(REF_DICE)
+	RLGC::AdvancedObsPadded obsBuilder(2);
+	RLGC::DefaultAction act;
+	out["bot"] = "dice";
 #else
 	RLGC::AdvancedObsPadded obsBuilder(3);
 	RLGC::DefaultAction act(true);
@@ -72,6 +77,12 @@ int main(int argc, char** argv) {
 	for (auto& snap : in["snapshots"]) {
 		RLGC::GameState gs;
 		const int n = snap["n"].get<int>();
+#ifdef REF_DICE
+		if (n > 4) { // Dice is built for at most 2 players per team: its builder aborts on a 3v3 state
+			out["snapshots"].push_back(json::array());
+			continue;
+		}
+#endif
 		gs.ball.pos = ToVec(snap["ball"]["pos"]);
 		gs.ball.vel = ToVec(snap["ball"]["vel"]);
 		gs.ball.angVel = ToVec(snap["ball"]["angvel"]);

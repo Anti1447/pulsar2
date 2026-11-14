@@ -121,11 +121,19 @@ namespace {
 		if (oppTeam == Team::BLUE)
 			teamBlueCount++;
 		std::vector<bool> isOld(numPlayers, false);
+		// As Learner.cpp: an arena larger than the bot's MaxTeamSize() (Dice: 2) is not served - nobody in it is an "old" row
+		std::vector<uint8_t> served;
 		{
 			int i = 0;
-			for (auto& gs : env.state.gameStates)
+			for (auto& gs : env.state.gameStates) {
+				int perTeam[2] = { 0, 0 };
 				for (auto& p : gs.players)
-					isOld[i++] = (p.team == oppTeam);
+					perTeam[(int)p.team]++;
+				const bool ok = std::max(perTeam[0], perTeam[1]) <= bot.MaxTeamSize();
+				served.push_back(ok);
+				for (auto& p : gs.players)
+					isOld[i++] = ok && (p.team == oppTeam);
+			}
 		}
 		rec.isOld = isOld;
 		GGL::ExternalPlayMonitor monitor;
@@ -187,7 +195,7 @@ namespace {
 				}
 
 			env.StepSecondHalf(actions, false);
-			monitor.Step(env.state.gameStates, startedFresh, env.state.terminals, oppTeam, TICK_SKIP, play);
+			monitor.Step(env.state.gameStates, startedFresh, env.state.terminals, oppTeam, TICK_SKIP, play, &served);
 		}
 		return rec;
 	}
@@ -253,6 +261,7 @@ int main(int argc, char** argv) {
 		{ "Nexto", [](torch::Device d) { return std::make_shared<GGL::NextoOpponent>("rlbot-run/nexto/nexto-model.pt", d); } },
 		{ "GalactusV2", [](torch::Device d) { return std::make_shared<GGL::GGLBotOpponent>(GGL::GGLBotKind::GALACTUS_V2, "rlbot-run/galactus_v2", d); } },
 		{ "ChronosV2", [](torch::Device d) { return std::make_shared<GGL::GGLBotOpponent>(GGL::GGLBotKind::CHRONOS_V2, "rlbot-run/chronos_v2", d); } },
+		{ "Dice", [](torch::Device d) { return std::make_shared<GGL::GGLBotOpponent>(GGL::GGLBotKind::DICE, "rlbot-run/dice", d); } },
 	};
 
 	// Our DefaultAction index -> the 8 controls (through Nexto's lookup and its checked map)
@@ -370,12 +379,17 @@ int main(int argc, char** argv) {
 					if (last.isOld[g]) { teams.insert((int)p.team); n++; }
 					g++;
 				}
+				if ((int)gs.players.size() / 2 > bot->MaxTeamSize()) { // an arena outside the bot's team-size limit: nobody handed over
+					if (n != 0) oneTeamPerArena = false;
+					continue;
+				}
 				if (teams.size() != 1 || n != (int)gs.players.size() / 2) oneTeamPerArena = false;
 				else perMode[gs.players.size() / 2 - 1]++;
 			}
 			std::cout << "  arenas served per mode: 1v1 " << perMode[0] << ", 2v2 " << perMode[1] << ", 3v3 " << perMode[2] << std::endl;
-			Check(oneTeamPerArena && perMode[0] == ARENAS_PER_MODE && perMode[1] == ARENAS_PER_MODE && perMode[2] == ARENAS_PER_MODE,
-				"every arena of every mode has exactly its one team handed to the bot");
+			const int want3v3 = bot->MaxTeamSize() >= 3 ? ARENAS_PER_MODE : 0;
+			Check(oneTeamPerArena && perMode[0] == ARENAS_PER_MODE && perMode[1] == ARENAS_PER_MODE && perMode[2] == want3v3,
+				"every arena inside the bot's team-size limit has exactly its one team handed to the bot, and no arena outside it is touched");
 		}
 
 		// Determinism: replay the same states through a fresh instance

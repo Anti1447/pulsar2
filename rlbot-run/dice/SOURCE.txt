@@ -1,0 +1,2 @@
+https://github.com/V1XT1/Dice-BotPackV5 rlbot/ at HEAD
+Downloaded 2026-11-14. Inference weights only; no license file in the repo, so not for redistribution.

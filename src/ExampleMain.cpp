@@ -1772,6 +1772,10 @@ int main(int argc, char* argv[]) {
 		// each of those bots, a trend line that does not move with the training. About 15 s every 50 iterations.
 		cfg.gauntlet.enabled = true;
 		cfg.gauntlet.everyIterations = 50;
+			// 2026-11-14 (user-directed): Dice (V1XT1/Dice-BotPackV5), a 1v1/2v2 GigaLearn bot. It serves only the 1v1 and 2v2 arenas;
+			// 3v3 arenas play as self-play on its iterations. The 15% serve share is now split four ways (3.75% each, was 5%).
+			// Revert: delete this line.
+			{ ExternalBotKind::DICE, "../rlbot-run/dice" },
 		cfg.gauntlet.gamesPerBot = 96;
 		cfg.gauntlet.maxGameTime = 60.f;
 		cfg.gauntlet.envCreateFn = [](int) { return MakeEnv(1, false); };

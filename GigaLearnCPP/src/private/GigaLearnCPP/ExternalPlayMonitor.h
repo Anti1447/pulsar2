@@ -104,13 +104,16 @@ namespace GGL {
 		// states: this step's post-step states. startedFresh[a]: arena a's episode began with this step.
 		// terminalNow[a]: this step ended arena a's episode. botTeam: the team the bot plays.
 		void Step(const std::vector<RLGC::GameState>& states, const std::vector<uint8_t>& startedFresh,
-			const std::vector<uint8_t>& terminalNow, RocketSim::Team botTeam, int tickSkip, ExternalPlayStats& st) {
+			const std::vector<uint8_t>& terminalNow, RocketSim::Team botTeam, int tickSkip, ExternalPlayStats& st,
+			const std::vector<uint8_t>* served = nullptr) {
 
 			using S = ExternalPlayStats;
 			if (arenas.size() != states.size())
 				BeginServe((int)states.size());
 
 			for (size_t a = 0; a < states.size(); a++) {
+				if (served && !(*served)[a]) // an arena the bot is not playing in (ExternalOpponent::MaxTeamSize)
+					continue;
 				const RLGC::GameState& gs = states[a];
 				Arena& ar = arenas[a];
 				int mode = (int)gs.players.size() / 2 - 1;

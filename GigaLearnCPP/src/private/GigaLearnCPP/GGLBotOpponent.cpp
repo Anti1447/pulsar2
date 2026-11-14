@@ -18,6 +18,7 @@ namespace {
 	constexpr float POS_COEF = 1 / 5000.f, VEL_COEF = 1 / 2300.f, ANG_VEL_COEF = 1 / 3.f;
 	constexpr int MAX_PLAYERS = 3;          // Both are built with 3 players per team
 	constexpr int PLAYER_OBS_SIZE = 29;
+	constexpr int DICE_MAX_PLAYERS = 2;     // Dice is built with AdvancedObsPadded(2)
 
 	// GalactusOBS: RLBot BallPrediction samples at 0.25, 0.5, 1, 1.5 and 2s
 	constexpr std::array<int, 5> GALACTUS_PRED_TICKS = { 30, 60, 120, 180, 240 };
@@ -68,35 +69,35 @@ namespace {
 
 	// Teammate then opponent slots, each group shuffled over its padded slot count with empty
 	// slots all-zero (the order both bots' builders produce)
-	void AddOthers(float*& out, const Player& self, const GameState& state, bool inv, bool mirrorX, const PhysState& ball) {
+	void AddOthers(float*& out, const Player& self, const GameState& state, bool inv, bool mirrorX, const PhysState& ball, int maxPlayers = MAX_PLAYERS) {
 		std::array<const Player*, MAX_PLAYERS> teammates = {}, opponents = {};
 		int numTeammates = 0, numOpponents = 0;
 		for (auto& other : state.players) {
 			if (other.carId == self.carId)
 				continue;
 			if (other.team == self.team) {
-				if (numTeammates >= MAX_PLAYERS - 1)
-					RG_ERR_CLOSE("GGLBotOpponent: too many teammates for a " << MAX_PLAYERS << "-player obs");
+				if (numTeammates >= maxPlayers - 1)
+					RG_ERR_CLOSE("GGLBotOpponent: too many teammates for a " << maxPlayers << "-player obs");
 				teammates[numTeammates++] = &other;
 			} else {
-				if (numOpponents >= MAX_PLAYERS)
-					RG_ERR_CLOSE("GGLBotOpponent: too many opponents for a " << MAX_PLAYERS << "-player obs");
+				if (numOpponents >= maxPlayers)
+					RG_ERR_CLOSE("GGLBotOpponent: too many opponents for a " << maxPlayers << "-player obs");
 				opponents[numOpponents++] = &other;
 			}
 		}
 
 		if (ShuffleSlots()) {
-			std::shuffle(teammates.begin(), teammates.begin() + (MAX_PLAYERS - 1), ::Math::GetRandEngine());
-			std::shuffle(opponents.begin(), opponents.begin() + MAX_PLAYERS, ::Math::GetRandEngine());
+			std::shuffle(teammates.begin(), teammates.begin() + (maxPlayers - 1), ::Math::GetRandEngine());
+			std::shuffle(opponents.begin(), opponents.begin() + maxPlayers, ::Math::GetRandEngine());
 		}
 
-		for (int i = 0; i < MAX_PLAYERS - 1; i++) {
+		for (int i = 0; i < maxPlayers - 1; i++) {
 			if (teammates[i])
 				AddPlayer(out, *teammates[i], inv, mirrorX, ball);
 			else
 				AddZeros(out, PLAYER_OBS_SIZE);
 		}
-		for (int i = 0; i < MAX_PLAYERS; i++) {
+		for (int i = 0; i < maxPlayers; i++) {
 			if (opponents[i])
 				AddPlayer(out, *opponents[i], inv, mirrorX, ball);
 			else
@@ -134,6 +135,12 @@ GGL::GGLBotOpponent::GGLBotOpponent(GGLBotKind kind, const std::filesystem::path
 		obsSize = 258;
 		sharedHeadCfg.layerSizes = { 1024, 1024 };
 		policyCfg.layerSizes = { 1024, 1024, 1024, 1024 };
+		sharedHeadCfg.activationType = policyCfg.activationType = ModelActivationType::LEAKY_RELU;
+	} else if (kind == GGLBotKind::DICE) {
+		name = "Dice";
+		obsSize = 167; // ball 9 + prevAction 8 + 34 pads + self 29 + 1 teammate + 2 opponents (29 each)
+		sharedHeadCfg.layerSizes = { 900, 900 };
+		policyCfg.layerSizes = { 900, 900, 900 };
 		sharedHeadCfg.activationType = policyCfg.activationType = ModelActivationType::LEAKY_RELU;
 	} else {
 		name = "ChronosV2";
@@ -327,6 +334,43 @@ void GGL::GGLBotOpponent::BuildChronosObs(float* out, const Player& player, cons
 	RG_ASSERT(out - start == obsSize);
 }
 
+// Dice's AdvancedObsPadded::BuildObs (maxPlayers 2): the stock builder plus a clamp that keeps an inactive pad below 1.0
+void GGL::GGLBotOpponent::BuildDiceObs(float* out, const Player& player, const GameState& state) {
+	float* start = out;
+	bool inv = player.team == Team::ORANGE;
+
+	auto ball = InvertPhys(state.ball, inv);
+	auto& pads = state.GetBoostPads(inv);
+	// Dice's GameState::GetBoostPadTimers has the same typo as Chronos's: the opposite frame's timers
+	auto& padTimers = inv ? state.boostPadTimers : state.boostPadTimersInv;
+
+	AddVec(out, ball.pos * POS_COEF);
+	AddVec(out, ball.vel * VEL_COEF);
+	AddVec(out, ball.angVel * ANG_VEL_COEF);
+
+	for (int i = 0; i < Action::ELEM_AMOUNT; i++)
+		*out++ = player.prevAction[i];
+
+	for (int i = 0; i < CommonValues::BOOST_LOCATIONS_AMOUNT; i++) {
+		if (pads[i]) {
+			*out++ = 1.f;
+		} else {
+			float t = padTimers[i];
+			if (t < 0.f)
+				t = 0.f;
+			float v = 1.f / (1.f + t);
+			if (v > 0.999f)
+				v = 0.999f;
+			*out++ = v;
+		}
+	}
+
+	AddPlayer(out, player, inv, false, ball);
+	AddOthers(out, player, state, inv, false, ball, DICE_MAX_PLAYERS);
+
+	RG_ASSERT(out - start == obsSize);
+}
+
 void GGL::GGLBotOpponent::Act(const std::vector<GameState>& states,
 	const std::vector<bool>& isOld,
 	const std::vector<uint8_t>& prevArenaTerminals,
@@ -384,6 +428,8 @@ void GGL::GGLBotOpponent::Act(const std::vector<GameState>& states,
 			float* obs = obsBuf.data() + (size_t)row * obsSize;
 			if (kind == GGLBotKind::GALACTUS_V2) {
 				BuildGalactusObs(obs, player, gs, *pred);
+			} else if (kind == GGLBotKind::DICE) {
+				BuildDiceObs(obs, player, gs);
 			} else {
 				BuildChronosObs(obs, player, gs);
 				rowMirrored[row] = ShouldMirrorX(player);
