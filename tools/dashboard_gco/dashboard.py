@@ -5,7 +5,7 @@ Run it with tools/dashboard_gco/run_dashboard.sh (or RUN_DASHBOARD.bat on Window
 It can run next to the main dashboard (port 8766).
 
 Differences from the main dashboard: only logs whose first launch was `--gco` are read, checkpoints and packaging use
-build/checkpoints_gco, Start launches `--gco --no-exploiter-pool`, and the Phase B card is replaced by the gated
+build/checkpoints_gco_6.1, Start launches `--gco`, and the Phase B card is replaced by the gated
 policy-LR schedule, rebuilt from the trainer's "Policy-LR check:" log lines plus the newest checkpoint's
 RUNNING_STATS (lr_step_level, lr_last_check_ts, lr_window_ev).
 
@@ -39,9 +39,9 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 BUILD = REPO / "build"
 LOGS = REPO / "run_logs"
-CKPT_NAME = "checkpoints_gco"
+CKPT_NAME = "checkpoints_gco_6.1"
 RUN_SH = REPO / "tools" / "run_trainer.sh"
-TRAIN_CMD = ["./GigaLearnBot", "--gco", "--no-exploiter-pool"]  # GCO alone, no imported exploiters
+TRAIN_CMD = ["./GigaLearnBot", "--gco"]  # GCO on the 6.1 lineage (docs/GCO.md), main's opponents
 WANDB_PROJECT = "gigalearncpp"
 
 args = None
@@ -387,13 +387,18 @@ def checkpoints():
         for p in d.iterdir():
             if not p.is_dir():
                 continue
-            # golden archives, one per mode: best_r (1v1), best2v2_r, best3v3_r (Learner::Save)
+            # golden archives, one per mode: best_r (1v1), best2v2_r, best3v3_r (Learner::Save), and bestgauntlet_w<tenths of %>
+            # (Learner::RunGauntlet: the policies with the highest mean gauntlet win %)
             m = re.fullmatch(r"best(2v2|3v3)?_r(-?\d+)_(\d+)", p.name)
+            g = re.fullmatch(r"bestgauntlet_w(\d+)_(\d+)", p.name)
             if p.name.isdigit():
                 out["numbered"].append({"step": int(p.name), "mtime": p.stat().st_mtime})
             elif m:
                 out["best"].append({"name": p.name, "mode": m.group(1) or "1v1", "rating": int(m.group(2)),
                                     "step": int(m.group(3)), "mtime": p.stat().st_mtime})
+            elif g:
+                out["best"].append({"name": p.name, "mode": "gauntlet", "rating": int(g.group(1)) / 10.0,
+                                    "step": int(g.group(2)), "mtime": p.stat().st_mtime})
     except OSError:
         pass
     out["numbered"].sort(key=lambda c: -c["step"])
@@ -557,11 +562,12 @@ def do_build():
 
 
 def do_package(best, install):
-    """best: False/None = newest checkpoint, True or "1v1"/"2v2"/"3v3" = that mode's strongest-rated archive."""
+    """best: False/None = newest checkpoint, True or "1v1"/"2v2"/"3v3" = that mode's strongest-rated archive,
+    "gauntlet" = the archived policy with the highest mean gauntlet win %."""
     cmd = [str(REPO / "tools" / "package_bot.sh")]
     if best is True or best == "1v1":
         cmd.append("--best")
-    elif best in ("2v2", "3v3"):
+    elif best in ("2v2", "3v3", "gauntlet"):
         cmd.append("--best-" + best)
     elif best:
         raise ActionError(f"unknown best mode {best!r}")

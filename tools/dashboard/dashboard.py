@@ -389,16 +389,29 @@ def checkpoints():
         for p in d.iterdir():
             if not p.is_dir():
                 continue
-            m = re.fullmatch(r"best_r(-?\d+)_(\d+)", p.name)
+            # golden archives, one per mode: best_r (1v1), best2v2_r, best3v3_r (Learner::Save), and bestgauntlet_w<tenths of %>
+            # (Learner::RunGauntlet: the policies with the highest mean gauntlet win %)
+            m = re.fullmatch(r"best(2v2|3v3)?_r(-?\d+)_(\d+)", p.name)
+            g = re.fullmatch(r"bestgauntlet_w(\d+)_(\d+)", p.name)
             if p.name.isdigit():
                 out["numbered"].append({"step": int(p.name), "mtime": p.stat().st_mtime})
             elif m:
-                out["best"].append({"name": p.name, "rating": int(m.group(1)), "step": int(m.group(2)), "mtime": p.stat().st_mtime})
+                out["best"].append({"name": p.name, "mode": m.group(1) or "1v1", "rating": int(m.group(2)),
+                                    "step": int(m.group(3)), "mtime": p.stat().st_mtime})
+            elif g:
+                out["best"].append({"name": p.name, "mode": "gauntlet", "rating": int(g.group(1)) / 10.0,
+                                    "step": int(g.group(2)), "mtime": p.stat().st_mtime})
     except OSError:
         pass
     out["numbered"].sort(key=lambda c: -c["step"])
-    out["best"].sort(key=lambda c: (-c["rating"], -c["step"]))
-    out["numbered"], out["best"] = out["numbered"][:6], out["best"][:6]
+    out["best"].sort(key=lambda c: (c["mode"], -c["rating"], -c["step"]))
+    # One checkpoint can be a best in several modes (the archives are copies of the same save)
+    modes_by_step = {}
+    for b in out["best"]:
+        modes_by_step.setdefault(b["step"], []).append(b["mode"])
+    for b in out["best"]:
+        b["alsoBest"] = [m for m in modes_by_step[b["step"]] if m != b["mode"]]
+    out["numbered"] = out["numbered"][:6]
     return out
 
 
@@ -674,9 +687,15 @@ def do_build():
 
 
 def do_package(best, install):
+    """best: False/None = newest checkpoint, True or "1v1"/"2v2"/"3v3" = that mode's strongest-rated archive,
+    "gauntlet" = the archived policy with the highest mean gauntlet win %."""
     cmd = [str(REPO / "tools" / "package_bot.sh")]
-    if best:
+    if best is True or best == "1v1":
         cmd.append("--best")
+    elif best in ("2v2", "3v3", "gauntlet"):
+        cmd.append("--best-" + best)
+    elif best:
+        raise ActionError(f"unknown best mode {best!r}")
     if not install:
         cmd.append("--no-install")
     code, out = run_cmd(cmd, timeout=600, cwd=REPO, env={"CKPT_DIR": str(BUILD / CKPT_NAME)})

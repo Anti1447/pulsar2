@@ -683,6 +683,48 @@ void GGL::Learner::RunGauntlet(Report& report) {
 		std::filesystem::create_directories(config.checkpointFolder);
 		std::ofstream(config.checkpointFolder / "GAUNTLET_LOG.jsonl", std::ios::app) << line.dump() << "\n";
 	}
+
+	// Best-gauntlet archive (2026-11-14, user-directed): gauntlets run every 50 iterations, saves every ~125, so a gauntlet result
+	// rarely has a numbered checkpoint to package. Keep the top bestCheckpointsToKeep policies BY MEAN WIN % here instead, as full
+	// checkpoints of exactly the weights that were just measured: "bestgauntlet_w<tenths of a percent>_<ts>" (w412 = 41.2%).
+	// tools/package_bot.sh --best-gauntlet packages the strongest. Same noise caveat as any 96-game-per-bot read: a lucky run can top it.
+	if (config.bestCheckpointsToKeep > 0 && !config.checkpointFolder.empty()) {
+		try {
+			const std::string prefix = "bestgauntlet_w";
+			const int score = (int)std::lround(10.f * winSum / nb);
+			std::vector<std::pair<int, std::filesystem::path>> bests;
+			for (auto& e : std::filesystem::directory_iterator(config.checkpointFolder)) {
+				std::string name = e.path().filename().string();
+				if (name.rfind(prefix, 0) != 0)
+					continue;
+				if (name.size() > 4 && name.compare(name.size() - 4, 4, ".tmp") == 0) {
+					std::filesystem::remove_all(e.path()); // a crash mid-archive
+					continue;
+				}
+				bests.push_back({ std::stoi(name.substr(prefix.size(), name.find('_', prefix.size()) - prefix.size())), e.path() });
+			}
+			std::sort(bests.begin(), bests.end());
+			if ((int)bests.size() < config.bestCheckpointsToKeep || score > bests.front().first) {
+				std::string name = prefix + std::to_string(score) + "_" + std::to_string(totalTimesteps);
+				std::filesystem::path finalFolder = config.checkpointFolder / name, tmpFolder = config.checkpointFolder / (name + ".tmp");
+				std::filesystem::remove_all(tmpFolder);
+				std::filesystem::create_directories(tmpFolder);
+				SaveStats(tmpFolder / "RUNNING_STATS.json");
+				ppo->SaveTo(tmpFolder);
+				std::filesystem::remove_all(finalFolder);
+				std::filesystem::rename(tmpFolder, finalFolder);
+				bests.push_back({ score, finalFolder });
+				std::sort(bests.begin(), bests.end());
+				RG_LOG(" > Archived best-gauntlet checkpoint (" << score / 10.f << "% mean win)");
+			}
+			while ((int)bests.size() > config.bestCheckpointsToKeep) {
+				std::filesystem::remove_all(bests.front().second);
+				bests.erase(bests.begin());
+			}
+		} catch (std::exception& e) {
+			RG_LOG("WARNING: best-gauntlet archive maintenance failed: " << e.what());
+		}
+	}
 }
 
 // Deterministic games of the current policy (ppo->models) against this exploiter role's target. Main role: the

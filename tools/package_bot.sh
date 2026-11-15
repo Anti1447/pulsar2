@@ -14,6 +14,7 @@
 #   tools/package_bot.sh --best               # strongest 1v1-rated checkpoint (best_r<rating>_<steps>) instead of the newest
 #   tools/package_bot.sh --best-2v2           # strongest 2v2-rated checkpoint (best2v2_r<rating>_<steps>)
 #   tools/package_bot.sh --best-3v3           # strongest 3v3-rated checkpoint (best3v3_r<rating>_<steps>)
+#   tools/package_bot.sh --best-gauntlet      # highest mean gauntlet win % (bestgauntlet_w<tenths of %>_<steps>, archived by the trainer)
 #   tools/package_best_bot.sh                 # same as --best
 # The trainer keeps the top 2 of each (bestCheckpointsToKeep in LearnerConfig.h).
 #   tools/package_bot.sh --list               # list releases
@@ -50,6 +51,7 @@ while [ $# -gt 0 ]; do
 		--best) BEST=1 ;;
 		--best-2v2) BEST=1; BEST_MODE=2v2; BEST_PREFIX=best2v2_r ;;
 		--best-3v3) BEST=1; BEST_MODE=3v3; BEST_PREFIX=best3v3_r ;;
+		--best-gauntlet) BEST=1; BEST_MODE=gauntlet; BEST_PREFIX=bestgauntlet_w ;;
 		--no-install) INSTALL=0 ;;
 		--dry-run) DRY=1 ;;
 		--force) FORCE=1 ;;
@@ -101,10 +103,13 @@ else
 fi
 CK_NAME="$(basename "$CKPT")"
 # 6.0's nets read the ball-prediction obs (278 wide): the launcher sets GGL_BALLPRED=1 so the client builds it (src/RLBotMain.cpp).
-BALLPRED=0; case "$(basename "$(dirname "$CKPT")")" in checkpoints_6.0|checkpoints_6.1) BALLPRED=1;; esac
+BALLPRED=0; case "$(basename "$(dirname "$CKPT")")" in checkpoints_6.0|checkpoints_6.1|checkpoints_gco_6.1) BALLPRED=1;; esac
 RATING_MODE=1v1
 if [[ "$CK_NAME" =~ ^best(2v2|3v3)?_r(-?[0-9]+)_([0-9]+)$ ]]; then
 	RATING_MODE="${BASH_REMATCH[1]:-1v1}"; RATING="${BASH_REMATCH[2]}"; STEP="${BASH_REMATCH[3]}"
+elif [[ "$CK_NAME" =~ ^bestgauntlet_w([0-9]+)_([0-9]+)$ ]]; then
+	# the number is tenths of a percent: w412 -> mean gauntlet win 41.2%
+	RATING_MODE="gauntlet"; RATING="$(( BASH_REMATCH[1] / 10 )).$(( BASH_REMATCH[1] % 10 ))%"; STEP="${BASH_REMATCH[2]}"
 fi
 for f in SHARED_HEAD.lt POLICY.lt RUNNING_STATS.json; do
 	[ -f "$CKPT/$f" ] || die "checkpoint $CKPT is missing $f"

@@ -260,13 +260,13 @@ function renderSidebar() {
     ["Exploiter slots", t.exploiters ? t.exploiters + " running (they share the GPU)" : null],
     ["Seeded from", S.gco && S.gco.source ? S.gco.source.replace(/^.*\/build\//, "") : null]]));
   var a = document.createElement("div"); a.className = "actions";
-  a.appendChild(btn("Start", "primary", t.running || building, function () { act("/api/start"); }, building ? "Wait for the build" : "Runs ./GigaLearnBot --gco --no-exploiter-pool, resuming checkpoints_gco"));
+  a.appendChild(btn("Start", "primary", t.running || building, function () { act("/api/start"); }, building ? "Wait for the build" : "Runs ./GigaLearnBot --gco, resuming checkpoints_gco_6.1"));
   a.appendChild(btn("Stop & save", "", !t.running || t.stopping, function () { act("/api/stop"); }, "Finishes the current iteration, saves a checkpoint, exits (same as pressing Q)"));
   a.appendChild(btn("Kill", "danger", !t.running, function () { act("/api/kill", {}, "Kill training now? Nothing is saved: everything since the last checkpoint is lost. Use Stop & save to keep it."); }, "Ends it immediately without saving"));
   c.appendChild(a);
   var n = document.createElement("div"); n.className = "note"; n.textContent = "Start launches GCO alone. For the league (GCO plus both exploiter slots) use tools/run_league.sh start --gco."; c.appendChild(n);
 
-  var k = $("ckptCard"); k.innerHTML = "<h3>Checkpoints &amp; bot</h3><div class='small muted'>build/checkpoints_gco</div>";
+  var k = $("ckptCard"); k.innerHTML = "<h3>Checkpoints &amp; bot</h3><div class='small muted'>build/checkpoints_gco_6.1</div>";
   var cp = S.checkpoints, ul = document.createElement("ul"); ul.className = "list";
   cp.numbered.slice(0, 3).forEach(function (x, i) { var li = document.createElement("li"); li.innerHTML = "<span>" + (i === 0 ? "latest " : "") + fmtSteps(x.step) + "</span><span class='muted'>" + fmtAgo(x.mtime) + "</span>"; ul.appendChild(li); });
   if (!cp.numbered.length) ul.innerHTML = "<li class='muted'>No checkpoints yet.</li>";
@@ -276,18 +276,19 @@ function renderSidebar() {
   var releasedAt = {}; S.releases.forEach(function (r) { if (!releasedAt[r.step]) releasedAt[r.step] = "v" + r.version; });
   var pa = document.createElement("div"); pa.className = "actions";
   pa.appendChild(btn("Package latest", "", false, function () { act("/api/package", { best: false }, "Package the newest checkpoint as a new bot version and install it into RLBot v5?\n(Refuses if this exact bot already exists.)"); }));
-  ["1v1", "2v2", "3v3"].forEach(function (mode) {
+  ["1v1", "2v2", "3v3", "gauntlet"].forEach(function (mode) {
     var list = cp.best.filter(function (x) { return x.mode === mode; });
-    var h = document.createElement("div"); h.className = "small muted"; h.textContent = "Strongest " + mode; k.appendChild(h);
+    var h = document.createElement("div"); h.className = "small muted"; h.textContent = mode === "gauntlet" ? "Best gauntlet win % (mean over the bots)" : "Strongest " + mode;
+    var isG = mode === "gauntlet", fmtR = function (x) { return isG ? "win " + x.rating.toFixed(1) + "%" : "rating " + x.rating; }; k.appendChild(h);
     var u2 = document.createElement("ul"); u2.className = "list";
     list.forEach(function (x, i) { var li = document.createElement("li");
       var tags = (x.alsoBest.length ? " · also best " + x.alsoBest.join("/") : "") + (releasedAt[String(x.step)] ? " · released " + releasedAt[String(x.step)] : "");
-      li.innerHTML = "<span>" + (i === 0 ? "★ " : "") + "rating " + x.rating + " · " + fmtSteps(x.step) + esc(tags) + "</span><span class='muted'>" + fmtAgo(x.mtime) + "</span>"; u2.appendChild(li); });
-    if (!list.length) u2.innerHTML = "<li class='muted'>None archived yet.</li>";
+      li.innerHTML = "<span>" + (i === 0 ? "★ " : "") + fmtR(x) + " · " + fmtSteps(x.step) + esc(tags) + "</span><span class='muted'>" + fmtAgo(x.mtime) + "</span>"; u2.appendChild(li); });
+    if (!list.length) u2.innerHTML = "<li class='muted'>None archived yet (the trainer archives one at each gauntlet, ~every 50 iterations).</li>";
     k.appendChild(u2);
-    pa.appendChild(btn("Package best " + mode, "", !list.length, function () {
+    pa.appendChild(btn(isG ? "Package best gauntlet" : "Package best " + mode, "", !list.length, function () {
       var top = list[0], dup = top && releasedAt[String(top.step)];
-      act("/api/package", { best: mode }, "Package the strongest " + mode + "-rated checkpoint (rating " + top.rating + ", " + fmtSteps(top.step) + ") as a new bot version and install it into RLBot v5?" +
+      act("/api/package", { best: mode }, "Package the " + (isG ? "best-gauntlet" : "strongest " + mode + "-rated") + " checkpoint (" + fmtR(top) + ", " + fmtSteps(top.step) + ") as a new bot version and install it into RLBot v5?" +
         (dup ? "\nThat checkpoint is already released as " + dup + ", so this will be refused unless the bot code changed." : "\n(Refuses if this exact bot already exists.)")); }));
   });
   k.appendChild(pa);
