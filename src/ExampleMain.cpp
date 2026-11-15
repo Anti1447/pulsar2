@@ -1800,7 +1800,8 @@ int main(int argc, char* argv[]) {
 			else
 				RG_LOG("WARNING: external opponent " << file << " not found, playing without it");
 		}
-		cfg.externalOpponent.serveFrac = 0.15f;
+		// 2026-11-15 (user-directed): 0.15 -> 0.20, split four ways (5% each, was 3.75%). Revert: set back to 0.15f.
+		cfg.externalOpponent.serveFrac = 0.20f;
 		// GGL_SMOKE: serve on most iterations so a short smoke exercises the
 		// adapter (obs port + action map + goal telemetry) deterministically.
 		// Lives HERE, after the production assignment - the smoke block up top

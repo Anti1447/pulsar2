@@ -29,7 +29,7 @@ the other team is played by Nexto. The point (per the comments in `NextoOpponent
 Step by step (`Learner.cpp` around lines 1440-1470, 1900-1920; `NextoOpponent.h/.cpp`):
 
 1. At the start of every training iteration the trainer rolls a random number. With probability
-   `serveFrac = 0.15` (set in `src/ExampleMain.cpp`) this is a **serve iteration**. Otherwise it's normal self-play.
+   `serveFrac = 0.20` (set in `src/ExampleMain.cpp`) this is a **serve iteration**. Otherwise it's normal self-play.
 2. On a serve iteration, **one team is picked at random (blue or orange) and Nexto plays it in every arena at once**
    (all 1,024 games at the moment, or however many `numGames` is). Your bot plays the other team.
 3. Nexto is fed through an adapter: it builds Nexto's own observation from the game state, runs its model, and maps
@@ -122,7 +122,7 @@ comments call this "pool inflation"). Nexto doesn't change, so its goal share ca
 
 Settings live in `src/ExampleMain.cpp` (search for `externalOpponent`), then rebuild with the trainer stopped:
 
-- `serveFrac` (0.15): the chance an iteration is a serve iteration. Higher means more Nexto and a more precise
+- `serveFrac` (0.20): the chance an iteration is a serve iteration. Higher means more Nexto and a more precise
   yardstick, but proportionally less self-play. Changing it does not break checkpoints.
 - `modelPath` and `enabled`: the model is loaded at startup. This clone enables Nexto only if the model file exists
   (a local edit), so a missing file means plain self-play instead of a crash.
