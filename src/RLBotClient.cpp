@@ -4,6 +4,7 @@
 
 #include <RLGymCPP/CommonValues.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
@@ -59,10 +60,26 @@ static Player ToPlayer(const rlbot::flat::PlayerInfo* p) {
 	// v5: demolished_timeout is seconds until respawn; > 0 means currently demolished.
 	pd.isDemoed = (p->demolished_timeout() > 0.f);
 
+	// Flip state. The packet reports a dodge as has_dodged (NOT has_double_jumped), and the obs/action mask's
+	// HasFlipOrJump() reads hasFlipped + airTimeSinceJump. Leaving them zero told the policy it still had a flip after
+	// every dodge (found with tools/live_parity: 40 wrong obs flags per kickoff, extra jump presses, pitch flipping to +1).
+	pd.hasFlipped = p->has_dodged();
+	if (p->dodge_timeout() >= 0.f) {
+		// Dodge window still open: dodge_timeout is the time left in it
+		pd.airTimeSinceJump = std::max(0.f, RLConst::DOUBLEJUMP_MAX_DELAY - p->dodge_timeout());
+	} else if (!pd.isOnGround && pd.hasJumped && p->air_state() != rlbot::flat::AirState::Jumping) {
+		// -1 while airborne after a jump = the window has run out. NOT while the jump button is still held (air_state
+		// Jumping reports -1 too; ChronosV2's client documents the same), and -1 after merely falling off a surface leaves
+		// the dodge available indefinitely, so those cases keep airTimeSinceJump 0, as the engine does.
+		pd.airTimeSinceJump = RLConst::DOUBLEJUMP_MAX_DELAY;
+	}
+	pd.isJumping = (p->air_state() == rlbot::flat::AirState::Jumping);
+	pd.isFlipping = (p->air_state() == rlbot::flat::AirState::Dodging);
+
 	return pd;
 }
 
-static GameState ToGameState(const rlbot::flat::GamePacket* packet) {
+static GameState ToGameState(const rlbot::flat::GamePacket* packet, const BoostPadMapping& padMapping) {
 	GameState gs = {};
 
 	// Every flatbuffer vector accessor returns null when the field is absent, which
@@ -82,26 +99,27 @@ static GameState ToGameState(const rlbot::flat::GamePacket* packet) {
 	if (balls && balls->size() > 0)
 		static_cast<PhysState&>(gs.ball) = ToPhysObj(balls->Get(0)->physics());
 
-	auto boostPads = packet->boost_pads();
-	if (!boostPads || boostPads->size() != CommonValues::BOOST_LOCATIONS_AMOUNT) {
-		if (rand() % 20 == 0) { // Don't spam-log as that will lag the bot
-			RG_LOG(
-				"RLBotClient ToGameState(): Bad boost pad amount, expected "
-				<< CommonValues::BOOST_LOCATIONS_AMOUNT << " but got " << (boostPads ? boostPads->size() : 0)
-			);
-		}
-		// GameState's constructor already defaults every pad to available, so leave as-is.
-	} else {
-		for (int i = 0; i < CommonValues::BOOST_LOCATIONS_AMOUNT; i++) {
-			gs.boostPads[i] = boostPads->Get(i)->is_active();
-			gs.boostPadsInv[CommonValues::BOOST_LOCATIONS_AMOUNT - i - 1] = gs.boostPads[i];
-
-			gs.boostPadTimers[i] = boostPads->Get(i)->timer();
-			gs.boostPadTimersInv[CommonValues::BOOST_LOCATIONS_AMOUNT - i - 1] = gs.boostPadTimers[i];
-		}
+	// RLBot's pad order is not assumed to be RocketSim's: BoostPadMapping reorders by pad position (built in initialize()).
+	if (!padMapping.Apply(packet, gs)) {
+		// Early/partial packets during map load can lack pads; GameState's ctor defaults every pad to available.
+		if (rand() % 20 == 0) // Don't spam-log as that will lag the bot
+			RG_LOG("RLBotClient ToGameState(): boost-pad packet unusable (missing, wrong count or bad timer); using defaults");
 	}
 
 	return gs;
+}
+
+void RLBotBot::initialize(
+	rlbot::flat::ControllableTeamInfo const* controllableTeamInfo,
+	rlbot::flat::FieldInfo const* fieldInfo,
+	rlbot::flat::MatchConfiguration const* matchConfiguration) noexcept {
+	rlbot::Bot::initialize(controllableTeamInfo, fieldInfo, matchConfiguration);
+	if (!boostPadMapping.Build(fieldInfo)) {
+		// Wrong pads would silently feed the policy another pad's state; stop instead (what GalactusV2's client does).
+		RG_LOG("RLBotClient: cannot map boost pads: " << boostPadMapping.Error() << ". Exiting rather than play on bad observations.");
+		std::exit(EXIT_FAILURE);
+	}
+	RG_LOG("RLBotClient: boost-pad mapping built (" << BoostPadMapping::COUNT << " pads matched by position)");
 }
 
 // ---- per-tick control -------------------------------------------------------
@@ -111,7 +129,7 @@ void RLBotBot::update(
 	rlbot::flat::BallPrediction const* ballPrediction) noexcept {
 	(void)ballPrediction; // unused: the ball is predicted locally (RLBotParams::obsBuilder)
 
-	if (!params.inferUnit)
+	if (!params.inferUnit || !boostPadMapping.Ready())
 		return;
 
 	auto matchInfo = packet->match_info();
@@ -123,7 +141,7 @@ void RLBotBot::update(
 	if (ticksElapsed > 0)
 		tickCount += (uint64_t)ticksElapsed;
 
-	GameState gs = ToGameState(packet);
+	GameState gs = ToGameState(packet, boostPadMapping);
 
 	for (unsigned index : this->indices) {
 		// Default-constructs the ctx (updateAction = true, ticks = -1) on first sight.

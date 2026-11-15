@@ -7,6 +7,8 @@
 
 #include <rlbot/Bot.h>
 
+#include "BoostPadMapping.h"
+
 #include <RLGymCPP/ObsBuilders/ObsBuilder.h>
 #include <RLGymCPP/ActionParsers/ActionParser.h>
 #include <GigaLearnCPP/Util/InferUnit.h>
@@ -41,6 +43,12 @@ public:
 	RLBotBot(std::unordered_set<unsigned> indices, unsigned team, std::string name) noexcept;
 	~RLBotBot() noexcept override;
 
+	// Called once with the field layout: builds the boost-pad index mapping (exits if the field is not the trained one).
+	void initialize(
+		rlbot::flat::ControllableTeamInfo const* controllableTeamInfo,
+		rlbot::flat::FieldInfo const* fieldInfo,
+		rlbot::flat::MatchConfiguration const* matchConfiguration) noexcept override;
+
 	// Called by the BotManager on every received GamePacket.
 	void update(
 		rlbot::flat::GamePacket const* packet,
@@ -48,6 +56,7 @@ public:
 
 private:
 	RLBotParams params;
+	BoostPadMapping boostPadMapping;
 
 	// Per-controlled-car state (keyed by index into packet->players()). With
 	// hivemind = false this holds a single entry, but keying by index keeps it correct

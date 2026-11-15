@@ -42,6 +42,12 @@ add_executable(GigaLearnRLBot src/RLBotClient.cpp src/RLBotMain.cpp)
 set_target_properties(GigaLearnRLBot PROPERTIES CXX_STANDARD 20)
 target_link_libraries(GigaLearnRLBot GigaLearnCPP RLBotCPP)
 
+# Offline TRAIN-path vs RLBot-client-path parity check (tools/live_parity). EXCLUDE_FROM_ALL: the trainer's
+# `cmake --build build` never builds it; run `cmake --build build --target LivePathParity`.
+add_executable(LivePathParity EXCLUDE_FROM_ALL tools/live_parity/live_parity.cpp)
+set_target_properties(LivePathParity PROPERTIES CXX_STANDARD 20)
+target_link_libraries(LivePathParity GigaLearnCPP)
+
 # Let the VIEWER host an RLBot bot as the opponent inside its own arena (see
 # src/VizRLBotServer.h). OFF by default for the same reason GGL_BUILD_TESTS is: the
 # training box's `cmake --build build` must stay byte-identical, and the trainer has no
