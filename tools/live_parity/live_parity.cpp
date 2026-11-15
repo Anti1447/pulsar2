@@ -164,7 +164,7 @@ static GameResult PlayKickoff(InferUnit& iu, AdvancedObsPadded* obsBuilder, int 
 					c.action = iu.InferAction(seen.players[i], seen, true);
 					record(i, seen, truth, c.action);
 				}
-				if (c.ticks >= (ACTION_DELAY - 1) || c.ticks == -1) c.controls = c.action;
+				if (c.ticks >= ACTION_DELAY || c.ticks == -1) c.controls = c.action;
 				if (c.ticks >= TICK_SKIP || c.ticks == -1) { c.ticks = 0; c.updateAction = true; }
 				arena->_cars[i]->controls = (CarControls)c.controls;
 			}

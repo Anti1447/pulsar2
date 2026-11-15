@@ -175,7 +175,7 @@ void RLBotBot::update(
 			ctx.action = params.inferUnit->InferAction(localPlayer, gs, true);
 		}
 
-		if (ctx.ticks >= (params.actionDelay - 1) || ctx.ticks == -1) {
+		if (ctx.ticks >= params.actionDelay || ctx.ticks == -1) {
 			// Apply new action
 			ctx.controls = ctx.action;
 		}
