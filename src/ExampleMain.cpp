@@ -629,7 +629,7 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		delete terminalConditions[0];
 		terminalConditions[0] = new NoTouchCondition(20, /*truncate=*/false);
 		result.rewards = {
-			{ new GoalReward(), 1.f },
+			{ new GoalReward(g_ExploiterExternal ? -0.85f : -1.f), 1.f }, // external exploiter: concede -0.85 (see ConfigureExploiter)
 			{ new NoTouchTimeoutPenalty(20), GCO_TIMEOUT_PENALTY },
 		};
 	} else {
@@ -826,8 +826,11 @@ static void ConfigureExploiter(LearnerConfig& cfg, const std::filesystem::path& 
 	// rewards give a much weaker policy signal than main's shaped stack, so main's coefficient lets the entropy bonus
 	// win and sampled play spreads out (RLGymBot_v3 measured the ratio and tuned it to 0.4x).
 	float mainEntropy = cfg.ppo.entropyScale;
-	cfg.ppo.entropyScale = mainEntropy * 0.4f;
-	RG_LOG("Exploiter entropyScale " << cfg.ppo.entropyScale << " (0.4x main's " << mainEntropy << ")");
+	// 2026-11-16 (user-directed): the external-bot exploiter's fresh restart runs 20% more entropy (0.48x main's), since the first one
+	// settled into stalemates. Other exploiter roles stay 0.4x.
+	const float entropyMul = (role == "external") ? 0.4f * 1.2f : 0.4f;
+	cfg.ppo.entropyScale = mainEntropy * entropyMul;
+	RG_LOG("Exploiter entropyScale " << cfg.ppo.entropyScale << " (" << entropyMul << "x main's " << mainEntropy << ")");
 
 	// Opponents come from the exploiter's own frozen set only: no self-play pool, no Nexto, no Elo ladder, no
 	// best-rated archive (all of those describe MAIN)
@@ -854,6 +857,10 @@ static void ConfigureExploiter(LearnerConfig& cfg, const std::filesystem::path& 
 		cfg.exploiter.policyLRStepInterval = 50'000'000;
 		cfg.exploiter.policyLRStepAlways = true;
 		cfg.exploiter.policyLRStreakIters = 3;
+		// 2026-11-16 (user-directed): conceding costs -0.85, scoring stays +1 (dense GoalReward AND the goal critic's channel). The Galactus exploiter was
+		// reaching stalemates (draws up, losses down); a concede that is worth less than a score tilts it toward attacking. Deliberately NOT zero-sum
+		// (every goal nets +0.15 across the pair), the same asymmetry the 2026-11-09 main stack used. Revert: -1.
+		cfg.exploiter.goalConcedeValue = -0.85f;
 		cfg.exploiter.policyLRMinStepGap = 10'000'000; // each LR step lasts >= 10M steps; the 50M interval is the backstop
 		if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0") {
 			cfg.exploiter.policyLRStepInterval = 200'000;

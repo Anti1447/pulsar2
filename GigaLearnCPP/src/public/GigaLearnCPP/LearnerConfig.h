@@ -168,6 +168,9 @@ namespace GGL {
 		// Minimum steps between two LR steps: a streak step waits until this many steps passed since the last one
 		// (the unconditional interval check, policyLRStepInterval, is the backstop).
 		int64_t policyLRMinStepGap = 0;
+		// Value of conceding a goal, for BOTH the dense GoalReward (set in the env builder) and the goal critic's goal-only channel
+		// (Learner.cpp). -1 = the symmetric +1/-1 every other run uses. External exploiter: -0.85 (2026-11-16, user-directed).
+		float goalConcedeValue = -1.f;
 	};
 
 	// Main run: train and evaluate against finished exploiters from exploitersFolder (ExploiterPool.h).

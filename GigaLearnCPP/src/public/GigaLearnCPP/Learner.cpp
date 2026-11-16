@@ -808,18 +808,31 @@ float GGL::Learner::RunExploiterEval(Report& report, int games) {
 	nlohmann::json j = {};
 	j["total_timesteps"] = totalTimesteps;
 	j["win_rate"] = winRate;
-	int played = 0, draws = 0;
+	int played = 0, draws = 0, scoreModes = 0;
+	float scoreSum = 0;
 	for (auto& [mode, c] : results) {
 		float w = ExploiterPoolLogic::WinRate(c);
 		if (w >= 0)
 			report["Exploiter/Eval Win Rate " + mode] = w;
 		j[mode] = { {"wins", c.wins}, {"losses", c.losses}, {"draws", c.draws} };
+		// 2026-11-16 (user-directed): the win rate above is over DECIDED games, so a stalemate-heavy eval shrinks its own sample and a
+		// few lucky wins can read high. Log the decided count, and a draw-adjusted score over ALL games: win 1, draw DRAW_VALUE, loss 0.
+		// Logging only: the finish rule still reads the plain win rate.
+		constexpr float DRAW_VALUE = 0.45f; // just under half a win; a draw is worth far more than a loss
+		int modeGames = c.wins + c.losses + c.draws;
+		float score = (c.wins + DRAW_VALUE * c.draws) / (float)RS_MAX(modeGames, 1);
+		report["Exploiter/Eval Decided " + mode] = (float)(c.wins + c.losses);
+		report["Exploiter/Eval Score " + mode] = score;
+		scoreSum += score;
+		scoreModes++;
+		j[mode]["score"] = score;
 		played += c.wins + c.losses + c.draws;
 		draws += c.draws;
-		RG_LOG(" > " << mode << ": " << c.wins << "W " << c.losses << "L " << c.draws << "D");
+		RG_LOG(" > " << mode << ": " << c.wins << "W " << c.losses << "L " << c.draws << "D, decided " << c.wins + c.losses << ", score " << score);
 	}
 	report["Exploiter/Eval Win Rate"] = winRate;
 	report["Exploiter/Eval Draw Rate"] = draws / (float)RS_MAX(played, 1);
+	report["Exploiter/Eval Score"] = scoreSum / (float)RS_MAX(scoreModes, 1);
 	report["Exploiter/Eval Games"] = played;
 	RG_LOG(" > Headline win rate " << winRate << " (" << (ec.role == "league" ? "mean over opponents of " : "")
 		<< "the mean over modes), " << played << " games, " << draws << " draws, " << timer.Elapsed() << "s");
@@ -2545,7 +2558,7 @@ void GGL::Learner::Start() {
 								float gr = 0;
 								if (gs.goalScored) {
 									auto& player = gs.players[playerSlotIdx[newPlayerIdx]];
-									gr = (player.team != RS_TEAM_FROM_Y(gs.ball.pos.y)) ? 1.f : -1.f;
+									gr = (player.team != RS_TEAM_FROM_Y(gs.ball.pos.y)) ? 1.f : (config.exploiter.enabled ? config.exploiter.goalConcedeValue : -1.f);
 								}
 								trajectories[newPlayerIdx].goalRews += gr;
 							}
@@ -3875,6 +3888,13 @@ void GGL::Learner::Start() {
 						"Exploiter/Eval Win Rate 1v1",
 						"Exploiter/Eval Win Rate 2v2",
 						"Exploiter/Eval Win Rate 3v3",
+						"Exploiter/Eval Score",
+						"Exploiter/Eval Score 1v1",
+						"Exploiter/Eval Score 2v2",
+						"Exploiter/Eval Score 3v3",
+						"Exploiter/Eval Decided 1v1",
+						"Exploiter/Eval Decided 2v2",
+						"Exploiter/Eval Decided 3v3",
 						"Exploiter/Rolling Win Rate",
 						"Exploiter/League Mean Loss Rate",
 						"Exploiter/Critic Explained Variance",
