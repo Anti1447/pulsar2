@@ -62,6 +62,8 @@ namespace GGL {
 	struct ExternalBotSpec {
 		ExternalBotKind kind;
 		std::string path;
+		// false = loaded (so its panels and the gauntlet still run) but never picked to serve a training iteration.
+		bool trainServe = true;
 	};
 	struct ExternalOpponentConfig {
 		std::vector<ExternalBotSpec> bots = {};

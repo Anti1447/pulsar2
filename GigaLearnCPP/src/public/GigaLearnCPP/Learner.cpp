@@ -1938,15 +1938,20 @@ void GGL::Learner::Start() {
 					// stays where it was measured (~0.405) while exploiters are in the pool; with none
 					// loaded the shares are exactly the previous sequential cascade's.
 					float roll = oppRoll(oppRng);
-					float externalShare = externalOpps.empty() ? 0.f : config.externalOpponent.serveFrac;
+					// Only bots with trainServe may be picked; the rest (gauntlet-only) never serve training.
+					std::vector<size_t> serveBots;
+					for (size_t b = 0; b < externalOpps.size(); b++)
+						if (config.externalOpponent.bots[b].trainServe)
+							serveBots.push_back(b);
+					float externalShare = serveBots.empty() ? 0.f : config.externalOpponent.serveFrac;
 					float poolShare = exploiterPool ? exploiterPool->EffectiveShare() : 0.f;
 					bool oldAvailable = config.trainAgainstOldVersions && versionMgr && !versionMgr->versions.empty();
 					float oldShare = oldAvailable
 						? RS_MAX(0.f, (1 - externalShare) * config.trainAgainstOldChance - poolShare) : 0.f;
 					if (roll < externalShare) {
 						// One bot for the whole fleet this iteration, uniform over the configured ones
-						std::uniform_int_distribution<size_t> pickBot(0, externalOpps.size() - 1);
-						externalOppIdx = (int)pickBot(oppRng);
+						std::uniform_int_distribution<size_t> pickBot(0, serveBots.size() - 1);
+						externalOppIdx = (int)serveBots[pickBot(oppRng)];
 						// A bot with a team-size limit (Dice: 2) only serves the arenas it can play; with none in the fleet this
 						// iteration is plain self-play rather than a serve with nothing to serve.
 						if (fnServedArenaCount(externalOppIdx) == 0) {

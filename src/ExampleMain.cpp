@@ -1796,7 +1796,10 @@ int main(int argc, char* argv[]) {
 			std::filesystem::path file = bot.kind == ExternalBotKind::NEXTO ? std::filesystem::path(bot.path)
 				: std::filesystem::path(bot.path) / "POLICY.lt";
 			if (std::filesystem::exists(file))
-				cfg.externalOpponent.bots.push_back({ bot.kind, bot.path });
+				cfg.externalOpponent.bots.push_back({ bot.kind, bot.path,
+					// 2026-11-15 (user-directed): Nexto no longer serves training (its panels and the gauntlet stay). The serve
+					// share is split over the other three (6.67% each at serveFrac 0.20). Revert: always true.
+					bot.kind != ExternalBotKind::NEXTO });
 			else
 				RG_LOG("WARNING: external opponent " << file << " not found, playing without it");
 		}
