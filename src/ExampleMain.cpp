@@ -1864,6 +1864,9 @@ int main(int argc, char* argv[]) {
 		cfg.gauntlet.gamesPerBot = 96;
 		cfg.gauntlet.maxGameTime = 60.f;
 		cfg.gauntlet.envCreateFn = [](int) { return MakeEnv(1, false); };
+		// 2026-11-16 (user-directed): 2v2 and 3v3 beside 1v1, gamesPerBot each (Dice skips 3v3: its team limit is 2)
+		cfg.gauntlet.extraTeamSizes = { 2, 3 };
+		cfg.gauntlet.teamEnvCreateFn = [](int teamSize) { return [teamSize](int) { return MakeEnv(teamSize, false); }; };
 		// GGL_SMOKE: tiny and frequent, so a short smoke exercises the whole path
 		if (const char* s3 = std::getenv("GGL_SMOKE"); s3 && s3[0] && std::string(s3) != "0") {
 			cfg.gauntlet.everyIterations = 3;
@@ -2018,8 +2021,10 @@ int main(int argc, char* argv[]) {
 	g_NumGames = cfg.numGames;
 	// GCO's own split (GCO_FRAC_*), rounded to the nearest arena (1024 games -> 342 / 341 / 341)
 	const bool gcoFleet = g_GCOMode || g_ExploiterExternal;
-	const float frac2v2 = gcoFleet ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2;
-	const float frac3v3 = gcoFleet ? GCO_FRAC_3V3 : PHASE_B_FRAC_3V3;
+	// 2026-11-16 (user-directed): the external-bot exploiter trains 20/40/40 (1v1/2v2/3v3), not GCO's 1/3 each: Galactus exploiter evals
+	// showed 1v1 climbing (0.39 -> 0.77) while 2v2 fell (0.34 -> 0.13) and 3v3 collapsed (0.28 -> 0.04), and the finish rule averages all modes.
+	const float frac2v2 = g_ExploiterExternal ? 0.4f : (gcoFleet ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2);
+	const float frac3v3 = g_ExploiterExternal ? 0.4f : (gcoFleet ? GCO_FRAC_3V3 : PHASE_B_FRAC_3V3);
 	auto fnArenas = [&](int n, float frac) { return gcoFleet ? (int)std::lround(n * frac) : (int)(n * frac); };
 	g_NumArenas2v2 = g_PhaseB ? fnArenas(cfg.numGames, frac2v2) : 0;
 	g_NumArenas3v3 = g_PhaseB ? fnArenas(cfg.numGames, frac3v3) : 0;

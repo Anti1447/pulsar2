@@ -47,30 +47,48 @@ GGL::GauntletEval::GauntletEval(const RLGC::EnvSetConfig& baseConfig, const Gaun
 	if (config.gamesPerBot < 2)
 		RG_ERR_CLOSE("GauntletEval: config.gauntlet.gamesPerBot must be at least 2 (one game per side)");
 
-	RLGC::EnvSetConfig ec = baseConfig;
-	ec.numArenas = config.gamesPerBot;
-	ec.envCreateFn = config.envCreateFn;
-	envSet = new RLGC::EnvSet(ec);
-
 	// Real kickoffs, a goal or 10 s without a touch ends the game, no rewards (same treatment as the skill tracker's
 	// and the exploiter eval's arenas)
-	for (int i = 0; i < envSet->arenas.size(); i++) {
-		envSet->rewards[i].clear();
-		envSet->stateSetters[i] = { new RLGC::KickoffState() };
-		envSet->terminalConditions[i] = { new RLGC::NoTouchCondition(10), new RLGC::GoalScoreCondition() };
-		if (envSet->state.gameStates[i].players.size() != 2)
-			RG_ERR_CLOSE("GauntletEval: arena " << i << " is not 1v1 (config.gauntlet.envCreateFn must lay out 1v1 arenas)");
+	auto build = [&](RLGC::EnvCreateFn fn, int teamSize) {
+		RLGC::EnvSetConfig ec = baseConfig;
+		ec.numArenas = config.gamesPerBot;
+		ec.envCreateFn = fn;
+		RLGC::EnvSet* es = new RLGC::EnvSet(ec);
+		for (int i = 0; i < es->arenas.size(); i++) {
+			es->rewards[i].clear();
+			es->stateSetters[i] = { new RLGC::KickoffState() };
+			es->terminalConditions[i] = { new RLGC::NoTouchCondition(10), new RLGC::GoalScoreCondition() };
+			if (es->state.gameStates[i].players.size() != (size_t)teamSize * 2)
+				RG_ERR_CLOSE("GauntletEval: arena " << i << " is not " << teamSize << "v" << teamSize
+					<< " (the env create function must lay out " << teamSize << "v" << teamSize << " arenas)");
+		}
+		if (es->state.obs.size[1] != obsSize)
+			RG_ERR_CLOSE("GauntletEval: the arenas' obs size is " << es->state.obs.size[1] << " but the trainer's is " << obsSize
+				<< " (the env create function must use the trainer's obs builder)");
+		return es;
+	};
+	envSet = build(config.envCreateFn, 1);
+	for (int ts : config.extraTeamSizes) {
+		if (ts < 2 || ts > 3 || extraEnvSets.count(ts))
+			RG_ERR_CLOSE("GauntletEval: extraTeamSizes entries must be distinct and 2 or 3 (got " << ts << ")");
+		if (!config.teamEnvCreateFn)
+			RG_ERR_CLOSE("GauntletEval: extraTeamSizes needs config.gauntlet.teamEnvCreateFn");
+		extraEnvSets[ts] = build(config.teamEnvCreateFn(ts), ts);
 	}
-	if (envSet->state.obs.size[1] != obsSize)
-		RG_ERR_CLOSE("GauntletEval: the arenas' obs size is " << envSet->state.obs.size[1] << " but the trainer's is " << obsSize
-			<< " (config.gauntlet.envCreateFn must use the trainer's obs builder)");
 }
 
 GGL::GauntletEval::~GauntletEval() {
 	delete envSet;
+	for (auto& kv : extraEnvSets)
+		delete kv.second;
 }
 
-GGL::MatchResult GGL::GauntletEval::Run(PPOLearner* ppo, ExternalOpponent& bot) {
+GGL::MatchResult GGL::GauntletEval::Run(PPOLearner* ppo, ExternalOpponent& bot, int teamSize) {
+	RLGC::EnvSet* env = (teamSize == 1) ? envSet : (extraEnvSets.count(teamSize) ? extraEnvSets[teamSize] : nullptr);
+	if (!env)
+		RG_ERR_CLOSE("GauntletEval: no arenas for team size " << teamSize);
+	if (teamSize > bot.MaxTeamSize())
+		RG_ERR_CLOSE("GauntletEval: " << bot.name << " cannot field " << teamSize << " per team");
 	// The gauntlet is the fixed yardstick: the bots play as shipped (argmax) whatever the training serves use
 	struct RestoreTemperature {
 		ExternalOpponent& b;
@@ -79,20 +97,20 @@ GGL::MatchResult GGL::GauntletEval::Run(PPOLearner* ppo, ExternalOpponent& bot) 
 	} restoreTemperature{ bot, bot.temperature };
 	bot.temperature = 0.f;
 	PolicyController ours;
-	ours.env = envSet;
+	ours.env = env;
 	ours.ppo = ppo;
 
 	MatchConfig mc;
-	mc.playersPerTeam = 1;
+	mc.playersPerTeam = teamSize;
 	mc.maxSeconds = config.maxGameTime;
 	mc.alternateSides = true;
 
 	// Same seed for every bot and every run: the same kickoff layouts, so the series only moves when the policy does.
 	// The training's own random stream is put back afterwards.
 	ScopedRandSeed seed(config.seed);
-	MatchResult res = PlayMatch(*envSet, ours, bot, config.gamesPerBot, mc);
+	MatchResult res = PlayMatch(*env, ours, bot, config.gamesPerBot, mc);
 
 	// Leave the arenas on fresh kickoffs
-	std::fill(envSet->state.terminals.begin(), envSet->state.terminals.end(), 1);
+	std::fill(env->state.terminals.begin(), env->state.terminals.end(), 1);
 	return res;
 }

@@ -348,7 +348,7 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 			} else {
 				gauntlet = std::make_shared<GauntletEval>(envSet->config, config.gauntlet, obsSize);
 				gauntletLast.assign(externalOpps.size(), GauntletResult());
-				RG_LOG("\tGauntlet: " << config.gauntlet.gamesPerBot << " deterministic 1v1 kickoff games vs each of "
+				RG_LOG("\tGauntlet: " << config.gauntlet.gamesPerBot << " deterministic kickoff games per mode (1v1" << (config.gauntlet.extraTeamSizes.empty() ? "" : " + 2v2/3v3") << ") vs each of "
 					<< externalOpps.size() << " bots every " << config.gauntlet.everyIterations << " iterations (seed " << config.gauntlet.seed << ")");
 			}
 		}
@@ -655,12 +655,14 @@ void GGL::Learner::RunGauntlet(Report& report) {
 		return;
 	gauntletLastIter = (int64_t)totalIterations;
 
-	RG_LOG("Running gauntlet (" << gc.gamesPerBot << " deterministic 1v1 kickoff games vs each of " << externalOpps.size() << " bots)...");
+	RG_LOG("Running gauntlet (" << gc.gamesPerBot << " deterministic kickoff games per mode (1v1" << (gc.extraTeamSizes.empty() ? "" : " + 2v2/3v3") << ") vs each of " << externalOpps.size() << " bots)...");
 	Timer timer = {};
 	nlohmann::json line = {};
 	line["total_timesteps"] = totalTimesteps;
 	line["iteration"] = totalIterations;
 	float winSum = 0, touchSum = 0;
+	std::map<int, float> modeWinSum = {};
+	std::map<int, int> modeBots = {};
 	for (size_t i = 0; i < externalOpps.size(); i++) {
 		MatchResult r = gauntlet->Run(ppo, *externalOpps[i]);
 		const std::string& name = externalOpps[i]->name;
@@ -692,7 +694,28 @@ void GGL::Learner::RunGauntlet(Report& report) {
 			{"mean_game_s", r.seconds / g} };
 		RG_LOG(" > " << name << ": " << r.winsA << "W " << r.winsB << "L " << r.draws << "D, first touch us " << ftUs
 			<< "% bot " << 100.f * r.firstTouchB / g << "% both " << 100.f * r.firstTouchBoth / g << "%");
+
+		// 2v2 / 3v3 (config.gauntlet.extraTeamSizes): same bot, same seed, our whole team vs its whole team. Reported beside the 1v1
+		// keys; the 1v1 mean, the persisted last result and the best-gauntlet score stay 1v1 so the old series is unbroken.
+		for (int ts : gc.extraTeamSizes) {
+			if (ts > externalOpps[i]->MaxTeamSize())
+				continue;
+			MatchResult rx = gauntlet->Run(ppo, *externalOpps[i], ts);
+			std::string mode = std::to_string(ts) + "v" + std::to_string(ts);
+			float gx = (float)RS_MAX(rx.games, 1), winX = 100.f * rx.winsA / gx;
+			report["Gauntlet/" + name + "/" + mode + " Win %"] = winX;
+			report["Gauntlet/" + name + "/" + mode + " Draw %"] = 100.f * rx.draws / gx;
+			report["Gauntlet/" + name + "/" + mode + " Loss %"] = 100.f * rx.winsB / gx;
+			report["Gauntlet/" + name + "/" + mode + " First Touch Us %"] = 100.f * rx.firstTouchA / gx;
+			modeWinSum[ts] += winX;
+			modeBots[ts]++;
+			line[name][mode] = { {"games", rx.games}, {"wins", rx.winsA}, {"losses", rx.winsB}, {"draws", rx.draws},
+				{"first_touch_us", rx.firstTouchA}, {"mean_game_s", rx.seconds / gx} };
+			RG_LOG(" > " << name << " " << mode << ": " << rx.winsA << "W " << rx.winsB << "L " << rx.draws << "D");
+		}
 	}
+	for (auto& kv : modeWinSum)
+		report["Gauntlet/Mean " + std::to_string(kv.first) + "v" + std::to_string(kv.first) + " Win %"] = kv.second / (float)modeBots[kv.first];
 	float nb = (float)RS_MAX((int)externalOpps.size(), 1);
 	report["Gauntlet/Mean Win %"] = winSum / nb;
 	report["Gauntlet/Mean First Touch Us %"] = touchSum / nb;

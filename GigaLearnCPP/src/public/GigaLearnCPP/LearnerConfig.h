@@ -5,6 +5,7 @@
 #include "SkillTrackerConfig.h"
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 
 namespace GGL {
@@ -86,6 +87,10 @@ namespace GGL {
 		unsigned seed = 20261105;   // Same seed for every run and bot = the same kickoff layouts, so only the policy moves the series
 		float maxGameTime = 60.f;   // A game still running after this many seconds is a draw (10 s without a touch is a draw too)
 		RLGC::EnvCreateFn envCreateFn = nullptr; // 1v1 arenas with the TRAINER's obs builder and action parser (ExampleMain: MakeEnv(1, ...))
+		// Extra team sizes to play (2026-11-16, user-directed): 2v2 and 3v3 games (our whole team vs the bot's whole team) beside 1v1,
+		// gamesPerBot each. A bot whose MaxTeamSize() is smaller (Dice: 2) skips the sizes it cannot play. Needs teamEnvCreateFn.
+		std::vector<int> extraTeamSizes = {};
+		std::function<RLGC::EnvCreateFn(int teamSize)> teamEnvCreateFn = nullptr; // arenas of teamSize v teamSize (ExampleMain: MakeEnv(teamSize, ...))
 	};
 
 	// EXPLOITER RUN (ported from RLGymBot_v3, docs/EXPLOITERS.md): this process trains only against frozen opponents
