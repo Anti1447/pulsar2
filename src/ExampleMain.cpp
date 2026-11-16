@@ -515,6 +515,9 @@ static float g_PhaseBLRScale = 1.f;   // policy-LR scale currently applied by th
 // EXPLOITER RUN (--exploiter-auto / --slot N; docs/EXPLOITERS.md): goal-only reward, kickoff-only resets, and always
 // the PHASE B fleet (1v1/2v2/3v3), whatever the main run's phase. Set in main() before the Learner is built.
 static bool g_ExploiterMode = false;
+// External-bot exploiter (docs/GCO_EXPLOITER_PLAN.md): trains on GCO main's env (reset mix, no-touch ending with penalty), not
+// the plain exploiter's kickoffs, so its carried-over critic keeps seeing the return structure it was trained on.
+static bool g_ExploiterExternal = false;
 
 // GCO RUN (--gco; docs/GCO.md): main's opponents with the exploiter's env (goal-only reward, kickoffs, PHASE B fleet)
 static bool g_GCOMode = false;
@@ -609,7 +612,7 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 	// (44%, touches above goal height) but from the GROUND converts 0/300 (jumps 98%,
 	// reaches z>500 only 9%): the jump->boost-climb transition was never in the training
 	// (D=0) toward grounded takeoff (D=1), gated on the live aerial-conversion EMA.
-	if (g_ExploiterMode) {
+	if (g_ExploiterMode && !g_ExploiterExternal) {
 		// Exploiters (ported from RLGymBot_v3): goals scored/conceded only and natural kickoffs only. An exploiter's
 		// job is to WIN against a frozen target, so main's shaping (which describes how main should play) would only
 		// pull it back toward main's own style. Same terminal conditions as main.
@@ -619,7 +622,7 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		result.arena = arena;
 		return result;
 	}
-	if (g_GCOMode) {
+	if (g_GCOMode || g_ExploiterExternal) {
 		// GCO (docs/GCO.md): goal-only like an exploiter, but on main's reset mix below (it was kickoffs only until
 		// 12.81B, 2026-11-01). The 20s no-touch timeout is a real ending here, not a truncation: it costs every car
 		// GCO_TIMEOUT_PENALTY, so neither team gains by keeping the ball dead (no bootstrapped value hides the cost).
@@ -712,6 +715,18 @@ EnvCreateResult SkillEnvCreateFunc(int index) {
 // target) and by the main run (vs imported exploiters); the eval overwrites rewards, state setters and terminals.
 EnvCreateResult ExploiterEvalEnvCreateFunc(int index) {
 	return MakeEnv(1 + index % MAX_PLAYERS_PER_TEAM, false);
+}
+
+// --exploiter-target name -> external bot kind (false = unknown name)
+static bool ExternalTargetKind(const std::string& name, ExternalBotKind* out) {
+	ExternalBotKind kind;
+	if (name == "galactus")      kind = ExternalBotKind::GALACTUS_V2;
+	else if (name == "chronos")  kind = ExternalBotKind::CHRONOS_V2;
+	else if (name == "dice")     kind = ExternalBotKind::DICE;
+	else if (name == "nexto")    kind = ExternalBotKind::NEXTO;
+	else return false;
+	if (out) *out = kind;
+	return true;
 }
 
 // === EXPLOITER SETTINGS (ported from RLGymBot_v3's ConfigureExploiterSettings; docs/EXPLOITERS.md) ===
@@ -819,14 +834,42 @@ static void ConfigureExploiter(LearnerConfig& cfg, const std::filesystem::path& 
 	cfg.trainAgainstOldVersions = false;
 	cfg.savePolicyVersions = false;
 	cfg.skillTracker.enabled = false;
-	cfg.externalOpponent.bots.clear();
+	if (role == "external") {
+		// EXTERNAL-TARGET exploiter (docs/GCO_EXPLOITER_PLAN.md, 2026-11-16, user-directed): the ONLY opponent is one external
+		// bot, every iteration, so only that bot stays loaded (its model folder must exist or the run refuses to start).
+		// Starts from the latest GCO main checkpoint WITH its optimizer state, return statistic and policy-LR step level
+		// (main is already an exploiter-style run). Entropy stays at main's GCO value (0.4x, set above). The LR then steps up
+		// every 50M steps, or sooner after 3 iterations in a row of explained variance > 0.5. Ends at 70% three evals in a
+		// row, or 1B steps.
+		ExternalBotKind want;
+		ExternalTargetKind(cfg.exploiter.externalTarget, &want);
+		std::vector<ExternalBotSpec> kept;
+		for (auto& b : cfg.externalOpponent.bots)
+			if (b.kind == want) { b.trainServe = true; kept.push_back(b); }
+		cfg.externalOpponent.bots = kept;
+		cfg.exploiter.keepOptimizers = true;
+		cfg.exploiter.earlyStopConsecutive = 3;
+		cfg.exploiter.maxTimesteps = 1'000'000'000;
+		cfg.exploiter.explainedVarThreshold = 0.5f;
+		cfg.exploiter.policyLRStepInterval = 50'000'000;
+		cfg.exploiter.policyLRStepAlways = true;
+		cfg.exploiter.policyLRStreakIters = 3;
+		cfg.exploiter.policyLRMinStepGap = 10'000'000; // each LR step lasts >= 10M steps; the 50M interval is the backstop
+		if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0") {
+			cfg.exploiter.policyLRStepInterval = 200'000;
+			cfg.exploiter.policyLRMinStepGap = 50'000;
+		}
+	} else {
+		cfg.externalOpponent.bots.clear();
+	}
 	cfg.bestCheckpointsToKeep = 0;
 
 	// SLIMMED for VRAM (three trainers share one 24 GB card; one full Pulsar2 trainer peaks ~9.5-13.5 GB): the
 	// auxiliary learners that only shape or measure MAIN are off, and the minibatch is halved. The policy, shared
 	// trunk and critic are untouched, so main's snapshot loads and main can load the exploiter back as an opponent.
 	cfg.ppo.reachability.enabled = false;
-	cfg.ppo.goalCritic.enabled = false;
+	if (role != "external") // external-target exploiter keeps main's long-horizon goal critic (experimental, 2026-11-16)
+		cfg.ppo.goalCritic.enabled = false;
 	cfg.ppo.vdagEnabled = false;
 	cfg.ppo.geoEnabled = false;
 	cfg.gapSensor.enabled = false;
@@ -1074,7 +1117,7 @@ int main(int argc, char* argv[]) {
 	// run itself (--gco-from <checkpoint folder> picks the main checkpoint a new one starts from); with them, the
 	// exploiter takes its snapshots and league from the GCO run.
 	// --no-exploiter-pool: a main or GCO run that imports no exploiters (opponents are self-play, old versions and Nexto).
-	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg;
+	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg, exploiterTargetArg;
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
 	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false;
@@ -1083,6 +1126,8 @@ int main(int argc, char* argv[]) {
 		std::string arg = argv[i];
 		if (arg == "--exploiter" && i + 1 < argc) {
 			exploiterSnapshotArg = argv[++i];  // Main checkpoint folder to exploit, e.g. checkpoints_5.3/7467947161
+		} else if (arg == "--exploiter-target" && i + 1 < argc) {
+			exploiterTargetArg = argv[++i];    // External-bot exploiter (docs/GCO_EXPLOITER_PLAN.md): galactus|chronos|dice|nexto
 		} else if (arg == "--exploiter-name" && i + 1 < argc) {
 			exploiterNameArg = argv[++i];
 		} else if (arg == "--exploiter-steps" && i + 1 < argc) {
@@ -1112,14 +1157,14 @@ int main(int argc, char* argv[]) {
 			noExploiterPool = true;
 		} else {
 			std::cout << "Unknown argument \"" << arg << "\". Options: --exploiter-auto, --slot <N>, --new-exploiter, "
-				<< "--exploiter <checkpoint folder>, --exploiter-name <name>, --exploiter-steps <N>, "
+				<< "--exploiter <checkpoint folder>, --exploiter-name <name>, --exploiter-steps <N>, --exploiter-target <bot>, "
 				<< "--finish-exploiter [name], --discard-exploiter [name], --together, --alone, "
 				<< "--gco, --gco-5.3, --gco-from <checkpoint folder>, --no-exploiter-pool\n";
 			return 1;
 		}
 	}
 	bool exploiterRunArg = exploiterAuto || !exploiterSnapshotArg.empty() || !exploiterNameArg.empty() || newExploiter
-		|| exploiterStepsArg > 0 || slotGiven;
+		|| exploiterStepsArg > 0 || slotGiven || !exploiterTargetArg.empty();
 	// Main 6.0 and its exploiters use the ball-prediction obs; the GCO lineage (and exploiters targeting it) keep 5.3's
 	g_GCOLegacy = gcoLegacyArg;
 	g_BallPredObs = !gcoLegacyArg;
@@ -1850,10 +1895,17 @@ int main(int argc, char* argv[]) {
 		std::cout << "[EXPLOITER] There's no slot " << exploiterSlot << " (slots are 0 to " << numSlots - 1 << "). Not starting.\n";
 		return 1;
 	}
-	const std::string exploiterRole = cfg.exploiter.slotRoles[exploiterSlot];
+	// An external-target exploiter has its own role and its own ACTIVE file, so it never resumes a main/league run
+	const bool externalExploiter = !exploiterTargetArg.empty();
+	const std::string exploiterRole = externalExploiter ? "external" : cfg.exploiter.slotRoles[exploiterSlot];
+	const std::string exploiterActiveFile = externalExploiter ? "ACTIVE_" + exploiterTargetArg + ".txt" : ActiveFileName(exploiterSlot);
+	if (externalExploiter && !ExternalTargetKind(exploiterTargetArg, nullptr)) {
+		std::cout << "[EXPLOITER] Unknown --exploiter-target \"" << exploiterTargetArg << "\" (galactus, chronos, dice, nexto). Not starting.\n";
+		return 1;
+	}
 	if (finishExploiter || discardExploiter)
 		return FinishExploiterCommand(exploitersRoot, exploiterNameArg, discardExploiter, cfg.exploiterPool.admitMinWinRate,
-			ActiveFileName(exploiterSlot));
+			exploiterActiveFile);
 	if (exploiterRunArg && cfg.renderMode) {
 		std::cout << "[CONFIG] Exploiter options can't be combined with GGL_RENDER. Not starting.\n";
 		return 1;
@@ -1871,7 +1923,7 @@ int main(int argc, char* argv[]) {
 			return 1;
 		}
 		if (!ResolveExploiterRun(exploitersRoot, cfg.exploiter.sourceCheckpointFolder, exploiterSnapshotArg,
-			exploiterNameArg, newExploiter, exploiterRole, ActiveFileName(exploiterSlot), exploiterRun))
+			exploiterNameArg, newExploiter, externalExploiter ? exploiterTargetArg : exploiterRole, exploiterActiveFile, exploiterRun))
 			return 1;
 		if (!LockExploiterFolder(exploiterRun.folder)) {
 			std::cout << "[EXPLOITER] " << exploiterRun.name << " is already running (" << (exploiterRun.folder / "RUN.lock")
@@ -1879,6 +1931,8 @@ int main(int argc, char* argv[]) {
 			return 1;
 		}
 		g_ExploiterMode = true;
+		g_ExploiterExternal = externalExploiter;
+		cfg.exploiter.externalTarget = exploiterTargetArg;
 		ConfigureExploiter(cfg, exploiterRun.snapshot, exploiterRun.name, exploiterRole);
 		if (exploiterStepsArg > 0)
 			cfg.exploiter.maxTimesteps = exploiterStepsArg;
@@ -1887,15 +1941,18 @@ int main(int argc, char* argv[]) {
 				cfg.exploiter.leagueMaxMain, cfg.exploiter.leagueMaxExploiters);
 		if (!exploiterRun.resuming) {
 			WriteRunInfo(exploiterRun.folder, exploiterRole, exploiterSlot, exploiterRun.snapshot);
-			for (auto& [name, checkpoint] : ListRestartCandidates(exploitersRoot, exploiterRole, cfg.exploiter.restartMaxCandidates)) {
+			// External role: always starts from the latest main weights, never from an older exploiter
+			for (auto& [name, checkpoint] : ListRestartCandidates(exploitersRoot, exploiterRole,
+				externalExploiter ? 0 : cfg.exploiter.restartMaxCandidates)) {
 				cfg.exploiter.restartCandidateNames.push_back(name);
 				cfg.exploiter.restartCandidates.push_back(checkpoint);
 			}
 		}
 		if (runTogether) {
 			cfg.numGames = RS_MAX(1, (int)(cfg.numGames * cfg.exploiter.togetherGamesScale
-				* (1 - cfg.exploiter.mainComputeShare) / numSlots));
-			cfg.cudaMemoryFraction = cfg.exploiter.slotVramFraction;
+				* (1 - cfg.exploiter.mainComputeShare) / (externalExploiter ? 1 : numSlots)));
+			// One exploiter beside main (50/50): twice a slot's arenas, so a larger VRAM cap than the two-slot split's 0.16
+			cfg.cudaMemoryFraction = externalExploiter ? 0.28f : cfg.exploiter.slotVramFraction; // + the goal critic
 		}
 	} else if (runTogether && !cfg.renderMode) {
 		cfg.numGames = RS_MAX(1, (int)(cfg.numGames * cfg.exploiter.togetherGamesScale * cfg.exploiter.mainComputeShare));
@@ -1919,7 +1976,8 @@ int main(int argc, char* argv[]) {
 				? " (resuming at " + std::to_string(exploiterRun.resumeTimesteps) + " steps)" : std::string(" (new)")) << "\n"
 			<< "  Slot      : " << exploiterSlot << " (" << exploiterRole << " exploiter)\n"
 			<< "  Snapshot  : " << exploiterRun.snapshotSource << "\n"
-			<< "  Opponent  : " << (exploiterRole == "league"
+			<< "  Opponent  : " << (exploiterRole == "external" ? "external bot " + exploiterTargetArg + ", every iteration (nothing else)"
+				: exploiterRole == "league"
 				? "the snapshot + " + std::to_string(cfg.exploiter.leaguePool.size()) + " league checkpoints, by loss rate"
 				: std::string("the frozen snapshot")) << "\n"
 			<< (exploiterRun.resuming ? "" : "  Start     : " + (cfg.exploiter.restartCandidates.empty()
@@ -1959,9 +2017,10 @@ int main(int argc, char* argv[]) {
 	}
 	g_NumGames = cfg.numGames;
 	// GCO's own split (GCO_FRAC_*), rounded to the nearest arena (1024 games -> 342 / 341 / 341)
-	const float frac2v2 = g_GCOMode ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2;
-	const float frac3v3 = g_GCOMode ? GCO_FRAC_3V3 : PHASE_B_FRAC_3V3;
-	auto fnArenas = [&](int n, float frac) { return g_GCOMode ? (int)std::lround(n * frac) : (int)(n * frac); };
+	const bool gcoFleet = g_GCOMode || g_ExploiterExternal;
+	const float frac2v2 = gcoFleet ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2;
+	const float frac3v3 = gcoFleet ? GCO_FRAC_3V3 : PHASE_B_FRAC_3V3;
+	auto fnArenas = [&](int n, float frac) { return gcoFleet ? (int)std::lround(n * frac) : (int)(n * frac); };
 	g_NumArenas2v2 = g_PhaseB ? fnArenas(cfg.numGames, frac2v2) : 0;
 	g_NumArenas3v3 = g_PhaseB ? fnArenas(cfg.numGames, frac3v3) : 0;
 	RG_LOG("Team curriculum: PHASE " << (g_PhaseB ? "B" : "A") << " - "
@@ -1989,7 +2048,7 @@ int main(int argc, char* argv[]) {
 	Learner* learner = new Learner(EnvCreateFunc, cfg, StepCallback);
 	// Only now that the run has started: a start that failed never becomes the run later launches try to resume
 	if (g_ExploiterMode)
-		MarkExploiterActive(exploitersRoot, exploiterRun.name, ActiveFileName(exploiterSlot));
+		MarkExploiterActive(exploitersRoot, exploiterRun.name, exploiterActiveFile);
 
 	// The automatic PHASE A -> PHASE B flip. Runs at the tail of every iteration; ratings
 	// only appear in the report on iterations where the skill tracker actually evaluated,

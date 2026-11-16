@@ -140,6 +140,8 @@ namespace GGL {
 		int lrStepLevel = 0;
 		int64_t lrLastCheckTs = -1;
 		std::vector<float> lrWindowEV;
+		int lrEVStreak = 0;       // consecutive iterations above the explained-variance threshold (ExploiterConfig::policyLRStreakIters)
+		int earlyStopStreak = 0;  // consecutive exploiter evals at or above earlyStopWinRate (ExploiterConfig::earlyStopConsecutive)
 		// Exploiter run: deterministic eval vs the role's target, logged to EVAL_LOG.jsonl; returns the headline win rate
 		float RunExploiterEval(Report& report, int games);
 		// Exploiter run, fresh start: the adaptive restart (RESTART.json)

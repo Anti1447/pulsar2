@@ -146,6 +146,23 @@ namespace GGL {
 		int restartGames = 96;
 		int restartMaxCandidates = 8;                  // Newest ones only, so a long history can't stall a start
 		float restartMinWinRate = 0.2f, restartMaxWinRate = 0.5f;
+
+		// EXTERNAL-TARGET exploiter (docs/GCO_EXPLOITER_PLAN.md): role "external" trains only against one external bot
+		// (externalTarget, e.g. "galactus"), every iteration, instead of a frozen snapshot of our own net.
+		std::string externalTarget = "";
+		// A fresh run starts from the snapshot's OPTIMIZER state, return statistic and policy-LR step level as well as its
+		// weights (a GCO main checkpoint is already an exploiter-style run), instead of fresh optimizers.
+		bool keepOptimizers = false;
+		// The run ends only after this many CONSECUTIVE evals at >= earlyStopWinRate (every early-stop or full eval counts)
+		int earlyStopConsecutive = 1;
+		// Gated LR steps (policyLRStepInterval > 0): true = the interval check steps up unconditionally instead of gating on
+		// the window's median explained variance; policyLRStreakIters > 0 additionally steps at once after that many
+		// consecutive iterations with explained variance above explainedVarThreshold.
+		bool policyLRStepAlways = false;
+		int policyLRStreakIters = 0;
+		// Minimum steps between two LR steps: a streak step waits until this many steps passed since the last one
+		// (the unconditional interval check, policyLRStepInterval, is the backstop).
+		int64_t policyLRMinStepGap = 0;
 	};
 
 	// Main run: train and evaluate against finished exploiters from exploitersFolder (ExploiterPool.h).

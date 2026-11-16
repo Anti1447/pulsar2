@@ -3,6 +3,7 @@
 #
 #   ../tools/run_league.sh start     main (--together: half of numGames) + slot 0 (main exploiter) + slot 1 (league)
 #   ../tools/run_league.sh start --gco   the same with the GCO run as main (docs/GCO.md)
+#   ../tools/run_league.sh together-external galactus   GCO main + one external-bot exploiter, 50/50 compute (docs/GCO_EXPLOITER_PLAN.md)
 #   ../tools/run_league.sh status
 #   ../tools/run_league.sh stop      each saves after its current iteration (exploiters run a final eval first)
 #
@@ -22,6 +23,12 @@ case "${1:-}" in
 			"$SCRIPT_DIR/run_exploiter.sh" --slot "$s" "${LINEAGE_ARGS[@]}"
 		done
 		;;
+	together-external)
+		# main (GCO, half the compute) + ONE external-bot exploiter (the other half): run_league.sh together-external galactus
+		[ -n "${2:-}" ] || { echo "usage: $0 together-external <galactus|chronos|dice|nexto>" >&2; exit 2; }
+		"$SCRIPT_DIR/run_trainer.sh" -- ./GigaLearnBot --together --gco
+		"$SCRIPT_DIR/run_exploiter.sh" --slot 0 --gco --target "$2"
+		;;
 	status)
 		echo "== main =="; "$SCRIPT_DIR/run_trainer.sh" --status
 		for s in $SLOTS; do
@@ -36,7 +43,7 @@ case "${1:-}" in
 		wait
 		;;
 	*)
-		sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+		sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
 		exit 2
 		;;
 esac

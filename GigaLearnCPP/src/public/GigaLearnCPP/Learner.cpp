@@ -390,9 +390,9 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 		auto& ec = config.exploiter;
 		std::filesystem::path snapshot = config.checkpointFolder / "snapshot";
 		// Loads a checkpoint into models, explaining the usual cause if it doesn't fit this build's networks
-		auto fnLoadSnapshot = [&](ModelSet& models, const std::filesystem::path& from) {
+		auto fnLoadSnapshot = [&](ModelSet& models, const std::filesystem::path& from, bool loadOptim = false) {
 			try {
-				models.Load(from, false, false);
+				models.Load(from, false, loadOptim);
 			} catch (std::exception& e) {
 				RG_ERR_CLOSE(
 					"Exploiter: the snapshot " << from << " doesn't fit this build's networks.\n" <<
@@ -410,7 +410,16 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 			// unread in the snapshot.
 			std::filesystem::path from = freshSnapshot ? ec.snapshotFolder : snapshot;
 			RG_LOG("\tExploiter: initializing from snapshot " << from << "...");
-			fnLoadSnapshot(ppo->models, from);
+			fnLoadSnapshot(ppo->models, from, ec.keepOptimizers);
+			if (ec.keepOptimizers) {
+				// The snapshot is itself an exploiter-style run (GCO): keep its optimizer state (loaded above), its return
+				// statistic (same goal-only reward scale) and its policy-LR step level, so the LR starts where main's was
+				nlohmann::json st = ExploiterFiles::ReadJSON(from / "RUNNING_STATS.json");
+				if (returnStat && st.contains("return_stat"))
+					returnStat->ReadFromJSON(st["return_stat"]);
+				lrStepLevel = st.value("lr_step_level", 0);
+				RG_LOG("\tExploiter: kept the snapshot's optimizer state and return statistic; policy-LR step " << lrStepLevel << "/20");
+			}
 		}
 		if (freshSnapshot) {
 			// Keep our own copy, so the main run pruning its old checkpoints can't break a resume. Copied into a
@@ -438,7 +447,15 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 			exploiterRun->names.push_back(name);
 			exploiterRun->opponents.push_back(models);
 		};
-		fnAddOpponent("snapshot", snapshot, true);
+		if (ec.role == "external") {
+			// The only opponent is the external bot, served every iteration through its adapter (no model opponents)
+			if (externalOpps.size() != 1)
+				RG_ERR_CLOSE("Exploiter role \"external\" needs exactly one external opponent (target \"" << ec.externalTarget
+					<< "\"), but " << externalOpps.size() << " are loaded. Check its model folder under rlbot-run/.");
+			RG_LOG("\tExploiter target: external bot " << externalOpps[0]->name << ", every iteration");
+		} else {
+			fnAddOpponent("snapshot", snapshot, true);
+		}
 		if (ec.role == "league") {
 			for (auto& path : ec.leaguePool)
 				fnAddOpponent(path.parent_path().filename().string() + "/" + path.filename().string(), path, false);
@@ -449,7 +466,7 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 		exploiterRun->eval = std::make_unique<ExploiterEval>(envSet->config, ec.evalEnvCreateFn, ec.evalArenas);
 		RG_LOG("\tExploiter eval: " << ec.evalArenas << " arenas (" << exploiterRun->eval->arenasPerMode.size() << " modes)");
 
-		if (totalTimesteps == 0)
+		if (totalTimesteps == 0 && ec.role != "external") // external: always the latest main weights, no adaptive restart
 			ChooseExploiterStart();
 	}
 
@@ -541,6 +558,8 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 		j["lr_last_check_ts"] = lrLastCheckTs;
 		j["lr_window_ev"] = lrWindowEV;
 	}
+	if (config.exploiter.enabled)
+		j["early_stop_streak"] = earlyStopStreak;
 	if (exploiterPool)
 		j["exploiter_pool"] = exploiterPool->ToJSON();
 
@@ -620,6 +639,7 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 	lrStepLevel = j.value("lr_step_level", 0);
 	lrLastCheckTs = j.value("lr_last_check_ts", (int64_t)-1);
 	lrWindowEV = j.value("lr_window_ev", std::vector<float>());
+	earlyStopStreak = j.value("early_stop_streak", 0);
 	if (exploiterPool && j.contains("exploiter_pool"))
 		exploiterPool->FromJSON(j["exploiter_pool"]);
 }
@@ -740,7 +760,9 @@ static float RunExploiterTargetGames(GGL::Learner& L, int totalGames,
 	int perModeEach = RS_MAX(1, totalGames / (modes * n));
 	std::vector<float> rates;
 	for (int i = 0; i < n; i++) {
-		auto res = run.eval->Run(L.ppo, L.ppo->models, run.opponents[i], perModeEach, ec.evalMaxGameTime, true);
+		auto res = (ec.role == "external")
+			? run.eval->RunVsExternal(L.ppo, L.ppo->models, *L.externalOpps[0], perModeEach, ec.evalMaxGameTime, true)
+			: run.eval->Run(L.ppo, L.ppo->models, run.opponents[i], perModeEach, ec.evalMaxGameTime, true);
 		for (auto& [mode, c] : res) {
 			pooled[mode].wins += c.wins;
 			pooled[mode].losses += c.losses;
@@ -755,7 +777,7 @@ float GGL::Learner::RunExploiterEval(Report& report, int games) {
 	auto& ec = config.exploiter;
 	RG_LOG("Running exploiter eval (" << games << " deterministic games vs "
 		<< (ec.role == "league" ? "the league pool, " + std::to_string(exploiterRun->opponents.size()) + " opponents"
-			: std::string("the snapshot")) << ", split evenly across modes)...");
+			: ec.role == "external" ? externalOpps[0]->name : std::string("the snapshot")) << ", split evenly across modes)...");
 	Timer timer = {};
 	std::map<std::string, ExploiterPoolLogic::ModeCounts> results;
 	float winRate = RunExploiterTargetGames(*this, games, results);
@@ -1925,7 +1947,13 @@ void GGL::Learner::Start() {
 			if (!render) {
 				RG_ASSERT(config.trainAgainstOldChance >= 0 && config.trainAgainstOldChance <= 1);
 				std::uniform_real_distribution<float> oppRoll(0.0f, 1.0f);
-				if (exploiterRun) {
+				if (exploiterRun && config.exploiter.role == "external") {
+					// External-target exploiter: every iteration, the whole fleet plays the one external bot
+					externalOppIdx = 0;
+					externalOpps[0]->BeginServe(numPlayers);
+					externalStats[0].serveIters++;
+					extMonitor.BeginServe((int)envSet->arenas.size());
+				} else if (exploiterRun) {
 					// Exploiter run: every iteration plays one of its frozen opponents (the snapshot, plus the
 					// league for the league role), picked by how often this exploiter loses to each
 					exploiterOppIdx = ExploiterPoolLogic::SampleByLoss(exploiterRun->lossRate,
@@ -2435,10 +2463,16 @@ void GGL::Learner::Start() {
 								if (!arenaServed.empty() && !arenaServed[arenaIdx])
 									continue;
 								if (gs.goalScored) {
-									if (RS_TEAM_FROM_Y(gs.ball.pos.y) == oppTeam)
+									const bool oppConceded = (RS_TEAM_FROM_Y(gs.ball.pos.y) == oppTeam);
+									if (oppConceded)
 										externalStats[externalOppIdx].goalsFor++;
 									else
 										externalStats[externalOppIdx].goalsAgainst++;
+									if (exploiterRun) { // external-target exploiter: stochastic training win rate
+										exploiterRun->recentWins.push_back(oppConceded);
+										if ((int)exploiterRun->recentWins.size() > config.exploiter.rollingWinRateGoals)
+											exploiterRun->recentWins.pop_front();
+									}
 								}
 							}
 						}
@@ -2600,6 +2634,13 @@ void GGL::Learner::Start() {
 						collectReport["Exploiter/Rolling Window Goals"] = (float)rw.size();
 					}
 				}
+				if (exploiterRun && externalOppIdx >= 0) {
+					auto& rw = exploiterRun->recentWins;
+					if (!rw.empty()) {
+						collectReport["Exploiter/Rolling Win Rate"] = std::count(rw.begin(), rw.end(), true) / (float)rw.size();
+						collectReport["Exploiter/Rolling Window Goals"] = (float)rw.size();
+					}
+				}
 				if (poolMemberIdx >= 0)
 					exploiterPool->RecordTrainingResult(poolMemberIdx, exploiterGoalsFor, exploiterGoalsAgainst);
 		};
@@ -2634,10 +2675,17 @@ void GGL::Learner::Start() {
 			if (earlyDue || fullDue) {
 				float winRate = RunExploiterEval(report, fullDue ? ec.evalGames : ec.earlyStopGames);
 				report["Exploiter/Target Win Rate"] = winRate;
-				if (ec.earlyStopWinRate > 0 && winRate >= ec.earlyStopWinRate) {
-					RG_LOG("Exploiter reached a " << winRate << " win rate vs its target (needs " << ec.earlyStopWinRate
-						<< "): finishing" << (capped ? "." : " early."));
-					won = true;
+				if (ec.earlyStopWinRate > 0) {
+					earlyStopStreak = (winRate >= ec.earlyStopWinRate) ? earlyStopStreak + 1 : 0;
+					report["Exploiter/Early Stop Streak"] = (float)earlyStopStreak;
+					if (earlyStopStreak > 0)
+						RG_LOG("Exploiter eval " << winRate << " >= " << ec.earlyStopWinRate << ": streak " << earlyStopStreak << "/"
+							<< ec.earlyStopConsecutive);
+					if (earlyStopStreak >= RS_MAX(ec.earlyStopConsecutive, 1)) {
+						RG_LOG("Exploiter reached a " << winRate << " win rate vs its target " << earlyStopStreak
+							<< " eval(s) in a row (needs " << ec.earlyStopWinRate << "): finishing" << (capped ? "." : " early."));
+						won = true;
+					}
 				}
 			}
 			if (won || capped) {
@@ -3065,13 +3113,32 @@ void GGL::Learner::Start() {
 								return v[v.size() / 2];
 							};
 							float windowMedian = fnMedian(lrWindowEV);
+							if (ec.policyLRStreakIters > 0) {
+								// Step at once after N consecutive iterations above the threshold; the interval clock restarts
+								lrEVStreak = (std::isfinite(explainedVar) && explainedVar > ec.explainedVarThreshold) ? lrEVStreak + 1 : 0;
+								if (lrEVStreak >= ec.policyLRStreakIters && lrStepLevel < 20
+									&& (int64_t)totalTimesteps - lrLastCheckTs >= ec.policyLRMinStepGap) {
+									lrStepLevel++;
+									RG_LOG("Policy-LR streak: explained variance > " << ec.explainedVarThreshold << " for " << lrEVStreak
+										<< " iterations in a row, stepping up to step " << lrStepLevel << "/20");
+									lrEVStreak = 0;
+									lrLastCheckTs = (int64_t)totalTimesteps;
+									lrWindowEV.clear();
+								}
+							}
 							if ((int64_t)totalTimesteps - lrLastCheckTs >= ec.policyLRStepInterval) {
-								bool step = lrStepLevel < 20 && windowMedian > ec.explainedVarThreshold;
+								bool step = lrStepLevel < 20 && (ec.policyLRStepAlways || windowMedian > ec.explainedVarThreshold);
 								if (step)
 									lrStepLevel++;
-								RG_LOG("Policy-LR check: median explained variance " << windowMedian << " over "
-									<< lrWindowEV.size() << " iterations " << (step ? "> " : "<= ") << ec.explainedVarThreshold
-									<< (step ? ", stepping up to " : ", staying at ") << "step " << lrStepLevel << "/20");
+								if (ec.policyLRStepAlways) {
+									RG_LOG("Policy-LR check (unconditional): " << ec.policyLRStepInterval << " steps since the last step; median explained variance "
+										<< windowMedian << " over " << lrWindowEV.size() << " iterations" << (step ? ", stepping up to " : ", staying at ")
+										<< "step " << lrStepLevel << "/20");
+								} else {
+									RG_LOG("Policy-LR check: median explained variance " << windowMedian << " over "
+										<< lrWindowEV.size() << " iterations " << (step ? "> " : "<= ") << ec.explainedVarThreshold
+										<< (step ? ", stepping up to " : ", staying at ") << "step " << lrStepLevel << "/20");
+								}
 								lrLastCheckTs = (int64_t)totalTimesteps;
 								lrWindowEV.clear();
 							}
