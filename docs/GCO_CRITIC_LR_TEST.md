@@ -80,11 +80,39 @@ the -0.5 timeout penalty, and policy entropy 0.014.
 |---|---|
 | Baseline EV median / IQR | 0.298 / 0.263-0.347 (GCO/Critic Explained Variance, 3404 iterations of train-20261116-151425.log; lower than the 0.35-0.38 quoted in section 1) |
 | Baseline Rating/1v1, Ref/Oldest Share | Rating/1v1 2497; Ref/Oldest Share 0.986; Ref/Share 0.775 (user-supplied, 2026-11-16) |
-| Restart step | (fill at launch; last logged step ~58.07B) |
-| Window end step | |
-| Result EV median (last 100M) | |
-| Gate steps taken | |
-| Verdict | |
+| Restart step | 58,066,102,164 (launch 2026-11-16 23:41:15, criticLR 3e-4 confirmed in the log: "Set learning rate to [.., 3.000000e-04]") |
+| Stopped time (not training) | Clean stop 2026-11-16 23:44:14 at checkpoint 58,075,302,109 (about 9M steps into the window); resumed 2026-11-17 00:19:21 from that checkpoint (boot sanity probe 3/3). The 35 minutes stopped are wall-clock only: the window is counted in steps. |
+| Window end step | 58,366,911,330 (stopped by tools/gco_test_window_watch.sh; GCO_TEST_DONE) |
+| Result EV median (last 100M) | 0.323 (IQR 0.285-0.385); baseline same-length 0.301 -> +0.022. Whole window 0.324. Per mode: 1v1 0.413, 2v2 0.310, 3v3 0.271 |
+| Gate steps taken | 0 (staying at step 2/20; last checks 0.313, 0.334, 0.334 all <= 0.41) |
+| Verdict | NEUTRAL, see section 8 |
 
 Change-log line to add on enabling (`docs/REWARD_CHANGE_LOG.md`):
 `2026-11-16 | GCO config (not a reward): criticLR 1.5e-4 -> 3e-4 under --gco only | EV stuck 0.35-0.38 holds the policy-LR gate; critic is the bottleneck | see docs/GCO_CRITIC_LR_TEST.md`
+
+## 8. Result (2026-11-17, from trainer logs; wandb not queried, the panels are the same values)
+
+Window: 300M steps in about 53 minutes (all 1024 games to GCO, no `--together`).
+
+| Criterion | Result | Met |
+|---|---|---|
+| Critic EV last-100M median >= 0.41 and >= baseline + 0.04 | 0.323 vs baseline 0.301 (+0.022); IQR 0.285-0.385 overlaps baseline 0.265-0.347 | NO |
+| Value loss falls, no spikes | `GoalCritic/Loss` rose 0.00096 -> 0.0024 (2.5x), flat across the window, no NaN/inf | not clean |
+| Policy-LR gate steps at least once | 0 steps | NO |
+| Entropy within +-15% | 0.5525 vs 0.5625 (-2%) | yes |
+| Rating/1v1, Ref/Oldest Share | 2501 -> 2511; Oldest Share 0.9853 -> 0.9855; Ref/Share 0.772 -> 0.770 | yes |
+| Dead units | 0 | yes |
+| Offline kickoff test / anchor battery | NOT RUN | open |
+
+The lever took effect: `Critic Update Magnitude` doubled (0.38 -> 0.75). It moved EV by +0.022 and the gate by nothing.
+1v1 EV (0.41) is at the bar, but 2v2 (0.31) and 3v3 (0.27) are well below it, and the gate reads the pooled value.
+
+**Confounds, stated honestly.** The baseline ran with `--together` (half the fleet, exploiter slots live); the window ran
+GCO alone. Fleet size and opponent mix may differ, so the +0.022 is not cleanly attributable to the LR. The goal-critic
+loss rise is also unexplained: its LR was not changed, but the shared trunk trains faster. EV by opponent source
+(`GCO/EV Src *`) was not compared.
+
+**Verdict (per section 6): NEUTRAL.** Critic LR alone is not enough to lift EV over 0.41; nothing was damaged.
+Recommended: revert `criticLR` to 1.5e-4 (delete the `cfg.ppo.criticLR = 3e-4f` line in `ConfigureGCO`), run the kickoff
+test, and take the next lever as a separate pre-registered test, starting with the 2v2/3v3 EV gap (batch size / per-mode
+critic capacity) rather than more LR.
