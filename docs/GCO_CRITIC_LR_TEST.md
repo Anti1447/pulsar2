@@ -21,7 +21,7 @@ The `PPOLearnerConfig` default `criticLR` is 3e-4, so the run is at half the lib
 Nothing else changes: `policyLR`, `goalCritic.lr`, entropy, batch sizes, reset mix, rewards, terminals, opponents.
 
 Revert: set `criticLR` back to `1.5e-4`, rebuild, restart. Pure config; no checkpoint surgery (optimizer state
-loads as-is, only the LR scalar differs). Verify before the run that `SetLearningRates` actually applies
+loads as-is, only the LR scalar differs). Verified 2026-11-16: `SetLearningRates` (PPOLearner.cpp:1113) sets `critic`, `critic_trunk` and the goal heads from `criticLR`, and Learner.cpp:3277 reapplies `config.ppo.criticLR` at every gate step. EV panel name: `GCO/Critic Explained Variance`. (Original note: verify that `SetLearningRates` actually applies
 `criticLR` to the live optimizers (same trap as the `vdag1`/`vdag2` lr=0 incident in CLAUDE.md): read the
 "Update Magnitude"-style panel for the critic family after the first iteration and confirm it is nonzero and larger.
 
@@ -78,9 +78,9 @@ the -0.5 timeout penalty, and policy entropy 0.014.
 
 | Item | Value |
 |---|---|
-| Baseline EV median / IQR (last 200M) | |
+| Baseline EV median / IQR | 0.298 / 0.263-0.347 (GCO/Critic Explained Variance, 3404 iterations of train-20261116-151425.log; lower than the 0.35-0.38 quoted in section 1) |
 | Baseline Rating/1v1, Ref/Oldest Share | |
-| Restart step | |
+| Restart step | (fill at launch; last logged step ~58.07B) |
 | Window end step | |
 | Result EV median (last 100M) | |
 | Gate steps taken | |
