@@ -79,7 +79,7 @@ the -0.5 timeout penalty, and policy entropy 0.014.
 | Item | Value |
 |---|---|
 | Baseline EV median / IQR | 0.298 / 0.263-0.347 (GCO/Critic Explained Variance, 3404 iterations of train-20261116-151425.log; lower than the 0.35-0.38 quoted in section 1) |
-| Baseline Rating/1v1, Ref/Oldest Share | |
+| Baseline Rating/1v1, Ref/Oldest Share | Rating/1v1 2497; Ref/Oldest Share 0.986; Ref/Share 0.775 (user-supplied, 2026-11-16) |
 | Restart step | (fill at launch; last logged step ~58.07B) |
 | Window end step | |
 | Result EV median (last 100M) | |
