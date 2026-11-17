@@ -145,3 +145,21 @@ shared trunk and the old critic path are untouched, so nothing else needs undoin
 | `Delta` update magnitude (nonzero?) | n/a | |
 | Entropy, Rating/1v1, Ref/Oldest Share | | |
 | Verdict | | |
+
+## 12. First `GCO/EV TTE` readings (2026-11-17, from wandb screenshots, smoothed lines read by eye, approximate)
+
+Panel names say "<=2s", "<=5s", "<=10s", ">10s" but the bins are DISJOINT (0-2 s, 2-5 s, 5-10 s, >10 s to the episode end,
+`Learner.cpp`). About 30 points each (every 10th iteration). The >10 s bin was not in the screenshots.
+
+| bin (to episode end) | 1v1 | 2v2 | 3v3 |
+|---|---|---|---|
+| 0-2 s | ~0.94 | ~0.88 | ~0.85 |
+| 2-5 s | ~0.69 | ~0.52 | ~0.47 |
+| 5-10 s | ~0.23 | ~0.15 | ~0.12 |
+
+Reading: (1) EV falls steeply with time-to-end in every mode (0.94 -> 0.69 -> 0.23), so the critic explains little
+beyond ~10 s, where most rows are (episodes last 30 / 55 / 65 s). (2) At EVERY bin the order is 1v1 > 2v2 > 3v3; the
+gap is largest at 2-5 s (0.17 to 0.22). So the mode gap is not only horizon composition: H1 (section 2) is NOT
+falsified by the section 4 time-to-end check, and `Delta` stays proposed. The horizon effect (~0.7 across bins) is
+first-order; the per-bin team gap (~0.05-0.2) is second-order. Values for the >10 s bin and row fractions per bin
+are still needed (a row-fraction panel is not yet logged).
