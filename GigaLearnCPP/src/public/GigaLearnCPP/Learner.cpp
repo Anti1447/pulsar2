@@ -3267,6 +3267,25 @@ void GGL::Learner::Start() {
 									report[rampPrefix + "Games " + modeNames[m]] = epsByMode[m] / (float)(2 * (m + 1));
 								report[rampPrefix + "Truncated Frac"] = nTerm > 0 ? nTrunc / (float)nTerm : 0.f;
 
+								// 2b) GOALS per 10k rows by mode (2026-11-17): a goal terminal pays +-1 under GCO (the -0.5 no-touch timeout does
+								// not count), one goal ends 2*teamSize player episodes. Episodes end almost only by goal, so this is also
+								// 10k / (mean rows per episode). Read with the row fractions below to see how decided the rows are.
+								int64_t rowsByMode[3] = { 0, 0, 0 };
+								{
+									torch::Tensor tRewC = tRewards.contiguous();
+									const float* rw = tRewC.const_data_ptr<float>();
+									int64_t goalRows[3] = { 0, 0, 0 };
+									for (int64_t i = 0; i < nRows; i++) {
+										int m = combinedTraj.rowTag[i] % 4 % 3;
+										rowsByMode[m]++;
+										if (combinedTraj.terminals[i] != 0 && std::fabs(rw[i]) > 0.75f)
+											goalRows[m]++;
+									}
+									for (int m = 0; m < 3; m++)
+										if (rowsByMode[m] > 0)
+											report[rampPrefix + "Goals/10k Rows " + modeNames[m]] = (goalRows[m] / (float)(2 * (m + 1))) / rowsByMode[m] * 1e4f;
+								}
+
 								// 3) Every 10th iteration (to keep the log short): the full mode x source EV matrix and EV by
 								// TIME-TO-EPISODE-END bin. Poor EV close to the end = a critic problem; poor only far out = mostly
 								// irreducible variance.
@@ -3291,6 +3310,16 @@ void GGL::Learner::Start() {
 										bin[i] = toEnd <= edges[0] ? 0 : toEnd <= edges[1] ? 1 : toEnd <= edges[2] ? 2 : 3;
 									}
 									torch::Tensor tBin = torch::tensor(bin);
+									// Row FRACTION in each time-to-end bin per mode (what share of a mode's rows is near the end)
+									{
+										int64_t binCnt[3][4] = {};
+										for (int64_t i = 0; i < nRows; i++)
+											binCnt[combinedTraj.rowTag[i] % 4 % 3][bin[i]]++;
+										for (int m = 0; m < 3; m++)
+											if (rowsByMode[m] > 0)
+												for (int b = 0; b < 4; b++)
+													report[rampPrefix + "Row Frac TTE " + binNames[b] + " " + modeNames[m]] = binCnt[m][b] / (float)rowsByMode[m];
+									}
 									for (int m = 0; m < 3; m++)
 										for (int b = 0; b < 4; b++)
 											fnGroupEV(((tTag % 4) == m) & (tBin == b), std::string("EV TTE ") + binNames[b] + " " + modeNames[m]);
@@ -4095,6 +4124,9 @@ void GGL::Learner::Start() {
 						"GCO/Games 2v2",
 						"GCO/Games 3v3",
 						"GCO/Truncated Frac",
+						"GCO/Goals/10k Rows 1v1",
+						"GCO/Goals/10k Rows 2v2",
+						"GCO/Goals/10k Rows 3v3",
 						"GCO/Window EV Median",
 						"GCO/LR Step",
 						"GCO/Policy LR",
