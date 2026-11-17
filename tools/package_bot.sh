@@ -17,6 +17,7 @@
 #   tools/package_bot.sh --best-gauntlet      # highest mean gauntlet win % (bestgauntlet_w<tenths of %>_<steps>, archived by the trainer)
 #   tools/package_best_bot.sh                 # same as --best
 # The trainer keeps the top 2 of each (bestCheckpointsToKeep in LearnerConfig.h).
+#   tools/package_bot.sh --stable NAME        # ALSO (re)write a fixed Windows folder %USERPROFILE%\\PulsarBots\\NAME (outside RLBot5\\bots; STABLE_ROOT overrides) holding this release, so the RLBot GUI entry never changes
 #   tools/package_bot.sh --list               # list releases
 #
 # Duplicate guard: before anything is written, the checkpoint CONTENT (weights + stats) and the bot code are
@@ -40,6 +41,7 @@ DISTRO="${WSL_DISTRO_NAME:-Ubuntu-24.04}"
 WSL_USER="$(id -un)"
 
 BUMP=patch; EXPLICIT=""; CKPT_ARG=""; INSTALL=1; DRY=0; FORCE=0; LIST=0; BEST=0
+STABLE=""
 BEST_MODE=1v1; BEST_PREFIX=best_r   # which golden archive --best reads
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -55,6 +57,7 @@ while [ $# -gt 0 ]; do
 		--no-install) INSTALL=0 ;;
 		--dry-run) DRY=1 ;;
 		--force) FORCE=1 ;;
+		--stable) STABLE="${2:?--stable needs a folder name}"; shift ;;
 		--list) LIST=1 ;;
 		-h|--help) sed -n '2,30p' "$0"; exit 0 ;;
 		*) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
@@ -103,7 +106,11 @@ else
 fi
 CK_NAME="$(basename "$CKPT")"
 # 6.0's nets read the ball-prediction obs (278 wide): the launcher sets GGL_BALLPRED=1 so the client builds it (src/RLBotMain.cpp).
-BALLPRED=0; case "$(basename "$(dirname "$CKPT")")" in checkpoints_6.0|checkpoints_6.1|checkpoints_gco_6.1) BALLPRED=1;; esac
+# An exploiter checkpoint is exploiters_6.0/<run>/<step>, one level deeper, so the grandparent is checked too.
+BALLPRED=0
+for d in "$(basename "$(dirname "$CKPT")")" "$(basename "$(dirname "$(dirname "$CKPT")")")"; do
+	case "$d" in checkpoints_6.0|checkpoints_6.1|checkpoints_gco_6.1|exploiters_6.0) BALLPRED=1;; esac
+done
 RATING_MODE=1v1
 if [[ "$CK_NAME" =~ ^best(2v2|3v3)?_r(-?[0-9]+)_([0-9]+)$ ]]; then
 	RATING_MODE="${BASH_REMATCH[1]:-1v1}"; RATING="${BASH_REMATCH[2]}"; STEP="${BASH_REMATCH[3]}"
@@ -234,5 +241,23 @@ if [ "$INSTALL" = 1 ]; then
 	printf '@echo off\r\nrem Starts the Pulsar2 %s bot inside WSL. RLBot passes RLBOT_* variables; WSLENV forwards them.\r\nset "WSLENV=RLBOT_SERVER_IP:RLBOT_SERVER_PORT:RLBOT_AGENT_ID:%%WSLENV%%"\r\nwsl.exe -d %s -u %s -- %s\r\n' \
 		"$TAG" "$DISTRO" "$WSL_USER" "$WSLRUN" > "$WD/run_wsl.bat"
 	echo "installed $WD"
+	if [ -n "$STABLE" ]; then
+		# One fixed folder and agent id: the GUI is added to it once; a new package just rewrites its files (bot.toml name, run_wsl.bat -> this release).
+		# Outside RLBot5\bots on purpose: updating the RLBot v5 botpack replaces that folder. Default C:\Users\<you>\PulsarBots (STABLE_ROOT overrides).
+		if [ -z "${STABLE_ROOT:-}" ]; then
+			UP="$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r' || true)"
+			[ -n "$UP" ] || die "cannot read %USERPROFILE% (set STABLE_ROOT to a Windows folder as a /mnt/c path)"
+			STABLE_ROOT="$(wslpath "$UP")/PulsarBots"
+		fi
+		SD="$STABLE_ROOT/$STABLE"
+		mkdir -p "$SD"
+		sed -e "s|@TAG@|$STABLE|g" -e "s|@STEP@|$STEP_LABEL ($TAG)|g" "$ASSETS/bot.toml.template" > "$SD/bot.toml"
+		sed -i "s|^name = .*|name = \"$STABLE ($TAG)\"|; s|^agent_id = .*|agent_id = \"pulsar2/gigalearn/$STABLE\"|" "$SD/bot.toml"
+		for f in "$ASSETS"/*; do case "$f" in *bot.toml.template|*Zone.Identifier) ;; *) cp "$f" "$SD/" ;; esac; done
+		cp "$REL/release.json" "$SD/"
+		printf '@echo off\r\nrem Starts %s (Pulsar2 %s) inside WSL. RLBot passes RLBOT_* variables; WSLENV forwards them.\r\nset "WSLENV=RLBOT_SERVER_IP:RLBOT_SERVER_PORT:RLBOT_AGENT_ID:%%WSLENV%%"\r\nwsl.exe -d %s -u %s -- %s\r\n' \
+			"$STABLE" "$TAG" "$DISTRO" "$WSL_USER" "$WSLRUN" > "$SD/run_wsl.bat"
+		echo "stable     : $SD  ->  $TAG"
+	fi
 	echo "In the RLBot v5 app, refresh or restart it; pick \"Pulsar2 $TAG\"."
 fi

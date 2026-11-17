@@ -774,7 +774,7 @@ void GGL::Learner::RunGauntlet(Report& report) {
 // snapshot. League role: every opponent in its pool, games split evenly. Each opponent's result is the mean of its
 // per-mode win rates; the headline is the uniform mean over opponents. Pooled per-mode counts go to `pooled`.
 static float RunExploiterTargetGames(GGL::Learner& L, int totalGames,
-	std::map<std::string, GGL::ExploiterPoolLogic::ModeCounts>& pooled) {
+	std::map<std::string, GGL::ExploiterPoolLogic::ModeCounts>& pooled, bool deterministic = true) {
 	using namespace GGL::ExploiterPoolLogic;
 	auto& run = *L.exploiterRun;
 	auto& ec = L.config.exploiter;
@@ -784,8 +784,8 @@ static float RunExploiterTargetGames(GGL::Learner& L, int totalGames,
 	std::vector<float> rates;
 	for (int i = 0; i < n; i++) {
 		auto res = (ec.role == "external")
-			? run.eval->RunVsExternal(L.ppo, L.ppo->models, *L.externalOpps[0], perModeEach, ec.evalMaxGameTime, true)
-			: run.eval->Run(L.ppo, L.ppo->models, run.opponents[i], perModeEach, ec.evalMaxGameTime, true);
+			? run.eval->RunVsExternal(L.ppo, L.ppo->models, *L.externalOpps[0], perModeEach, ec.evalMaxGameTime, deterministic)
+			: run.eval->Run(L.ppo, L.ppo->models, run.opponents[i], perModeEach, ec.evalMaxGameTime, deterministic);
 		for (auto& [mode, c] : res) {
 			pooled[mode].wins += c.wins;
 			pooled[mode].losses += c.losses;
@@ -803,9 +803,25 @@ float GGL::Learner::RunExploiterEval(Report& report, int games) {
 			: ec.role == "external" ? externalOpps[0]->name : std::string("the snapshot")) << ", split evenly across modes)...");
 	Timer timer = {};
 	std::map<std::string, ExploiterPoolLogic::ModeCounts> results;
+	exploiterRun->eval->ResetLayoutStats();
 	float winRate = RunExploiterTargetGames(*this, games, results);
 
 	nlohmann::json j = {};
+	// How many distinct games was that? (2026-11-16, user-directed) A layout is "consistent" when every counted game from it had the same
+	// result, which a fully deterministic eval guarantees; below 1.0 means something in the games is not deterministic.
+	for (auto& [mode, ls] : exploiterRun->eval->layoutStats) {
+		int distinct = (int)ls.perLayout.size(), consistent = 0;
+		for (auto& [h, lr] : ls.perLayout)
+			if (lr.wins == lr.games || lr.losses == lr.games || lr.draws == lr.games)
+				consistent++;
+		float gpl = ls.games / (float)RS_MAX(distinct, 1), cons = consistent / (float)RS_MAX(distinct, 1);
+		report["Exploiter/Eval Layouts " + mode] = (float)distinct;
+		report["Exploiter/Eval Games Per Layout " + mode] = gpl;
+		report["Exploiter/Eval Layout Consistency " + mode] = cons;
+		j["layouts_" + mode] = { {"distinct", distinct}, {"games", ls.games}, {"consistent_frac", cons} };
+		RG_LOG(" > " << mode << " layouts: " << distinct << " distinct in " << ls.games << " games (" << gpl << " games each, "
+			<< 100.f * cons << "% of layouts always gave the same result)");
+	}
 	j["total_timesteps"] = totalTimesteps;
 	j["win_rate"] = winRate;
 	int played = 0, draws = 0, scoreModes = 0;
@@ -836,6 +852,34 @@ float GGL::Learner::RunExploiterEval(Report& report, int games) {
 	report["Exploiter/Eval Games"] = played;
 	RG_LOG(" > Headline win rate " << winRate << " (" << (ec.role == "league" ? "mean over opponents of " : "")
 		<< "the mean over modes), " << played << " games, " << draws << " draws, " << timer.Elapsed() << "s");
+
+	// Perturbed eval (2026-11-16, user-directed): the same games, but OUR policy samples from its own distribution and an external bot samples
+	// at temperature 0.3. A win that is an open-loop script against the bot's fixed routine does not survive this; a skill does. The
+	// deterministic number above stays the headline and the finish rule's input.
+	{
+		constexpr float PERTURB_BOT_TEMPERATURE = 0.3f;
+		float savedTemp = 0;
+		if (ec.role == "external") {
+			savedTemp = externalOpps[0]->temperature;
+			externalOpps[0]->temperature = PERTURB_BOT_TEMPERATURE;
+		}
+		RG_LOG("Running perturbed exploiter eval (" << games << " games, our policy sampled"
+			<< (ec.role == "external" ? ", bot temperature 0.3" : "") << ")...");
+		std::map<std::string, ExploiterPoolLogic::ModeCounts> pres;
+		float pRate = RunExploiterTargetGames(*this, games, pres, false);
+		if (ec.role == "external")
+			externalOpps[0]->temperature = savedTemp;
+		report["Exploiter/Eval Perturbed Win Rate"] = pRate;
+		j["perturbed_win_rate"] = pRate;
+		for (auto& [mode, c] : pres) {
+			float w = ExploiterPoolLogic::WinRate(c);
+			if (w >= 0)
+				report["Exploiter/Eval Perturbed Win Rate " + mode] = w;
+			j["perturbed_" + mode] = { {"wins", c.wins}, {"losses", c.losses}, {"draws", c.draws} };
+			RG_LOG(" > perturbed " << mode << ": " << c.wins << "W " << c.losses << "L " << c.draws << "D");
+		}
+		RG_LOG(" > Perturbed headline win rate " << pRate << " (deterministic " << winRate << ")");
+	}
 
 	std::ofstream(config.checkpointFolder / "EVAL_LOG.jsonl", std::ios::app) << j.dump() << "\n";
 	return winRate;
@@ -1356,6 +1400,10 @@ void GGL::Learner::Start() {
 			// config.ppo.goalCritic.enabled): +1 own team scored / -1 conceded / 0 otherwise,
 			// computed straight from game outcomes — independent of the reward stack.
 			FList goalRews;
+			// Per-row diagnostic tag for the critic-EV breakdown (2026-11-16): source * 4 + (team size - 1), where source is
+			// 0 self-play, 1 old version, 2 imported exploiter, 3 exploiter-run frozen opponent, 4 + i external bot i.
+			// Read only by the explained-variance panels; nothing trains on it.
+			std::vector<uint8_t> rowTag;
 			std::vector<uint8_t> actionMasks;
 			std::vector<int8_t> terminals;
 			std::vector<int32_t> actions;
@@ -1420,6 +1468,7 @@ void GGL::Learner::Start() {
 				nextStates.clear();
 				rewards.clear();
 				goalRews.clear();
+				rowTag.clear();
 				logProbs.clear();
 				actionMasks.clear();
 				terminals.clear();
@@ -1455,6 +1504,7 @@ void GGL::Learner::Start() {
 				actionMasks.reserve(rows * numActions);
 				rewards.reserve(rows);
 				goalRews.reserve(rows);
+				rowTag.reserve(rows);
 				logProbs.reserve(rows);
 				terminals.reserve(rows);
 				actions.reserve(rows);
@@ -1499,6 +1549,7 @@ void GGL::Learner::Start() {
 				nextStates += other.nextStates;
 				rewards += other.rewards;
 				goalRews += other.goalRews;
+				rowTag += other.rowTag;
 				logProbs += other.logProbs;
 				actionMasks += other.actionMasks;
 				terminals += other.terminals;
@@ -1536,6 +1587,7 @@ void GGL::Learner::Start() {
 				RG_ASSERT(rewards.size() == n && logProbs.size() == n && terminals.size() == n);
 				if (!goalRews.empty())
 					RG_ASSERT(goalRews.size() == n);
+				RG_ASSERT(rowTag.size() == n || rowTag.empty());
 				if (!touched.empty()) {
 					RG_ASSERT(touched.size() == n && oppTouched.size() == n && gatedPos.size() == n);
 					RG_ASSERT(teamTouched.size() == n);
@@ -2542,6 +2594,11 @@ void GGL::Learner::Start() {
 							trajectories[newPlayerIdx].actions.push_back(curActions[newPlayerIdx]);
 							trajectories[newPlayerIdx].rewards += envSet->state.rewards[newPlayerIdx];
 							trajectories[newPlayerIdx].logProbs += newLogProbs[k];
+							{
+								int srcCode = externalOppIdx >= 0 ? 4 + externalOppIdx : (poolMemberIdx >= 0 ? 2 : (exploiterRun ? 3 : (oppModels ? 1 : 0)));
+								int teamSz = (int)envSet->state.gameStates[playerArenaIdx[newPlayerIdx]].players.size() / 2;
+								trajectories[newPlayerIdx].rowTag.push_back((uint8_t)(srcCode * 4 + RS_CLAMP(teamSz - 1, 0, 3)));
+							}
 
 							// Steered-practice row tags: ROLE (0 match, 1 steered, 2 control)
 							// + MODE (team size - 1). Tagged by ARENA, not by whether a vector
@@ -3132,6 +3189,32 @@ void GGL::Learner::Start() {
 						float returnVar = tScaledReturns.var().item<float>();
 						float explainedVar = 1 - (tScaledReturns - tValPreds).var().item<float>() / RS_MAX(returnVar, 1e-8f);
 						report[rampPrefix + "Critic Explained Variance"] = explainedVar;
+
+						// EV breakdown (2026-11-16, user-directed): the same EV split by game mode and by opponent source, to tell a
+						// critic problem from variance that no critic can remove (mixed opponents, team credit). A group needs 300 rows.
+						if ((int64_t)combinedTraj.rowTag.size() == tScaledReturns.size(0)) {
+							torch::Tensor tTag = torch::tensor(std::vector<int>(combinedTraj.rowTag.begin(), combinedTraj.rowTag.end()));
+							auto fnGroupEV = [&](const torch::Tensor& mask, const std::string& key) {
+								int64_t n = mask.sum().item<int64_t>();
+								if (n < 300)
+									return;
+								torch::Tensor r = tScaledReturns.index({ mask }), v = tValPreds.index({ mask });
+								float rv = r.var().item<float>();
+								float ev = 1 - (r - v).var().item<float>() / RS_MAX(rv, 1e-8f);
+								if (std::isfinite(ev))
+									report[rampPrefix + key] = ev;
+							};
+							const char* modeNames[3] = { "1v1", "2v2", "3v3" };
+							for (int m = 0; m < 3; m++)
+								fnGroupEV((tTag % 4) == m, std::string("EV ") + modeNames[m]);
+							torch::Tensor tSrc = torch::div(tTag, 4, "floor");
+							fnGroupEV(tSrc == 0, "EV Src self-play");
+							fnGroupEV(tSrc == 1, "EV Src old version");
+							fnGroupEV(tSrc == 2, "EV Src exploiter pool");
+							fnGroupEV(tSrc == 3, "EV Src frozen opponent");
+							for (size_t b = 0; b < externalOpps.size(); b++)
+								fnGroupEV(tSrc == (int)(4 + b), "EV Src " + externalOpps[b]->name);
+						}
 
 						auto& ec = config.exploiter;
 						float rampFrac;
@@ -3889,6 +3972,16 @@ void GGL::Learner::Start() {
 						"Exploiter/Eval Win Rate 2v2",
 						"Exploiter/Eval Win Rate 3v3",
 						"Exploiter/Eval Score",
+						"Exploiter/Eval Perturbed Win Rate",
+						"Exploiter/Eval Perturbed Win Rate 1v1",
+						"Exploiter/Eval Perturbed Win Rate 2v2",
+						"Exploiter/Eval Perturbed Win Rate 3v3",
+						"Exploiter/Eval Layouts 1v1",
+						"Exploiter/Eval Layouts 2v2",
+						"Exploiter/Eval Layouts 3v3",
+						"Exploiter/Eval Layout Consistency 1v1",
+						"Exploiter/Eval Layout Consistency 2v2",
+						"Exploiter/Eval Layout Consistency 3v3",
 						"Exploiter/Eval Score 1v1",
 						"Exploiter/Eval Score 2v2",
 						"Exploiter/Eval Score 3v3",
@@ -3901,6 +3994,17 @@ void GGL::Learner::Start() {
 						"Exploiter/Policy LR",
 						// GCO run (docs/GCO.md): the gated policy-LR schedule, read by tools/dashboard_gco
 						"GCO/Critic Explained Variance",
+						"GCO/EV 1v1",
+						"GCO/EV 2v2",
+						"GCO/EV 3v3",
+						"GCO/EV Src self-play",
+						"GCO/EV Src old version",
+						"GCO/EV Src exploiter pool",
+						"GCO/EV Src frozen opponent",
+						"GCO/EV Src GalactusV2",
+						"GCO/EV Src ChronosV2",
+						"GCO/EV Src Dice",
+						"GCO/EV Src Nexto",
 						"GCO/Window EV Median",
 						"GCO/LR Step",
 						"GCO/Policy LR",
