@@ -146,3 +146,69 @@ a critic input (that IS known at run time, unlike time-to-end).
 | Matched-bin EV (4 bins x 2 modes) | | | |
 | Rating/2v2, 3v3, Ref/Oldest Share | | | |
 | Verdict | | | |
+
+## 13. Phase 0 results (2026-11-17, 114M steps on the current build; mixed team-mode reset mix as live)
+
+Sources: `build/checkpoints_gco_6.1/metrics.jsonl` (27 history lines, 60.89B -> 61.01B steps; the every-10th-iteration
+panels have n = 12) and the per-iteration trainer logs from 16:49 on (323 iterations, for the goal-rate noise). Several
+restarts are inside this span; none changed the training config.
+
+**Goals per 10k rows** (per-iteration, 323 iterations): mean / SD / CV = 1v1 18.1 / 6.0 / 0.33, 2v2 6.6 / 3.1 / 0.47,
+3v3 3.6 / 1.8 / 0.50. Rows per goal: ~550 / ~1.5k / ~2.8k, so 3v3 has ~5x fewer goals per row than 1v1.
+
+**Row share by time to episode end** (n = 12 lines, mean +- SD of a line):
+
+| bin | 1v1 | 2v2 | 3v3 |
+|---|---|---|---|
+| 0-2 s | 0.112 | 0.084 | 0.072 |
+| 2-5 s | 0.150 | 0.113 | 0.097 |
+| 5-10 s | 0.200 | 0.161 | 0.140 |
+| >10 s | 0.539 (+-0.13) | 0.642 (+-0.12) | 0.691 (+-0.14) |
+| 0-10 s total | 0.461 | 0.358 | 0.309 |
+
+**EV by bin** (median of the 12 lines; SD in the last column is for 3v3 >10 s only because of one outlier):
+
+| bin | 1v1 | 2v2 | 3v3 |
+|---|---|---|---|
+| 0-2 s | 0.940 | 0.901 | 0.876 |
+| 2-5 s | 0.694 | 0.551 | 0.506 |
+| 5-10 s | 0.251 | 0.120 | 0.152 |
+| >10 s | -0.262 | -0.272 | -0.206 (SD 0.39) |
+
+Pooled mode EV on these lines: 1v1 0.457, 2v2 0.344, 3v3 0.267.
+
+### Where the team gap comes from (rough, descriptive)
+
+Weighting each mode's per-bin EV by its row shares (this ignores between-bin variance, so it is a decomposition of the
+bin-weighted EV, not of the pooled EV): 1v1 = +0.118, 3v3 = -0.009, gap 0.127. Putting 3v3's per-bin EVs on 1v1's row
+shares gives +0.093.
+- **Row-share (horizon) composition: ~0.102 of the 0.127 (~80%).**
+- **Per-bin critic quality: ~0.025 (~20%).**
+So the team-mode EV deficit is mostly that 3v3 has 69% of its rows beyond 10 s (where EV is negative) against 54% in 1v1.
+The per-bin ordering 1v1 > 2v2 > 3v3 is real but second-order, which downgrades the `Delta` test
+(`GCO_TEAM_CRITIC_TEST.md`) below this one in priority.
+
+### Noise and the minimum detectable effect (section 3)
+
+- Goal rate by opponent source: iterations where the whole fleet served ONE external bot run ~2x the goals per row
+  (1v1 ~30 vs ~17, 3v3 ~7.6 vs ~3.1), because the bots end episodes quickly. The opponent source explains 20% / 22% /
+  **43%** of the variance in Goals/10k (1v1 / 2v2 / 3v3).
+- Lag-1 autocorrelation of 3v3 Goals/10k is 0.34 (effective sample ~0.49 x iterations).
+- For one arm of 200M steps (~500 iterations; ~420 mixed-source iterations after dropping single-bot ones; effective n ~206),
+  difference of two sequential arms, 80% power, alpha 0.05: **MDE ~12% (3v3) and ~13% (2v2)** on Goals/10k.
+- Detecting 5% needs ~2,400 iterations per arm, ~950M steps (about 3.5 hours at ~80k steps/s) per arm.
+
+### Verdict under the section 8 rule
+
+The pre-registered effect (+5% to +10%) is **below the MDE (~12%)** for a sequential 200M-step A/B. As written, the test
+would be unreadable. The decision rule says go to section 9 (the boundary lever) unless the design changes. The data
+suggest the design can change cheaply:
+1. **Interleave the arms inside one run** (some team arenas on the treatment mix, the rest on control, tag the arm in
+   `rowTag`). Both arms then see the same iteration, the same opponent source and the same policy, which removes the
+   source-mix and drift noise that dominate here. Likely a large variance cut, but UNMEASURED.
+2. Or analyse only mixed-source iterations and stratify by source.
+3. Or accept ~950M steps per arm.
+4. Or a stronger lever (carry share above 0.25), at more risk to play style.
+
+Not verified: the interleaving needs a one-bit arm tag per row (the tag is currently source x 4 + teamSize - 1 in a
+uint8, so there is room) and a per-arena arm index in `MakeEnv`.
