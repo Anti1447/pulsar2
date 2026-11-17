@@ -3214,6 +3214,88 @@ void GGL::Learner::Start() {
 							fnGroupEV(tSrc == 3, "EV Src frozen opponent");
 							for (size_t b = 0; b < externalOpps.size(); b++)
 								fnGroupEV(tSrc == (int)(4 + b), "EV Src " + externalOpps[b]->name);
+
+							// --- Team-critic diagnostics (2026-11-17; docs/GCO_TEAM_CRITIC_TEST.md section 4). TELEMETRY ONLY: nothing
+							// here feeds back into training. Same EV definition as above (value pred vs the scaled raw discounted MC
+							// return, which ignores truncation bootstraps), so the numbers are comparable with the panels above. ---
+							{
+								const int64_t nRows = tScaledReturns.size(0);
+								const int nSrc = 4 + (int)externalOpps.size();
+								auto fnSrcName = [&](int src) -> std::string {
+									if (src == 0) return "self-play";
+									if (src == 1) return "old version";
+									if (src == 2) return "exploiter pool";
+									if (src == 3) return "frozen opponent";
+									return externalOpps[src - 4]->name;
+								};
+								torch::Tensor tRes = tScaledReturns - tValPreds;
+								torch::Tensor tTagL = tTag.to(torch::kLong);
+								const int64_t nTags = RS_MAX((int64_t)(4 * nSrc), tTag.max().item<int64_t>() + 1);
+								torch::Tensor tCnt = torch::zeros({ nTags }, torch::kFloat).index_add(0, tTagL, torch::ones_like(tRes));
+								torch::Tensor tMean = torch::zeros({ nTags }, torch::kFloat).index_add(0, tTagL, tRes) / tCnt.clamp_min(1);
+								// Only groups with >= 300 rows get their mean residual removed, so a tiny group cannot fit itself away.
+								tMean = tMean * (tCnt >= 300).to(torch::kFloat);
+
+								// 1) SOURCE-CORRECTED EV: EV after subtracting each (mode, source) group's mean residual. It is
+								// an in-sample, intercept-only UPPER BOUND on what telling the critic the opponent source could buy.
+								torch::Tensor tResC = tRes - tMean.index({ tTagL });
+								auto fnCorrEV = [&](const torch::Tensor& mask, const std::string& key) {
+									if (mask.sum().item<int64_t>() < 300)
+										return;
+									float rv = tScaledReturns.index({ mask }).var().item<float>();
+									float ev = 1 - tResC.index({ mask }).var().item<float>() / RS_MAX(rv, 1e-8f);
+									if (std::isfinite(ev))
+										report[rampPrefix + key] = ev;
+								};
+								for (int m = 0; m < 3; m++)
+									fnCorrEV((tTag % 4) == m, std::string("EV SrcCorr ") + modeNames[m]);
+								fnCorrEV(torch::ones({ nRows }, torch::kBool), "EV SrcCorr All");
+
+								// 2) EPISODES per mode (a proxy for effective INDEPENDENT games: a team game's 2*teamSize player rows
+								// share one outcome) and the TRUNCATED fraction (the MC-return EV target skips the bootstrap there).
+								int64_t epsByMode[3] = { 0, 0, 0 }, nTerm = 0, nTrunc = 0;
+								for (int64_t i = 0; i < nRows; i++) {
+									int8_t t = combinedTraj.terminals[i];
+									if (t == 0)
+										continue;
+									nTerm++;
+									if (t == (int8_t)RLGC::TerminalType::TRUNCATED)
+										nTrunc++;
+									epsByMode[combinedTraj.rowTag[i] % 4 % 3]++;
+								}
+								for (int m = 0; m < 3; m++)
+									report[rampPrefix + "Games " + modeNames[m]] = epsByMode[m] / (float)(2 * (m + 1));
+								report[rampPrefix + "Truncated Frac"] = nTerm > 0 ? nTrunc / (float)nTerm : 0.f;
+
+								// 3) Every 10th iteration (to keep the log short): the full mode x source EV matrix and EV by
+								// TIME-TO-EPISODE-END bin. Poor EV close to the end = a critic problem; poor only far out = mostly
+								// irreducible variance.
+								if (totalIterations % 10 == 0) {
+									for (int64_t t = 0; t < nTags; t++) {
+										if (tCnt[t].item<float>() < 300 || (int)(t / 4) >= nSrc)
+											continue;
+										torch::Tensor mk = tTagL == t;
+										float rv = tScaledReturns.index({ mk }).var().item<float>();
+										float ev = 1 - tRes.index({ mk }).var().item<float>() / RS_MAX(rv, 1e-8f);
+										if (std::isfinite(ev))
+											report[rampPrefix + "EV Cell " + modeNames[t % 4 % 3] + " " + fnSrcName((int)(t / 4))] = ev;
+									}
+
+									const float hz = 120.f / RS_MAX(config.tickSkip, 1);
+									const int edges[3] = { (int)(2 * hz), (int)(5 * hz), (int)(10 * hz) };
+									const char* binNames[4] = { "<=2s", "<=5s", "<=10s", ">10s" };
+									std::vector<int32_t> bin(nRows);
+									int32_t toEnd = 0;
+									for (int64_t i = nRows - 1; i >= 0; i--) {
+										toEnd = (combinedTraj.terminals[i] != 0) ? 0 : toEnd + 1;
+										bin[i] = toEnd <= edges[0] ? 0 : toEnd <= edges[1] ? 1 : toEnd <= edges[2] ? 2 : 3;
+									}
+									torch::Tensor tBin = torch::tensor(bin);
+									for (int m = 0; m < 3; m++)
+										for (int b = 0; b < 4; b++)
+											fnGroupEV(((tTag % 4) == m) & (tBin == b), std::string("EV TTE ") + binNames[b] + " " + modeNames[m]);
+								}
+							}
 						}
 
 						auto& ec = config.exploiter;
