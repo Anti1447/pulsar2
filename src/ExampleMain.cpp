@@ -912,10 +912,7 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
 		cfg.exploiter.policyLRStepInterval = 200'000;
 
-	// 2026-11-16 (user-directed; docs/GCO_CRITIC_LR_TEST.md, pre-registered): critic LR 1.5e-4 -> 3e-4. EV (GCO/Critic
-	// Explained Variance) sits below the 0.41 gate, so the critic is what holds the policy LR down. One lever.
-	// Revert: delete this line (criticLR returns to main's 1.5e-4).
-	cfg.ppo.criticLR = 3e-4f;
+	// 2026-11-17: a criticLR 3e-4 test was reverted to main's 1.5e-4 (neutral: EV +0.022, gate never stepped; docs/GCO_CRITIC_LR_TEST.md).
 
 	// Same learners as an exploiter: the auxiliary ones that shape or measure main's shaped-reward play are off.
 	// EXCEPTION (2026-11-14, user-directed, branch gco-goalcritic; docs/GCO_CRITIC_VARIANT.md): the long-horizon GOAL
