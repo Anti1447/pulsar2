@@ -3977,7 +3977,10 @@ void GGL::Learner::Start() {
 						auto tmp = config.checkpointFolder / "metrics_latest.json.tmp";
 						{ std::ofstream(tmp) << line << "\n"; }
 						std::filesystem::rename(tmp, config.checkpointFolder / "metrics_latest.json", ec);
-						if ((uint64_t)totalIterations % 10 == 0) {
+						// Every 10th write, plus every iteration that carries the every-10th-iteration GCO panels (their cadence is
+						// tied to totalIterations at report time, which can differ by one from the counter here).
+						static uint64_t histCounter = 0;
+						if (++histCounter % 10 == 0 || report.Has("GCO/Row Frac TTE >10s 1v1")) {
 							auto hist = config.checkpointFolder / "metrics.jsonl";
 							if (std::filesystem::exists(hist, ec) && std::filesystem::file_size(hist, ec) > 300ull * 1024 * 1024)
 								std::filesystem::rename(hist, config.checkpointFolder / "metrics.jsonl.1", ec);
