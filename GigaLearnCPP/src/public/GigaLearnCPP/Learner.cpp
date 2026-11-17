@@ -3957,6 +3957,35 @@ void GGL::Learner::Start() {
 				if (metricSender)
 					metricSender->Send(report);
 
+				// LOCAL COPY OF THE FULL REPORT (2026-11-17, user-directed): every panel the wandb sender gets, readable without wandb.
+				//   <checkpointFolder>/metrics_latest.json   overwritten every iteration (tmp + rename)
+				//   <checkpointFolder>/metrics.jsonl         one line every 10th iteration; rotated to metrics.jsonl.1 past 300 MB
+				// Read with tools/metrics_summary.py. Never fatal: a write failure only skips this iteration's copy.
+				if (!config.checkpointFolder.empty()) {
+					try {
+						nlohmann::json mj;
+						mj["ts"] = (uint64_t)totalTimesteps;
+						mj["iter"] = (uint64_t)totalIterations;
+						mj["unix"] = (int64_t)std::time(nullptr);
+						nlohmann::json& mm = mj["m"] = nlohmann::json::object();
+						for (auto& kv : report.data)
+							if (std::isfinite(kv.second))
+								mm[kv.first] = kv.second;
+						std::string line = mj.dump();
+						std::error_code ec;
+						std::filesystem::create_directories(config.checkpointFolder, ec);
+						auto tmp = config.checkpointFolder / "metrics_latest.json.tmp";
+						{ std::ofstream(tmp) << line << "\n"; }
+						std::filesystem::rename(tmp, config.checkpointFolder / "metrics_latest.json", ec);
+						if ((uint64_t)totalIterations % 10 == 0) {
+							auto hist = config.checkpointFolder / "metrics.jsonl";
+							if (std::filesystem::exists(hist, ec) && std::filesystem::file_size(hist, ec) > 300ull * 1024 * 1024)
+								std::filesystem::rename(hist, config.checkpointFolder / "metrics.jsonl.1", ec);
+							std::ofstream(hist, std::ios::app) << line << "\n";
+						}
+					} catch (...) {}
+				}
+
 				report.Display(
 					{
 						"Average Step Reward",
