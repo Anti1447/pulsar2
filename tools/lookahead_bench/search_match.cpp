@@ -208,6 +208,61 @@ namespace {
 	}
 }
 
+namespace {
+	// Guard for ORACLE: snapshot a real game against the bot, replay our recorded actions in a rollout arena while the BOT is
+	// asked for its action on the ROLLOUT arena's own state, and require the same bot action at every step plus an identical end
+	// state. Run with GGL_BOT_SHUFFLE=0 (the shuffle draws from a random engine, so replay is not deterministic with it on).
+	int OracleTest(Nets& nets, ExternalOpponent& bot, int H) {
+		if (!(std::getenv("GGL_BOT_SHUFFLE") && std::string(std::getenv("GGL_BOT_SHUFFLE")) == "0"))
+			printf("WARNING: GGL_BOT_SHUFFLE=0 is not set; mismatches below may be the slot shuffle, not a bug\n");
+		auto real = MakeEnv(1); auto roll = MakeEnv(1);
+		bot.BeginServe(2);
+		int bad = 0;
+		for (int trial = 0; trial < 6; trial++) {
+			real->ResetArena(0);
+			std::vector<uint8_t> fresh = { 1 };
+			uint64_t seed = 300 + trial;
+			int warm = 20 + 25 * trial;
+			std::vector<bool> botMask = { false, true };
+			auto stepReal = [&](int cyc, std::vector<int>* rec) {
+				torch::Tensor probs = nets.Probs(ObsTensor(*real), MaskTensor(*real));
+				std::vector<float> u = { Uni(seed, cyc, 0, 0, 0), Uni(seed, cyc, 1, 0, 0) };
+				torch::Tensor act = SampleFromProbs(probs, u);
+				IList acts(2); for (int i = 0; i < 2; i++) acts[i] = (int)act[i].item<int64_t>();
+				real->StepFirstHalf(false);
+				std::vector<int> ext(2, 0);
+				bot.Act(real->state.gameStates, botMask, fresh, ext);
+				fresh[0] = 0;
+				acts[1] = ext[1];
+				if (rec) *rec = acts;
+				real->StepSecondHalf(acts, false);
+			};
+			for (int c = 0; c < warm; c++) stepReal(c, nullptr);
+			Snap snap; Capture(*real, 0, snap);
+			std::vector<std::vector<int>> recorded;
+			for (int h = 0; h < H; h++) { std::vector<int> acts; stepReal(1000 + h, &acts); recorded.push_back(acts); }
+			Load(*roll, 0, snap);
+			std::vector<uint8_t> zero = { 0 };
+			int mism = 0;
+			for (int h = 0; h < H; h++) {
+				roll->StepFirstHalf(false);
+				std::vector<int> ext(2, 0);
+				bot.Act(roll->state.gameStates, botMask, zero, ext);
+				if (ext[1] != recorded[h][1]) mism++;
+				IList acts = { recorded[h][0], ext[1] };
+				roll->StepSecondHalf(acts, false);
+			}
+			const GameState& a = real->state.gameStates[0]; const GameState& b = roll->state.gameStates[0];
+			bool endSame = a.ball.pos.x == b.ball.pos.x && a.ball.pos.y == b.ball.pos.y && a.ball.pos.z == b.ball.pos.z;
+			for (int i = 0; i < 2; i++) endSame &= a.players[i].pos.x == b.players[i].pos.x && a.players[i].boost == b.players[i].boost;
+			printf("  trial %d (warm %3d, replay %d): bot-action mismatches %d/%d, end state %s\n", trial, warm, H, mism, H, endSame ? "IDENTICAL" : "DIFFERS");
+			if (mism || !endSame) bad++;
+		}
+		printf("oracletest: %s\n", bad ? "FAIL" : "PASS");
+		return bad ? 1 : 0;
+	}
+}
+
 int main(int argc, char** argv) {
 	std::cout << std::unitbuf;
 	setvbuf(stdout, NULL, _IOLBF, 0); // progress lines must appear when redirected to a file
@@ -235,6 +290,7 @@ int main(int argc, char** argv) {
 	at::set_num_threads(4);
 
 	Nets nets; nets.Build(278, ckpt);
+	const bool oracle = std::getenv("ORACLE") && std::string(std::getenv("ORACLE")) == "1"; // rollouts use the BOT's policy for the opponent
 	if (mode == "selftest") return SelfTest(nets, std::max(H, 10));
 
 	const bool searching = mode == "search";
@@ -253,7 +309,13 @@ int main(int argc, char** argv) {
 		else { printf("unknown EXT_BOT %s\n", eb); return 2; }
 		bot->temperature = 0.f; // argmax: the bot as shipped
 	}
+	if (mode == "oracletest") {
+		if (!bot) { printf("oracletest needs EXT_BOT\n"); return 2; }
+		return OracleTest(nets, *bot, std::max(H, 10));
+	}
+	if (oracle && !bot) { printf("ORACLE=1 needs EXT_BOT\n"); return 2; }
 	auto real = MakeEnv(G);
+	if (oracle) printf("ORACLE: rollout opponent = the real bot's policy (%s)\n", botName.c_str());
 	if (bot) { bot->BeginServe(real->state.numPlayers); printf("opponent in the real game: %s (argmax)\n", bot->name.c_str()); }
 	std::vector<uint8_t> botFresh(G, 1);
 	std::unique_ptr<EnvSet> roll;
@@ -338,6 +400,12 @@ int main(int argc, char** argv) {
 				for (int m = 0; m < M; m++) oppFirst[g][m] = (int)a[m].item<int64_t>();
 			}
 			const int RP = roll->state.numPlayers;
+			std::vector<bool> isBotRoll(RP, false);
+			if (oracle) for (int g = 0; g < G; g++) if (slots[g].active) {
+				int ours = PlayerIdx(real->state.gameStates[g], slots[g].searchTeam);
+				for (int r = 0; r < R; r++) isBotRoll[roll->state.arenaPlayerStartIdx[g * R + r] + 1 - ours] = true;
+			}
+			std::vector<uint8_t> rollFresh(G * R, 0);
 			for (int h = 0; h < H; h++) {
 				double tr = NowS();
 				roll->StepFirstHalf(false);
@@ -363,6 +431,11 @@ int main(int argc, char** argv) {
 					torch::Tensor ra = SampleFromProbs(rp, ru);
 					for (int i = 0; i < RP; i++) racts[i] = (int)ra[i].item<int64_t>();
 					tInf += NowS() - ti;
+				}
+				if (oracle) {
+					std::vector<int> ext(RP, 0);
+					bot->Act(roll->state.gameStates, isBotRoll, rollFresh, ext);
+					for (int i = 0; i < RP; i++) if (isBotRoll[i]) racts[i] = ext[i];
 				}
 				roll->StepSecondHalf(racts, false);
 				for (int g = 0; g < G; g++) if (slots[g].active) for (int r = 0; r < R; r++) {

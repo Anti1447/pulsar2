@@ -1,6 +1,6 @@
 # GCO search: oracle-opponent test and distillation test (pre-registration, 2026-11-18)
 
-Status: **PROPOSED, nothing implemented or run.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
+Status: **Test A run on Dice (section 8); Test B not built.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
 measurement before machinery; one lever; pre-registered criteria; a guard; a revert path. Offline, CPU only; the trainer, its
 checkpoints and the GPU are not touched. User decision (2026-11-18): search is for **training only**, not for live play.
 
@@ -150,3 +150,26 @@ Delete the tools and the doc to revert.
 | Test B arms vs each bot | |
 | Controls (C-argmax, C-shuffle) | |
 | Verdict | |
+
+## 8. Test A result: Dice (2026-11-18)
+
+Harness: `ORACLE=1 EXT_BOT=dice` (rollout opponent = Dice's own policy, called on the rollout arena's state). Guard: `oracletest`
+(GGL_BOT_SHUFFLE=0), 6 trials x 30 steps: 0 bot-action mismatches, end states identical (PASS). The test itself runs with the shuffle at
+its default, as section 14 of `GCO_LOOKAHEAD_TEST.md` did.
+
+| Arm (vs Dice, 200 games, same seeds) | Score | W/L/D |
+|---|---|---|
+| Raw policy | 0.260 | 37/133/30 |
+| Search, opponent modelled as our policy (section 14) | 0.205 | 32/150/18 |
+| **Search, oracle opponent** | **0.805** | 153/31/16 |
+
+Oracle minus raw = +0.545; oracle minus modelled-opponent search = +0.600 (se about 0.035 per arm). Far above the +0.08 floor.
+The earlier 100-game raw baseline (0.365) and this 200-game one (0.260) differ by about 2 se, which is noise-sized next to the effect.
+
+Reading: **H-mismatch supported for Dice.** The search is sound when its opponent model is right; the section 14 deficit was the model.
+Caveats that bear on how far this reads: (1) Dice plays argmax, a deterministic function of the state, so the oracle can predict its
+reply exactly, which is stronger than a good approximate model, and the gain is an upper bound on what a learned model could reach;
+(2) the oracle is not deployable (needs the weights); (3) one bot only, GalactusV2 not yet run; (4) 1v1.
+
+Consequence for Test B: distillation labels from self-play use a near-exact opponent model (section 13 of the lookahead doc), and
+this result says exact models give large gains, so Test B is worth its cost. Next: GalactusV2 oracle (selftest first), then Test B.
