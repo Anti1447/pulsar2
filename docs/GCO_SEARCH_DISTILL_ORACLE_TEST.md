@@ -1,0 +1,152 @@
+# GCO search: oracle-opponent test and distillation test (pre-registration, 2026-11-18)
+
+Status: **PROPOSED, nothing implemented or run.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
+measurement before machinery; one lever; pre-registered criteria; a guard; a revert path. Offline, CPU only; the trainer, its
+checkpoints and the GPU are not touched. User decision (2026-11-18): search is for **training only**, not for live play.
+
+## 1. Where we are (measured, `GCO_LOOKAHEAD_TEST.md`)
+
+Checkpoint `best_r2721`, 1v1, lookahead H=30 steps (2 s), K=8 candidates, leaf = a*V+b.
+
+| Opponent in the real game | Raw policy | Search | Gap |
+|---|---|---|---|
+| Our own raw policy (sampling) | 0.500 by construction | 0.770 | +0.27 |
+| GalactusV2 | 0.220 (100 games) | 0.150 (200) | -0.07 |
+| Dice | 0.365 (100) | 0.205 (200) | -0.16 |
+| ChronosV2 | 0.270 (100) | 0.190 (200) | -0.08 |
+| Nexto | 0.730 (100) | 0.703 (200) | -0.03 |
+
+Standard errors: about 0.05 for the 100-game raw arms, 0.035 for the 200-game search arms. Leak checks in section 13 of that doc
+(worst candidate 0.005, random-top8 0.150, argmax opponent 0.728) say the self-play 0.770 is not a labelling or side artifact.
+The argmax control (the policy's own argmax instead of sampling) scored 0.555, so sharpening alone is worth about +5.5.
+
+Reading: search helps against our own policy and does not help, probably hurts, against four different bots. **Hypothesis H-mismatch**
+(untested): the rollouts model the opponent as our own policy, which is wrong for those bots.
+
+## 2. Test A: oracle-opponent search (diagnostic only)
+
+**Question.** Is the opponent model the whole problem? Identical search, except that inside the rollouts the opponent is the real
+bot's own policy instead of ours.
+
+**Design.** Same harness, checkpoint, seeds, K, H, M, leaf calibration and scoring as section 14. Change only the rollout opponent:
+at every rollout step the bot's `Act` runs on the rollout arena's own `GameState` (argmax, as it plays in the real game). Mid-rollout
+bot state: Nexto keeps per-player previous-action memory, the GGL bots keep per-arena ball predictors, so each rollout arena needs its
+own bot state copied from the real game at snapshot time (or, for stateless bots, nothing). The first-step opponent action is also the
+bot's own. Start with **Dice** (simplest state, largest search deficit), then GalactusV2; Nexto and ChronosV2 only if the first two read.
+
+**Guard (the oracle must be right before it means anything).** Selftest: snapshot a real game against the bot, replay the bot's real
+actions through a rollout arena, and require identical obs and end state (same bar as the section 12 selftest: end state identical,
+obs within 1e-4). A bot-state copy bug would look like a failed oracle.
+
+**Games.** 200 per bot for search, and the matching raw arm extended to 200 games on the same seeds (the section 14 raw arms have
+only 100 games each).
+
+**Predictions.**
+
+| Outcome | H-mismatch true | H-mismatch false |
+|---|---|---|
+| Oracle search minus raw (Dice, GalactusV2) | >= +0.08 on at least one | within +-0.05 or negative |
+| Oracle minus section-14 search | >= +0.10 | within +-0.05 |
+
+A result counts only if it clears the floor AND the interval (about 2 se, i.e. 0.10 at these sizes) excludes the baseline.
+Floors are set at the sample size's resolution; effects smaller than about 0.08 cannot be called from 200 games.
+
+**Decision.**
+- Supported: the search is sound given a good opponent model. Distillation (Test B) is worth its cost; an opponent-model component is
+  a separate, later project (not part of this document).
+- Not supported: search does not help this policy against strong opponents even with a perfect model. Test B is then very unlikely to
+  give a bot gain; run it only as a cheap check or drop it.
+- Mixed (one bot only): report per bot, do not average.
+
+The oracle is NOT deployable (it needs the opponent's weights) and is never used in training. It is run only to read H-mismatch.
+
+## 3. Test B: distilling search into the policy (the training-only question)
+
+**Question.** If a copy of the policy is trained toward the search's chosen actions, does the copy play better in RAW play (no search
+anywhere at test time)?
+
+**Labels.** Self-play games with the section-12 search (K=8, H=30, calibrated leaf) on both sides' decisions or on one side (to
+decide in the build; record which). For every decision store: obs (278), legal mask (90), the K candidate actions, their search
+scores, and the chosen action. Both soft labels (softmax over candidate scores, temperature chosen on a held-out slice before the
+runs) and hard labels (chosen action) are trained as separate arms. Opponent-model note: self-play labels are the setting where the
+rollout opponent model is nearly exact (section 13), so Test B does not depend on Test A to be well-defined.
+
+**Size.** About 12 s per game on 4 cores (self-play games are shorter than the 17 s mean, so this is an upper bound). Plan 3,000
+games, roughly 100k-200k labelled decisions, about 10-12 hours; stop early at a held-out agreement curve plateau. Hold out 10% of
+games (by game, not by row; adjacent frames are near-duplicates).
+
+**Fine-tune.** A copy of `best_r2721`. Loss: cross-entropy to the label distribution over legal actions, plus
+`beta * KL(copy || original)` to bound drift (beta fixed before the run, small grid on the held-out games only). Optimizer and LR
+chosen on held-out label agreement, never on match results. CPU libtorch; the layer config is the one in `search_match.cpp` (`Nets`).
+Policy head only; the shared trunk is trained too (it is the same module the policy reads) but the critic heads are not used and not
+saved with the copy (this is a probe, not a checkpoint to deploy; recovery doctrine: no hybrid checkpoints enter the trainer).
+
+**Arms (all evaluated RAW, sampling at temperature 1, 1v1).**
+
+| Arm | Description |
+|---|---|
+| S-soft, S-hard | trained on search labels (soft, hard) |
+| C-argmax | trained toward the original policy's own argmax (the sharpening control) |
+| C-shuffle | search labels shuffled across rows (fine-tuning alone, no information) |
+| O | the unmodified checkpoint (reference) |
+
+**Evaluation.** Each arm vs O, and vs each of GalactusV2, Dice, ChronosV2, Nexto, on the same seeds and sides, **300 games per
+cell** (se about 0.03 each; the O-vs-bot raw baselines are re-run at 300 games). Raw games are cheap (a few minutes per 100).
+The bar is against the BOTS, not against O: self-play is exactly where search is already known to help.
+
+**Predictions.**
+
+| Measure | Distillation works | Distillation does not |
+|---|---|---|
+| S-soft/S-hard vs O | > 0.55 | within +-0.05 |
+| S vs each bot, minus O vs the same bot | >= +0.05 on at least 2 of 4 bots, none worse than -0.05 | within +-0.05 or worse |
+| S minus C-argmax vs the bots | >= +0.04 | within +-0.04 (it is just sharpening) |
+| C-shuffle vs O and vs bots | within +-0.03 (control reads null) | otherwise the pipeline moves results by itself |
+
+**Guards.** Held-out label agreement reported for every arm and above the original policy's agreement; no NaN/inf; entropy of each
+copy reported (a collapsed copy would pass "beats O" on sharpening alone, which C-argmax catches); the seed/side assignment identical
+across arms; C-shuffle must read null or the evaluation is void.
+
+**Decision.**
+- Works (floors met, beats C-argmax): pre-register a training integration separately (how labelled self-play enters PPO, the
+  critic-aliasing and clipping-ratchet rules both apply because the data is off-policy). This document does not authorise any change
+  to the trainer.
+- Sharpening only (S about C-argmax): drop search for training; the cheaper lever is entropy/temperature schedule.
+- No effect: drop it.
+
+## 4. Order and cost
+
+1. Selftest for the oracle's bot-state copy, then Test A on Dice (about 40 min per 200-game arm, raw arm extended to 200: minutes).
+2. Test A on GalactusV2 if Dice reads either way.
+3. Test B only after A (or immediately, if the user prefers: B is well-defined without A, but A decides how much to hope for).
+Compute: 4 cores niced, trainer untouched. Build effort: A is about half a day (bot-state copies), B about a day (label writer,
+fine-tune loop, evaluation driver).
+
+## 5. Revert
+
+Everything is a new offline tool and doc. Nothing in `ExampleMain.cpp`, `Learner.cpp`, the trainer or any checkpoint changes.
+Delete the tools and the doc to revert.
+
+## 6. Known unknowns / not verified
+
+- Whether the self-play gain survives being distilled at all is unknown; the 0.770 may be mostly sample-noise filtering (the argmax
+  control was +5.5; best-vs-worst candidate spread 0.77 vs 0.005 says the search distinguishes actions, not that a student can learn
+  the distinction from 100k labels).
+- The soft-label temperature and KL weight are free parameters; they are chosen on held-out agreement only.
+- 1v1 only. 2v2/3v3 rollouts cost 2-3x the sim step and the critic is weaker there (section 1 of `GCO_CRITIC_CONTEXT_TEST.md`).
+- A distilled copy's gain, if any, is measured offline against frozen opponents; it does not show that the same labels help when
+  mixed into live PPO.
+- The raw baselines vs the bots are only 100 games each in section 14 and are re-run in this plan.
+
+## 7. Record (fill in)
+
+| Item | Value |
+|---|---|
+| Oracle selftest (Dice, GalactusV2) | |
+| Test A: oracle search vs raw, per bot | |
+| Test A verdict (H-mismatch) | |
+| Labelled decisions / games, held-out agreement | |
+| Test B arms vs O | |
+| Test B arms vs each bot | |
+| Controls (C-argmax, C-shuffle) | |
+| Verdict | |
