@@ -66,3 +66,10 @@ set_target_properties(LookaheadInferBench PROPERTIES CXX_STANDARD 20)
 target_include_directories(LookaheadInferBench PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearnCPP/src/private")
 target_include_directories(LookaheadInferBench PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(LookaheadInferBench GigaLearnCPP ${TORCH_LIBRARIES})
+
+# Phase 1/2a of docs/GCO_LOOKAHEAD_TEST.md: real-sim lookahead harness (selftest / calib / search). CPU only.
+add_executable(LookaheadSearch EXCLUDE_FROM_ALL ../tools/lookahead_bench/search_match.cpp)
+set_target_properties(LookaheadSearch PROPERTIES CXX_STANDARD 20)
+target_include_directories(LookaheadSearch PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearnCPP/src/private")
+target_include_directories(LookaheadSearch PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(LookaheadSearch GigaLearnCPP ${TORCH_LIBRARIES})
