@@ -321,7 +321,17 @@ namespace {
 		std::vector<int32_t> games(L.game.begin(), L.game.end()); std::sort(games.begin(), games.end()); games.erase(std::unique(games.begin(), games.end()), games.end());
 		std::vector<uint8_t> held(N, 0);
 		for (int64_t i = 0; i < N; i++) held[i] = (Mix((uint64_t)L.game[i] * 2654435761ULL + 99) % 1000) < (uint64_t)(holdFrac * 1000);
-		std::vector<int64_t> trI, hoI; for (int64_t i = 0; i < N; i++) (held[i] ? hoI : trI).push_back(i);
+		// Rows where the search found no real difference between candidates (best-worst score range under DISTILL_MINRANGE) carry
+		// rollout noise as their "choice": dropped from training and from the informative held-out metrics.
+		const float minRange = (float)atof(envs("DISTILL_MINRANGE", "0.05").c_str());
+		torch::Tensor rangeT = std::get<0>(score.max(1)) - std::get<0>(score.min(1));
+		std::vector<int64_t> trI, hoI, hoInfo;
+		for (int64_t i = 0; i < N; i++) {
+			bool info = rangeT[i].item<float>() >= minRange;
+			if (held[i]) { hoI.push_back(i); if (info) hoInfo.push_back(i); } else if (info) trI.push_back(i);
+		}
+		printf("informative rows (range >= %.3f): train %zu, held-out %zu of %zu\n", minRange, trI.size(), hoInfo.size(), hoI.size());
+		torch::Tensor hoInf = torch::tensor(hoInfo);
 		printf("%zu games; train rows %zu, held-out rows %zu\n", games.size(), trI.size(), hoI.size());
 		torch::Tensor tr = torch::tensor(trI), ho = torch::tensor(hoI);
 
@@ -354,7 +364,21 @@ namespace {
 			}
 			return n ? ok / n : 0.0;
 		};
-		printf("held-out argmax agreement with the search's choice: original %.3f\n", agree(ho, true));
+		// Held-out search advantage: the expected search score of the policy's action, over the candidate set (renormalised), minus the
+		// candidates' mean score. The quantity distillation should raise; unlike argmax agreement it is not a noisy single pick.
+		auto sadv = [&](const torch::Tensor& idx, bool useRef, double* massOut) {
+			torch::NoGradGuard ng; double a = 0, mass = 0; int64_t n = idx.size(0);
+			for (int64_t i = 0; i < n; i += 4096) {
+				torch::Tensor ii = idx.slice(0, i, std::min(n, i + 4096));
+				torch::Tensor p = useRef ? refProbs.index_select(0, ii) : nets.Probs(obs.index_select(0, ii), mask.index_select(0, ii));
+				torch::Tensor pc = p.gather(1, cand.index_select(0, ii)), sc = score.index_select(0, ii);
+				torch::Tensor m = pc.sum(1, true), pr = pc / m;
+				a += (pr * (sc - sc.mean(1, true))).sum(1).sum().item<double>(); mass += m.sum().item<double>();
+			}
+			*massOut = mass / n; return a / n;
+		};
+		double m0 = 0;
+		printf("held-out (informative rows): original agreement %.3f, search advantage %+.4f (policy mass inside the 8 candidates %.3f)\n", agree(hoInf, true), sadv(hoInf, true, &m0), m0);
 
 		std::vector<torch::Tensor> params;
 		for (const char* name : { "shared_head", "policy" }) for (auto& pr : nets.models[name]->parameters()) params.push_back(pr);
@@ -374,7 +398,8 @@ namespace {
 				opt.zero_grad(); loss.backward(); opt.step();
 				lossSum += ce.item<float>(); klSum += kl.item<float>(); nb++;
 			}
-			printf("epoch %d: train CE %.4f, KL to original %.4f | held-out agreement %.3f\n", ep + 1, lossSum / nb, klSum / nb, agree(ho, false));
+			double m1 = 0; double sa = sadv(hoInf, false, &m1);
+			printf("epoch %d: train CE %.4f, KL to original %.4f | held-out informative: agreement %.3f, search advantage %+.4f (mass %.3f)\n", ep + 1, lossSum / nb, klSum / nb, agree(hoInf, false), sa, m1);
 		}
 		{ torch::NoGradGuard ng; torch::Tensor p = nets.Probs(obs.index_select(0, ho), mask.index_select(0, ho));
 		  double ent = -(p * torch::log(p.clamp_min(1e-11f))).sum(1).mean().item<double>(), rent = -(refProbs.index_select(0, ho) * torch::log(refProbs.index_select(0, ho).clamp_min(1e-11f))).sum(1).mean().item<double>();

@@ -1,6 +1,6 @@
 # GCO search: oracle-opponent test and distillation test (pre-registration, 2026-11-18)
 
-Status: **Test A run on Dice and GalactusV2 (sections 8, 9); Test B not built.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
+Status: **Test A run on Dice and GalactusV2 (sections 8, 9); Test B run (section 10): no gain, controls partly failed.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
 measurement before machinery; one lever; pre-registered criteria; a guard; a revert path. Offline, CPU only; the trainer, its
 checkpoints and the GPU are not touched. User decision (2026-11-18): search is for **training only**, not for live play.
 
@@ -188,3 +188,49 @@ Oracle minus raw = +0.373; oracle minus modelled-opponent search = +0.530 (se ab
 Two bots now agree: with the right opponent model, search gains +0.37 to +0.55 in 1v1; with our policy as the model it loses.
 Verdict on Test A: **H-mismatch supported on Dice and GalactusV2.** The oracle remains an upper bound (deterministic argmax opponents,
 exact weights) and is not deployable. ChronosV2 and Nexto were not run (not needed for the decision). Next: Test B.
+
+## 10. Test B result (2026-11-18)
+
+**Labels.** 3 processes, same checkpoint and search settings (H=30, K=8, M=1, leaf a=0.4618 b=-0.0033), seeds 101/102/103, 204,913 rows from
+774 games; search side scored 0.760 / 0.798 vs the raw policy (A: 350 games; C: 250; B was cut at about 140 games when the trainer slowed
+16%, past a self-set 15% guard; the user then accepted the slowdown with a 50% hard limit, enforced by a watchdog that never fired).
+Held out by game (10%). Label alignment check: the original's argmax equals the search's chosen candidate on 22% of rows and the
+policy-top candidate (index 0) is chosen on 21%, so labels and observations line up.
+
+**Deviations from the pre-registration (all made after seeing the first grid, none from match results).**
+1. The first grid (soft labels, temperature 0.1, argmax-agreement metric) made every copy worse: agreement 0.219 -> about 0.17, entropy
+   1.94 -> 2.5-2.66. Cause found in the labels: median best-vs-second-best score gap is 0.0076 and median best-worst range 0.088, so at
+   temperature 0.1 the targets have 1.84 of a possible 2.08 nats of entropy (top weight 0.26). With M=1 the "chosen" action is mostly rollout
+   noise on rows where the candidates tie.
+2. Changes: label temperature 0.01/0.03; rows with best-worst range below 0.05 dropped from training and from the informative held-out
+   metrics (114,210 train rows, 13,467 held-out informative rows); the held-out metric became the search advantage (expected candidate
+   score under the policy, renormalised over the 8 candidates, minus the candidates' mean) because argmax agreement against a noisy single
+   pick is a poor metric. Original: +0.0136.
+3. Second grid (lr 1e-6/3e-6/1e-5, T 0.01/0.03, beta 0.1, 2 epochs): no setting raised the advantage (+0.0091 to +0.0126); every setting
+   raised entropy. No setting qualified, so the two ends of the lr range (1e-6, 1e-5) were evaluated.
+4. Print bug: "policy mass inside candidates 0.000" for the original is an argument-evaluation-order bug; the copies' numbers are right.
+
+**Match results, raw play, 300 games, same seeds (se about 0.029 per cell; a gap between two arms has se about 0.04).**
+
+| Arm | vs ORIGINAL | vs Dice | vs ChronosV2 | vs GalactusV2 | vs Nexto |
+|---|---|---|---|---|---|
+| ORIGINAL | 0.510 | 0.307 | 0.260 | 0.333 | 0.697 |
+| S-soft lr 1e-6 | 0.433 | 0.227 | 0.250 | 0.198 | 0.622 |
+| S-soft lr 1e-5 | 0.318 | 0.138 | 0.080 | 0.100 | 0.427 |
+| C-argmax lr 1e-5 | 0.527 | 0.328 | 0.330 | 0.327 | 0.698 |
+| C-shuffle lr 1e-5 | 0.005 | 0.007 | 0.000 | 0.003 | 0.020 |
+
+**Verdict: distillation of these labels does not work. Bar not met** (needed >= +0.05 on at least 2 of 4 bots and none worse than -0.05;
+the soft copies are worse everywhere, monotonically with lr). The argmax control is within noise of the original (largest gap +0.07 on
+ChronosV2, se of the gap 0.04), so sharpening is not clearly better either.
+
+**The null control failed:** the pre-registration required C-shuffle to read within +-0.03 or the evaluation is void. It collapsed the
+policy (0.005 vs the original). Shuffled labels are wrong actions for the state, not zero information, so this control is too strong and
+does not isolate "fine-tuning alone". Strictly the evaluation is void under the stated guard; I report it anyway and do not treat the soft
+arms' degradation as a clean statement about label quality. A proper null (labels permuted within the candidate set) was not run.
+
+**What this does and does not show.** It shows this recipe (hard fine-tune of the policy toward single-rollout, noisy search targets) is
+harmful, increasingly so with lr. It does not show search is useless for training: the oracle result (section 8-9) stands, and the
+labels' noise (M=1, single +-1 outcomes, tied candidates) is the likeliest cause but is a hypothesis. Untested alternatives: M >= 4 rollouts
+per candidate (lower-variance labels), a search-advantage-weighted policy-gradient update with PPO's clip instead of cross-entropy
+(the form that would actually enter the trainer), training the critic on search values, a proper within-candidate-set null.
