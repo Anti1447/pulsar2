@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 #include <functional>
 #include <iostream>
 #include <sstream>
@@ -65,7 +66,11 @@ struct TestRegistrar {
 
 inline int RunAllTests() {
 	int failed = 0;
+	// GGL_TEST_FILTER=<substring>: run only the tests whose name contains it (the whole suite is slow and some cases need a GPU-free arena)
+	const char* filter = std::getenv("GGL_TEST_FILTER");
 	for (auto& test : GetAllTests()) {
+		if (filter && filter[0] && test.name.find(filter) == std::string::npos)
+			continue;
 		try {
 			test.fn();
 			std::cout << "[PASS] " << test.name << std::endl;

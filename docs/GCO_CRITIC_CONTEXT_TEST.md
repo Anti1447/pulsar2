@@ -1,6 +1,6 @@
 # GCO critic-context test (pre-registration, 2026-11-18)
 
-Status: **IMPLEMENTED and smoke-tested (section 12); NOT enabled on the live trainer.** Branch `gco-goalcritic`. Doctrine: measurement before machinery;
+Status: **RUN on the live trainer (sections 12-14). Verdict: H-0 supported, no gain from the opponent source or the clocks.** Branch `gco-goalcritic`. Doctrine: measurement before machinery;
 one lever; an automatic guard; a revert path. Follows `GCO_CRITIC_LR_TEST.md` (neutral), `GCO_LAMBDA_TEST.md` (reverted),
 `GCO_TEAM_CRITIC_TEST.md` (the horizon-composition finding, section 12).
 
@@ -183,3 +183,28 @@ Started on the live GCO run at timestep 67,181,851,154 (resumed from `checkpoint
 save/load dir `checkpoints_gco_6.1`; only `critic_ctx_both/clk/nul/src` listed "will be reset"; first evaluation mean |Delta| = 0 for all four heads.
 Pre-restart control medians (last 40 metric rows): Policy Entropy 0.553, Policy Update Magnitude 0.101, Critic Update Magnitude 0.377, critic EV pooled 0.323
 (1v1 0.426, 2v2 0.311, 3v3 0.277), about 4.6M steps/min. The 150M-step window therefore ends near timestep 67.33B.
+
+## 14. Result (2026-11-18), window 67,181,851,154 to 67,341,195,334 steps (150M), read over the last 100M (29 metric rows; TTE panels 14)
+
+Median paired gain (EVctx - EV on the same rows, out of sample), [95% bootstrap CI over iterations]:
+
+| Scope | src | clk | both | nul (control) | both - nul |
+|---|---|---|---|---|---|
+| Pooled | -0.0000 [-0.0001,+0.0001] | -0.0001 [-0.0002,+0.0001] | -0.0001 [-0.0003,+0.0001] | -0.0001 [-0.0003,+0.0001] | +0.0000 [-0.0000,+0.0001] |
+| 1v1 | -0.0001 | -0.0001 | -0.0001 [-0.0003,-0.0000] | -0.0002 | +0.0000 |
+| 2v2 | -0.0001 | -0.0000 | -0.0000 [-0.0003,+0.0001] | -0.0001 | +0.0001 [-0.0001,+0.0001] |
+| 3v3 | +0.0000 | -0.0001 | -0.0000 [-0.0004,+0.0002] | -0.0000 | -0.0001 [-0.0001,+0.0001] |
+
+By time-to-end bin, the `both` head: gain between -0.0010 and +0.0012 everywhere, every interval contains 0; both-nul between -0.0002 and +0.0004. EV vs EVctx medians:
+2-5 s (`<=5s`) 1v1 0.707/0.708, 2v2 0.568/0.569, 3v3 0.521/0.520; 5-10 s 0.195/0.196, 0.160/0.160, 0.185/0.186; far bin (`>10s`) -0.187/-0.190, -0.187/-0.188, -0.205/-0.205.
+Update magnitudes 0.1761-0.1777 for all four heads (the heads trained). Control panels vs the pre-restart baseline: Policy Entropy 0.557 (0.553), Policy Update Magnitude 0.1013 (0.101),
+Critic Update Magnitude 0.373 (0.377), critic EV 0.3255 (0.323); EV 1v1/2v2/3v3 0.415/0.304/0.294 (0.426/0.311/0.277). Policy and live critic untouched, as designed.
+
+**Against the pre-registered floors (section 5): H-0 supported.** Pooled 2v2/3v3 gain needed >= +0.03, observed about 0.0000 with a CI of +-0.0003. The 5-10 s bin needed >= +0.04, observed
+about 0.000 to +0.001. The far-bin EV with context needed >= -0.05, observed -0.19 to -0.21. No head, including `src` and `clk`, beat the `nul` control. The interval is tight (about
++-0.0005), so this is a measured zero, not an underpowered one, for THESE features with THESE heads.
+
+**What this rules in and out.** The opponent source adds nothing beyond what the trunk already encodes (consistent with the earlier in-sample intercept-only upper bound: `EV SrcCorr All`
+0.413 vs 0.40 pooled), and neither does the no-touch clock or the episode clock. The team-mode EV gap is therefore not a missing-input problem of these two kinds. Limits: one 150M window, small
+heads (2x256 on the detached trunk read), one learning rate (1.5e-4); the heads see a detached 1280-wide trunk and could only add what is linearly or shallowly recoverable from it plus the
+context. Per the decision rule (section 10): drop A1/A2. Next candidates: event-probability heads (idea 5), evaluated offline first; the team Delta encoder; a fixed-window truncation test.
