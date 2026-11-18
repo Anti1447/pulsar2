@@ -1,6 +1,6 @@
 # GCO pure self-play arm (pre-registration draft, 2026-11-18)
 
-Status: **PROPOSED, nothing built or run.** Branch `gco-goalcritic`. Doctrine: measurement before machinery; one lever; pre-registered criteria;
+Status: **DECISIONS MADE (section 9); implementation in progress, nothing run.** Branch `gco-goalcritic`. Doctrine: measurement before machinery; one lever; pre-registered criteria;
 an automatic guard; a revert path. User direction (2026-11-18): pure self-play for training, with old versions and external bots used ONLY for skill
 metrics; test it as an arm of the "fresh base" comparison, after the critic-context Phase A (`GCO_CRITIC_CONTEXT_TEST.md`) reports.
 
@@ -81,3 +81,35 @@ result.
 | Gauntlet series by bot | |
 | Controls (entropy, dead units, EV) | |
 | Verdict | |
+
+## 9. Decisions (user, 2026-11-18) and the spec they imply
+
+User direction: **a TRUE fresh start**, 1v1 only, goal-only reward, **pure self-play first** (arm B). This replaces the matched-checkpoint fork preferred in section 4.
+
+| Item | Decision |
+|---|---|
+| Start | Fresh random initialisation, new checkpoint folder (name: `checkpoints_gco_fresh`), no seeding from any main/GCO checkpoint |
+| Modes | 1v1 only: all 1024 arenas 1v1, skill tracker and gauntlet 1v1 |
+| Reward | `GoalReward` +1 scored / -1 conceded, plus -0.5 to both cars on a 20 s no-touch timeout (a real ending, no bootstrap): GCO as it stands |
+| Opponents in training | Pure self-play: `trainAgainstOldVersions` off, external `serveFrac` 0, no exploiter pool. Old versions, references and the four bots stay loaded for the skill tracker and the gauntlet ONLY |
+| Resets | GCO's fixed non-adaptive mix with air drill 20% -> 10% and air play 20% -> 10%, and the freed 20% to a NEW "ball and players near goal" setter: ball near car 30%, kickoff 20%, near-goal 20%, air drill 10%, air play 10%, random 10% (sums to 100%) |
+| Critics | V_real (gamma 0.9969) + the long-horizon goal critic (gamma 0.9994, beta 0.25) + the critic-context heads (measurement only; in pure self-play the source one-hot is constant, so only the clock features carry information). V-dagger, geo, gap sensor, reachability OFF |
+| Policy LR | Fixed 1.5e-4 from the start (no EV gate, no ramp); critic LR 1.5e-4 |
+| Entropy | 0.035 (main's value) |
+| Network | The live GCO net: shared head 2x1152, policy 4x1024, critic trunk 2x1280, GELU + LayerNorm + residual, 278-dim obs (ball prediction) |
+| Compute | Stop the live GCO run AFTER the Phase A window reads, save a clean checkpoint, then run the fresh run on that GPU. The live run can resume later from its checkpoint |
+| Budget | One seed, about 3B steps, stop-and-review at 500M, 1B, 2B and 3B (gauntlet vs the four bots, entropy, EV, goals per 10k rows, no-touch timeout share) |
+
+**Assumed defaults (not asked; change if wrong):** tickSkip 8 / actionDelay 7, gamma 0.9969, lambda 0.95, 2 epochs, the live run's iteration and batch size, `tsPerSave` 25M, 1024 arenas,
+`GGL_CRITIC_CTX=1` in the environment, gauntlet and skill tracker as configured (1v1 only here).
+
+**Deferred (user request):** test the V-dagger / composition critic on this fresh-start GCO base at a later point, NOT in this experiment (it changes the training signal;
+this run is the clean baseline). Also recorded in the project memory.
+
+**Provisional first-run criteria (guesses, no fresh-run baseline exists; revise at the first review).** Leaving random play: by 500M steps `Goals/10k Rows 1v1` sustained above 0
+and the no-touch timeout share falling; by 1B steps a nonzero gauntlet score against Nexto. If at 1B steps goals per 10k rows are still near 0 and timeouts are not falling,
+the acquisition wall holds for this reward/reset set: the response is a separate one-lever change (more near-goal/near-ball reset weight), not a quiet tuning.
+
+**Known risks / overlap.** Another session has uncommitted edits to the reset setters (`AirDrillState.h`, `AirPlayState.h`, `BallNearCarState.h`, `StateSetter.h`; `docs/GCO_RESET_MIX.md`)
+and to `ExampleMain.cpp`. The new setter goes in its own header and the fresh mode in new code behind a new flag, so that work is not overwritten, but the reset mix lives in the
+same function (`MakeEnv`); coordinate before merging.
