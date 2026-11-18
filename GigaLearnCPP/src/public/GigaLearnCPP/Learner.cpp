@@ -3320,6 +3320,72 @@ void GGL::Learner::Start() {
 												for (int b = 0; b < 4; b++)
 													report[rampPrefix + "Row Frac TTE " + binNames[b] + " " + modeNames[m]] = binCnt[m][b] / (float)rowsByMode[m];
 									}
+
+									// LAMBDA SWEEP (2026-11-17, telemetry only): the SAME buffer, rewards and V_real advantage-estimated at several
+									// GAE lambdas (gamma fixed at gaeGamma), split by time-to-end bin. Per bin and lambda:
+									//   Corr Out  = corr(A_lambda, signed episode outcome: +1 scored, -1 conceded, 0 none)
+									//   Std       = std(A_lambda)
+									//   Corr MC   = corr(A_lambda, A_1.0), A_1.0 being the pure Monte-Carlo advantage (G - V)
+									// Reading: a low Corr Out / Corr MC on far rows at small lambda means those advantages are mostly critic noise
+									// (V(s') - V(s)) rather than outcome-linked; the Std growth with lambda is the variance the long return costs.
+									// Corr Out is NOT a quality score (the MC advantage correlates with the outcome by construction, luck included).
+									{
+										torch::Tensor tRewS = tRewards.contiguous();
+										const float* rwS = tRewS.const_data_ptr<float>();
+										std::vector<float> outc(nRows);
+										float curOut = 0;
+										for (int64_t i = nRows - 1; i >= 0; i--) {
+											if (combinedTraj.terminals[i] != 0)
+												curOut = std::fabs(rwS[i]) > 0.75f ? (rwS[i] > 0 ? 1.f : -1.f) : 0.f;
+											outc[i] = curOut;
+										}
+										torch::Tensor tOut = torch::tensor(outc);
+										const float lams[4] = { 0.90f, 0.95f, 0.99f, 1.0f };
+										const char* lamNames[4] = { "0.90", "0.95", "0.99", "1.00" };
+										torch::Tensor advL[4];
+										for (int k = 0; k < 4; k++) {
+											torch::Tensor tv, tr;
+											float clipPortion;
+											GAE::Compute(
+												tRewards, tTerminals, tValPreds, tTruncValPreds,
+												advL[k], tv, tr, clipPortion,
+												config.ppo.gaeGamma, lams[k], returnStat ? returnStat->GetSTD() : 1, config.ppo.rewardClipRange
+											);
+										}
+										auto fnCorrOf = [](const torch::Tensor& x, const torch::Tensor& y) -> float {
+											if (x.size(0) < 300)
+												return std::nanf("");
+											torch::Tensor xc = x - x.mean(), yc = y - y.mean();
+											float den = std::sqrt((xc * xc).sum().item<float>() * (yc * yc).sum().item<float>());
+											return den > 1e-12f ? (xc * yc).sum().item<float>() / den : std::nanf("");
+										};
+										auto fnPut = [&](const std::string& key, float v) {
+											if (std::isfinite(v))
+												report[rampPrefix + key] = v;
+										};
+										for (int b = 0; b < 4; b++) {
+											torch::Tensor mk = tBin == b;
+											if (mk.sum().item<int64_t>() < 300)
+												continue;
+											torch::Tensor outB = tOut.index({ mk }), mcB = advL[3].index({ mk });
+											for (int k = 0; k < 4; k++) {
+												torch::Tensor aB = advL[k].index({ mk });
+												fnPut(std::string("Lam ") + lamNames[k] + " Corr Out " + binNames[b], fnCorrOf(aB, outB));
+												fnPut(std::string("Lam ") + lamNames[k] + " Std " + binNames[b], aB.std().item<float>());
+												if (k < 3)
+													fnPut(std::string("Lam ") + lamNames[k] + " Corr MC " + binNames[b], fnCorrOf(aB, mcB));
+											}
+										}
+										// The far bin split by mode (where team and 1v1 differ most)
+										for (int m = 0; m < 3; m++) {
+											torch::Tensor mk = ((tTag % 4) == m) & (tBin == 3);
+											if (mk.sum().item<int64_t>() < 300)
+												continue;
+											torch::Tensor outM = tOut.index({ mk });
+											for (int k = 0; k < 4; k++)
+												fnPut(std::string("Lam ") + lamNames[k] + " Corr Out >10s " + modeNames[m], fnCorrOf(advL[k].index({ mk }), outM));
+										}
+									}
 									for (int m = 0; m < 3; m++)
 										for (int b = 0; b < 4; b++)
 											fnGroupEV(((tTag % 4) == m) & (tBin == b), std::string("EV TTE ") + binNames[b] + " " + modeNames[m]);
