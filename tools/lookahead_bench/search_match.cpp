@@ -15,7 +15,7 @@
 // Game: kickoff, ends at the first goal or after CAP_SECONDS (a draw). Both sides sample from the policy (temperature 1).
 //
 // Usage (from build/):  taskset -c 0-3 nice -n 19 ./LookaheadSearch <ckpt dir> <selftest|calib|argmax|search> [games=200]
-//                       [slots=16] [H=30] [K=8] [M=1] [leaf=1] [a=1] [b=0] [seed=12345]
+//                       [slots=16] [H=30] [K=8] [M=1] [leaf=1] [a=1] [b=0] [seed=12345] [pick=0 best|1 worst|2 random] [oppArgmax=0]
 #include <GigaLearnCPP/Util/Models.h>
 #include <GigaLearnCPP/PPO/PPOLearner.h>
 
@@ -217,6 +217,10 @@ int main(int argc, char** argv) {
 	const float calA = argc > 9 ? (float)atof(argv[9]) : 1.f;
 	const float calB = argc > 10 ? (float)atof(argv[10]) : 0.f;
 	const int R = K * M;
+	// leak/integrity controls (docs/GCO_LOOKAHEAD_TEST.md section 13): pick 0 = best candidate (the test), 1 = WORST, 2 = RANDOM candidate;
+	// oppArgmax 1 = the real opponent plays its argmax while the rollouts still model it as sampling.
+	const int pick = argc > 12 ? atoi(argv[12]) : 0;
+	const int oppArgmax = argc > 13 ? atoi(argv[13]) : 0;
 
 	bool inited = false;
 	for (const char* d : { "collision_meshes", "build/collision_meshes", "../collision_meshes" })
@@ -233,6 +237,7 @@ int main(int argc, char** argv) {
 	std::unique_ptr<EnvSet> roll;
 	if (searching) roll = MakeEnv(G * R);
 	printf("mode %s: %d games, %d slots%s\n", mode.c_str(), N, G, searching ? "" : " (raw vs raw)");
+	if (searching) printf("pick=%d oppArgmax=%d\n", pick, oppArgmax);
 	if (searching) printf("search: H=%d steps (%.1f s), K=%d candidates, M=%d rollouts each, leaf=%d (a=%.4f b=%.4f)\n", H, H * TICK_SKIP / 120.f, K, M, leaf, calA, calB);
 
 	struct Slot { int game = -1, searchTeam = 0, steps = 0; bool active = false; std::vector<std::array<float, 2>> v; };
@@ -276,6 +281,10 @@ int main(int argc, char** argv) {
 		if (argmaxCtl) {
 			torch::Tensor am = probs.argmax(1);
 			for (int g = 0; g < G; g++) if (slots[g].active) actions[2 * g + PlayerIdx(real->state.gameStates[g], slots[g].searchTeam)] = (int)am[2 * g + PlayerIdx(real->state.gameStates[g], slots[g].searchTeam)].item<int64_t>();
+		}
+		if (searching && oppArgmax) {
+			torch::Tensor am = probs.argmax(1);
+			for (int g = 0; g < G; g++) if (slots[g].active) { int o = 1 - PlayerIdx(real->state.gameStates[g], slots[g].searchTeam); actions[2 * g + o] = (int)am[2 * g + o].item<int64_t>(); }
 		}
 		if (searching) {
 			double tsearch = NowS();
@@ -355,7 +364,10 @@ int main(int argc, char** argv) {
 					else s = std::pow((double)GAMMA, H) * (leaf ? calA * (double)leafV[roll->state.arenaPlayerStartIdx[ri] + ours].item<float>() + calB : 0.0);
 					score[k] += s / M;
 				}
-				int best = 0; for (int k = 1; k < K; k++) if (score[k] > score[best]) best = k;
+				int best = 0;
+				if (pick == 0) { for (int k = 1; k < K; k++) if (score[k] > score[best]) best = k; }
+				else if (pick == 1) { for (int k = 1; k < K; k++) if (score[k] < score[best]) best = k; }
+				else best = std::min(K - 1, (int)(Uni(seed, cycle, 13, g, 0) * K));
 				actions[2 * g + ours] = cand[g][best];
 				decisions++;
 			}

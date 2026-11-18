@@ -239,6 +239,31 @@ real opponent action and the rollout opponent samples use different uniforms (no
 carries no future information, but I have not run a leak test (for example giving the search an opponent that plays
 argmax while the rollouts model sampling, or a search that is told the wrong opponent).
 
+## 13. Leak and integrity check (2026-11-18; options `pick` and `oppArgmax` in `search_match.cpp`)
+
+Same checkpoint, harness and calibration as section 12. Each arm vs the sampling raw policy unless stated.
+
+| Arm | Games | W / L / D | Score (search side) | Reading |
+|---|---|---|---|---|
+| Best candidate (the test, section 12) | 200 | 138 / 30 / 32 | **0.770** | the result being checked |
+| WORST-scoring candidate | 100 | 0 / 99 / 1 | 0.005 | candidate scores are strongly informative; labels and sign are right |
+| RANDOM candidate among the top 8 (uniform) | 100 | 3 / 73 / 24 | 0.150 | no structural edge for the search side. NOT a "no search" baseline: uniform choice over the top 8 gives unlikely actions as much weight as likely ones, and is itself harmful |
+| Best candidate, opponent plays ARGMAX but rollouts model it as sampling | 200 | 130 / 39 / 31 | **0.728** | survives a mismatched opponent |
+
+Against the argmax opponent the raw sampled policy scores about 0.445 (from the section 12 control, 1 - 0.555), so the search
+gain is about +28 points there, versus +27 against the sampling opponent: the gain does not depend on predicting the opponent
+exactly. The 0.770 vs 0.728 difference (4 points, se about 0.05 for the difference) is not distinguishable from noise.
+
+What this rules out: a labelling or scoring-sign bug (the worst candidate loses 99 of 100), a side-of-the-board advantage
+for the search side (random loses), a leak of the opponent's real sampled action (different random streams, and the argmax-opponent
+arm would break an action-matching leak), and dependence on a perfect opponent model.
+
+What it does not rule out or show: improvement against the frozen external bots (their behaviour is unmodelled and untested),
+the contribution of the critic leaf versus rollout outcomes (S2-noleaf not run), the horizon shape (S4 not run), team modes,
+and a fair "sample-from-the-top-8-by-probability" control (not run; it would sit near the raw 0.5 by construction).
+The large gap between best (0.77) and worst (0.005) also says the 8 candidates are far apart in outcome, so a large share of the
+gain may come from avoiding bad actions in the policy's own sampled support, which the plain argmax control (+5.5) only partly captures.
+
 ## 10. Record (fill in)
 
 | Item | Value |
