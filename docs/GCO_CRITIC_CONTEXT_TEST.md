@@ -169,6 +169,17 @@ policy staying bit-untouched (by construction every head input is detached and t
 
 **Restart procedure (needs the user's approval; nothing has been restarted).** `systemd-run --user` does not forward a shell's environment, so
 `GGL_CRITIC_CTX=1 tools/trainerctl restart` would NOT enable it. Use:
-`systemctl --user set-environment GGL_CRITIC_CTX=1` then `tools/trainerctl restart` (the wrapper's own crash-restarts then inherit it).
-Revert: `systemctl --user unset-environment GGL_CRITIC_CTX` then `tools/trainerctl restart`; old binaries ignore the extra `CRITIC_CTX_*.lt` files.
+`systemctl --user set-environment GGL_CRITIC_CTX=1`, then stop and start with the GCO command (the wrapper's own crash-restarts inherit the variable):
+`tools/run_trainer.sh --stop` (saves a checkpoint), then from `build/`: `../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco`.
+**Do NOT use `tools/trainerctl restart`:** it starts the bare `./GigaLearnBot` (no `--gco`), i.e. the main 6.1 lineage in `checkpoints_6.1`. That happened on
+2026-11-18 (about 20 minutes, 47M steps, two numbered checkpoints and older policy versions rotated out of `checkpoints_6.1`; killed without a save and
+restarted correctly). Check the boot log line `Checkpoint Save/Load Dir: "checkpoints_gco_6.1"` before anything else.
+Revert: `systemctl --user unset-environment GGL_CRITIC_CTX`, then stop and start with the same GCO command; old binaries ignore the extra `CRITIC_CTX_*.lt` files.
 On start, check the boot log lists only the four ctx heads as "will be reset" and that "first evaluation: mean |Delta|" reads 0.
+
+## 13. Live start record (2026-11-18)
+
+Started on the live GCO run at timestep 67,181,851,154 (resumed from `checkpoints_gco_6.1/67180565638`, saved by the clean stop). Boot log checks passed:
+save/load dir `checkpoints_gco_6.1`; only `critic_ctx_both/clk/nul/src` listed "will be reset"; first evaluation mean |Delta| = 0 for all four heads.
+Pre-restart control medians (last 40 metric rows): Policy Entropy 0.553, Policy Update Magnitude 0.101, Critic Update Magnitude 0.377, critic EV pooled 0.323
+(1v1 0.426, 2v2 0.311, 3v3 0.277), about 4.6M steps/min. The 150M-step window therefore ends near timestep 67.33B.
