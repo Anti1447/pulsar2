@@ -263,6 +263,131 @@ namespace {
 	}
 }
 
+namespace {
+	struct LabelSet {
+		int D = 0, A = 0, K = 0;
+		std::vector<float> obs; std::vector<uint8_t> mask; std::vector<int32_t> cand; std::vector<float> score, chosenAct; std::vector<int32_t> chosen, game;
+		long long n = 0;
+	};
+	bool LoadLabels(const std::string& list, LabelSet& L) {
+		size_t pos = 0; int fileIdx = 0;
+		while (pos <= list.size()) {
+			size_t e = list.find(',', pos); if (e == std::string::npos) e = list.size();
+			std::string path = list.substr(pos, e - pos); pos = e + 1;
+			if (path.empty()) continue;
+			FILE* f = fopen(path.c_str(), "rb"); if (!f) { printf("cannot open %s\n", path.c_str()); return false; }
+			int32_t hdr[3]; if (fread(hdr, 4, 3, f) != 3) { fclose(f); continue; }
+			if (L.n == 0 && fileIdx == 0) { L.D = hdr[0]; L.A = hdr[1]; L.K = hdr[2]; }
+			if (hdr[0] != L.D || hdr[1] != L.A || hdr[2] != L.K) { printf("header mismatch in %s\n", path.c_str()); return false; }
+			while (true) {
+				int32_t gid; if (fread(&gid, 4, 1, f) != 1) break;
+				size_t o = L.obs.size(); L.obs.resize(o + L.D); size_t m = L.mask.size(); L.mask.resize(m + L.A);
+				size_t c = L.cand.size(); L.cand.resize(c + L.K); size_t sc = L.score.size(); L.score.resize(sc + L.K);
+				int32_t ch;
+				if (fread(&L.obs[o], 4, L.D, f) != (size_t)L.D || fread(&L.mask[m], 1, L.A, f) != (size_t)L.A || fread(&L.cand[c], 4, L.K, f) != (size_t)L.K ||
+					fread(&L.score[sc], 4, L.K, f) != (size_t)L.K || fread(&ch, 4, 1, f) != 1) { // truncated tail (job killed): drop the partial row
+					L.obs.resize(o); L.mask.resize(m); L.cand.resize(c); L.score.resize(sc); break;
+				}
+				L.chosen.push_back(ch); L.game.push_back(fileIdx * 1000000 + gid); L.n++;
+			}
+			fclose(f); fileIdx++;
+		}
+		return L.n > 0;
+	}
+
+	// DISTILL_KIND = soft|hard|argmax|shuffle. Env: DISTILL_LABELS (comma list), DISTILL_OUT (dir), DISTILL_LR, DISTILL_BETA, DISTILL_TEMP,
+	// DISTILL_EPOCHS, DISTILL_HOLDOUT (fraction of games held out), DISTILL_BATCH, DISTILL_THREADS, DISTILL_MAXROWS.
+	int Distill(Nets& nets, const std::string& ckpt) {
+		auto envs = [](const char* k, const char* d) { const char* v = std::getenv(k); return std::string(v && v[0] ? v : d); };
+		const std::string kind = envs("DISTILL_KIND", "soft"), outDir = envs("DISTILL_OUT", "");
+		const float lr = (float)atof(envs("DISTILL_LR", "3e-5").c_str()), beta = (float)atof(envs("DISTILL_BETA", "0.1").c_str());
+		const float temp = (float)atof(envs("DISTILL_TEMP", "0.1").c_str());
+		const int epochs = atoi(envs("DISTILL_EPOCHS", "3").c_str()), batch = atoi(envs("DISTILL_BATCH", "512").c_str());
+		const double holdFrac = atof(envs("DISTILL_HOLDOUT", "0.1").c_str());
+		const long long maxRows = atoll(envs("DISTILL_MAXROWS", "0").c_str());
+		at::set_num_threads(atoi(envs("DISTILL_THREADS", "8").c_str()));
+		LabelSet L; if (!LoadLabels(envs("DISTILL_LABELS", ""), L)) { printf("no labels\n"); return 2; }
+		if (maxRows > 0 && L.n > maxRows) {
+			L.n = maxRows; L.obs.resize(maxRows * L.D); L.mask.resize(maxRows * L.A); L.cand.resize(maxRows * L.K); L.score.resize(maxRows * L.K); L.chosen.resize(maxRows); L.game.resize(maxRows);
+		}
+		const int64_t N = L.n, D = L.D, A = L.A, K = L.K;
+		printf("distill kind=%s: %lld rows, lr %.2g beta %.3g temp %.3g epochs %d batch %d\n", kind.c_str(), (long long)N, lr, beta, temp, epochs, batch);
+		torch::Tensor obs = torch::from_blob(L.obs.data(), { N, D }, torch::kFloat32).clone();
+		torch::Tensor mask = torch::from_blob(L.mask.data(), { N, A }, torch::kUInt8).clone();
+		torch::Tensor cand = torch::from_blob(L.cand.data(), { N, K }, torch::kInt32).clone().to(torch::kInt64);
+		torch::Tensor score = torch::from_blob(L.score.data(), { N, K }, torch::kFloat32).clone();
+		torch::Tensor chosen = torch::from_blob(L.chosen.data(), { N }, torch::kInt32).clone().to(torch::kInt64);
+		// held out by game, never by row
+		std::vector<int32_t> games(L.game.begin(), L.game.end()); std::sort(games.begin(), games.end()); games.erase(std::unique(games.begin(), games.end()), games.end());
+		std::vector<uint8_t> held(N, 0);
+		for (int64_t i = 0; i < N; i++) held[i] = (Mix((uint64_t)L.game[i] * 2654435761ULL + 99) % 1000) < (uint64_t)(holdFrac * 1000);
+		std::vector<int64_t> trI, hoI; for (int64_t i = 0; i < N; i++) (held[i] ? hoI : trI).push_back(i);
+		printf("%zu games; train rows %zu, held-out rows %zu\n", games.size(), trI.size(), hoI.size());
+		torch::Tensor tr = torch::tensor(trI), ho = torch::tensor(hoI);
+
+		// reference policy (the original) on every row, fixed
+		torch::Tensor refProbs = torch::empty({ N, A });
+		for (int64_t i = 0; i < N; i += 4096) { int64_t j = std::min(N, i + 4096); refProbs.slice(0, i, j).copy_(nets.Probs(obs.slice(0, i, j), mask.slice(0, i, j))); }
+		// targets
+		torch::Tensor target = torch::zeros({ N, A });
+		if (kind == "argmax") target.scatter_(1, refProbs.argmax(1, true), 1.f);
+		else if (kind == "hard") target.scatter_(1, cand.gather(1, chosen.unsqueeze(1)), 1.f);
+		else if (kind == "soft" || kind == "shuffle") {
+			torch::Tensor w = torch::softmax(score / temp, 1);
+			target.scatter_(1, cand, w);
+			if (kind == "shuffle") { // search information destroyed: rows get another row's target, kept only where legal, else the original's argmax
+				torch::Tensor perm = torch::randperm(N, torch::kInt64);
+				torch::Tensor t2 = target.index_select(0, perm) * mask.to(torch::kFloat32);
+				torch::Tensor sum = t2.sum(1, true);
+				torch::Tensor fb = torch::zeros({ N, A }); fb.scatter_(1, refProbs.argmax(1, true), 1.f);
+				target = torch::where(sum > 0, t2 / sum.clamp_min(1e-9), fb);
+			}
+		} else { printf("unknown DISTILL_KIND %s\n", kind.c_str()); return 2; }
+
+		auto agree = [&](const torch::Tensor& idx, bool useRef) {
+			torch::NoGradGuard ng; double ok = 0; int64_t n = idx.size(0);
+			for (int64_t i = 0; i < n; i += 4096) {
+				torch::Tensor ii = idx.slice(0, i, std::min(n, i + 4096));
+				torch::Tensor p = useRef ? refProbs.index_select(0, ii) : nets.Probs(obs.index_select(0, ii), mask.index_select(0, ii));
+				torch::Tensor want = cand.index_select(0, ii).gather(1, chosen.index_select(0, ii).unsqueeze(1)).squeeze(1);
+				ok += (p.argmax(1) == want).sum().item<int64_t>();
+			}
+			return n ? ok / n : 0.0;
+		};
+		printf("held-out argmax agreement with the search's choice: original %.3f\n", agree(ho, true));
+
+		std::vector<torch::Tensor> params;
+		for (const char* name : { "shared_head", "policy" }) for (auto& pr : nets.models[name]->parameters()) params.push_back(pr);
+		torch::optim::Adam opt(params, torch::optim::AdamOptions(lr));
+		const int64_t nTr = tr.size(0);
+		for (int ep = 0; ep < epochs; ep++) {
+			torch::Tensor order = tr.index_select(0, torch::randperm(nTr, torch::kInt64));
+			double lossSum = 0, klSum = 0; int nb = 0;
+			for (int64_t i = 0; i < nTr; i += batch) {
+				torch::Tensor ii = order.slice(0, i, std::min(nTr, i + batch));
+				torch::Tensor o = obs.index_select(0, ii), mk = mask.index_select(0, ii), tg = target.index_select(0, ii), rp = refProbs.index_select(0, ii);
+				torch::Tensor p = PPOLearner::InferPolicyProbsFromModels(nets.models, o, mk, 1.f, false);
+				torch::Tensor lp = torch::log(p), lr_ = torch::log(rp);
+				torch::Tensor ce = -(tg * lp).sum(1).mean();
+				torch::Tensor kl = (p * (lp - lr_)).sum(1).mean();
+				torch::Tensor loss = ce + beta * kl;
+				opt.zero_grad(); loss.backward(); opt.step();
+				lossSum += ce.item<float>(); klSum += kl.item<float>(); nb++;
+			}
+			printf("epoch %d: train CE %.4f, KL to original %.4f | held-out agreement %.3f\n", ep + 1, lossSum / nb, klSum / nb, agree(ho, false));
+		}
+		{ torch::NoGradGuard ng; torch::Tensor p = nets.Probs(obs.index_select(0, ho), mask.index_select(0, ho));
+		  double ent = -(p * torch::log(p.clamp_min(1e-11f))).sum(1).mean().item<double>(), rent = -(refProbs.index_select(0, ho) * torch::log(refProbs.index_select(0, ho).clamp_min(1e-11f))).sum(1).mean().item<double>();
+		  printf("held-out mean policy entropy: copy %.3f, original %.3f\n", ent, rent); }
+		if (!outDir.empty()) {
+			std::filesystem::create_directories(outDir);
+			nets.models.Save(outDir, false);
+			printf("saved copy to %s\n", outDir.c_str());
+		}
+		return 0;
+	}
+}
+
 int main(int argc, char** argv) {
 	std::cout << std::unitbuf;
 	setvbuf(stdout, NULL, _IOLBF, 0); // progress lines must appear when redirected to a file
@@ -290,8 +415,11 @@ int main(int argc, char** argv) {
 	at::set_num_threads(4);
 
 	Nets nets; nets.Build(278, ckpt);
+	std::unique_ptr<Nets> oppNets;
+	if (const char* oc = std::getenv("OPP_CKPT"); oc && oc[0]) { oppNets = std::make_unique<Nets>(); oppNets->Build(278, oc); printf("opponent side plays checkpoint %s\n", oc); }
 	const bool oracle = std::getenv("ORACLE") && std::string(std::getenv("ORACLE")) == "1"; // rollouts use the BOT's policy for the opponent
 	if (mode == "selftest") return SelfTest(nets, std::max(H, 10));
+	if (mode == "distill") return Distill(nets, ckpt.string());
 
 	const bool searching = mode == "search";
 	const bool rawCtl = mode == "raw"; // control: the "search" side samples the raw policy (same as the other side, or vs EXT_BOT)
@@ -333,6 +461,13 @@ int main(int argc, char** argv) {
 	// calibration accumulators for G ~ a*V + b
 	double cn = 0, cV = 0, cG = 0, cVV = 0, cGG = 0, cVG = 0;
 	std::vector<Snap> snaps(G);
+	// LABEL_OUT=path (search mode): append one record per searched decision, for Test B (docs/GCO_SEARCH_DISTILL_ORACLE_TEST.md section 3).
+	// Record = int32 gameId, float obs[D], uint8 mask[A], int32 cand[K], float score[K], int32 chosen. Header: int32 D, A, K.
+	FILE* labelF = nullptr; long long labelRows = 0;
+	if (const char* lo = std::getenv("LABEL_OUT"); lo && lo[0] && searching) {
+		labelF = fopen(lo, "wb");
+		int32_t hdr[3] = { real->obsSize, NUM_ACTIONS, K }; fwrite(hdr, 4, 3, labelF);
+	}
 	uint64_t seed = argc > 11 ? (uint64_t)atoll(argv[11]) : 12345;
 	double tSearch = 0, tReal = 0, tLoad = 0, tRoll = 0, tInf = 0; long long decisions = 0;
 	auto startGame = [&](int g) {
@@ -361,6 +496,11 @@ int main(int argc, char** argv) {
 
 		IList actions(real->state.numPlayers, 0);
 		for (int i = 0; i < real->state.numPlayers; i++) actions[i] = (int)rawAct[i].item<int64_t>();
+		if (oppNets) { // the non-search side plays a different checkpoint (sampling, same uniforms)
+			torch::Tensor p2 = oppNets->Probs(obsT, maskT);
+			torch::Tensor a2 = SampleFromProbs(p2, u);
+			for (int g = 0; g < G; g++) if (slots[g].active) { int o = 1 - PlayerIdx(real->state.gameStates[g], slots[g].searchTeam); actions[2 * g + o] = (int)a2[2 * g + o].item<int64_t>(); }
+		}
 
 		if (argmaxCtl) {
 			torch::Tensor am = probs.argmax(1);
@@ -464,6 +604,16 @@ int main(int argc, char** argv) {
 				else if (pick == 1) { for (int k = 1; k < K; k++) if (score[k] < score[best]) best = k; }
 				else best = std::min(K - 1, (int)(Uni(seed, cycle, 13, g, 0) * K));
 				actions[2 * g + ours] = cand[g][best];
+				if (labelF) {
+					int32_t gid = slots[g].game; fwrite(&gid, 4, 1, labelF);
+					fwrite(real->state.obs.data.data() + (size_t)(2 * g + ours) * D, 4, D, labelF);
+					fwrite(real->state.actionMasks.data.data() + (size_t)(2 * g + ours) * NUM_ACTIONS, 1, NUM_ACTIONS, labelF);
+					int32_t ci[64]; float sc[64];
+					for (int k = 0; k < K; k++) { ci[k] = cand[g][k]; sc[k] = (float)score[k]; }
+					fwrite(ci, 4, K, labelF); fwrite(sc, 4, K, labelF);
+					int32_t ch = best; fwrite(&ch, 4, 1, labelF);
+					labelRows++;
+				}
 				decisions++;
 			}
 			tSearch += NowS() - tsearch;
@@ -512,6 +662,7 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	if (labelF) { fclose(labelF); printf("labels written: %lld rows\n", labelRows); }
 	const double el = NowS() - t0;
 	printf("\n== result (%s) ==  games %d, mean length %.1f s, wall %.0f s\n", mode.c_str(), N, sumSteps / N * TICK_SKIP / 120.0, el);
 	if (mode == "calib") {
