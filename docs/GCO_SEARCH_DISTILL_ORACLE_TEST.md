@@ -1,6 +1,6 @@
 # GCO search: oracle-opponent test and distillation test (pre-registration, 2026-11-18)
 
-Status: **Test A run on Dice (section 8); Test B not built.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
+Status: **Test A run on Dice and GalactusV2 (sections 8, 9); Test B not built.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
 measurement before machinery; one lever; pre-registered criteria; a guard; a revert path. Offline, CPU only; the trainer, its
 checkpoints and the GPU are not touched. User decision (2026-11-18): search is for **training only**, not for live play.
 
@@ -173,3 +173,18 @@ reply exactly, which is stronger than a good approximate model, and the gain is 
 
 Consequence for Test B: distillation labels from self-play use a near-exact opponent model (section 13 of the lookahead doc), and
 this result says exact models give large gains, so Test B is worth its cost. Next: GalactusV2 oracle (selftest first), then Test B.
+
+## 9. Test A result: GalactusV2 (2026-11-18)
+
+Guard: `oracletest` on GalactusV2 (per-arena ball predictor), 6 trials x 30 steps, 0 bot-action mismatches, end states identical.
+
+| Arm (vs GalactusV2, 200 games, same seeds) | Score | W/L/D |
+|---|---|---|
+| Raw policy | 0.307 | 48/125/27 |
+| Search, opponent modelled as our policy (section 14, earlier raw baseline was 0.220 at 100 games) | 0.150 | 25/165/10 |
+| **Search, oracle opponent** | **0.680** | 123/51/26 |
+
+Oracle minus raw = +0.373; oracle minus modelled-opponent search = +0.530 (se about 0.035 per arm). Both floors cleared.
+Two bots now agree: with the right opponent model, search gains +0.37 to +0.55 in 1v1; with our policy as the model it loses.
+Verdict on Test A: **H-mismatch supported on Dice and GalactusV2.** The oracle remains an upper bound (deterministic argmax opponents,
+exact weights) and is not deployable. ChronosV2 and Nexto were not run (not needed for the decision). Next: Test B.
