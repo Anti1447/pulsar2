@@ -1,6 +1,6 @@
 # GCO search: oracle-opponent test and distillation test (pre-registration, 2026-11-18)
 
-Status: **Test A run on Dice and GalactusV2 (sections 8, 9); Test B run (section 10): no gain, controls partly failed.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
+Status: **Test A run on Dice and GalactusV2 (sections 8, 9); Test B run (section 10): no gain, controls partly failed; label test-retest (section 11): labels are mostly noise.** Branch `gco-goalcritic`. Follows `GCO_LOOKAHEAD_TEST.md` (sections 12-14). Doctrine:
 measurement before machinery; one lever; pre-registered criteria; a guard; a revert path. Offline, CPU only; the trainer, its
 checkpoints and the GPU are not touched. User decision (2026-11-18): search is for **training only**, not for live play.
 
@@ -234,3 +234,31 @@ harmful, increasingly so with lr. It does not show search is useless for trainin
 labels' noise (M=1, single +-1 outcomes, tied candidates) is the likeliest cause but is a hypothesis. Untested alternatives: M >= 4 rollouts
 per candidate (lower-variance labels), a search-advantage-weighted policy-gradient update with PPO's clip instead of cross-entropy
 (the form that would actually enter the trainer), training the critic on search values, a proper within-candidate-set null.
+
+## 11. Label test-retest (2026-11-18)
+
+Harness: `RETEST=1` searches every decision twice, same state/candidates/settings (K=8, M=1, H=30), different ROLLOUT randomness; pass 0 is played
+(trajectories identical to a normal run), pass 1 only feeds the statistics. 60 self-play games, 15,881 decisions; search side scored 0.842
+(46/5/9, se about 0.065). Chance agreement for the same pick is 1/8 = 0.125.
+
+| Pass-0 score range (best-worst) | Rows | Same pick | Score correlation across passes | Regret of pass 1's pick under pass 0's scores |
+|---|---|---|---|---|
+| < 0.05 (ties) | 5,768 | 0.317 | 0.027 | 0.0093 |
+| 0.05 - 0.2 | 4,739 | 0.154 | 0.039 | 0.0510 |
+| 0.2 - 0.5 | 2,758 | 0.175 | 0.073 | 0.1478 |
+| >= 0.5 | 2,616 | 0.182 | 0.137 | 0.3202 |
+| informative (>= 0.05) | 10,113 | 0.167 | | |
+
+Reading: on the rows that carry any spread, two independent searches of the same decision pick the same action 15-18% of the time (chance 12.5%),
+and their candidate scores correlate 0.04-0.14. **Per-decision labels are mostly noise**, which explains the Test B failure (section 10): the soft
+and hard targets were rollout noise with the policy's own sampling noise on top. (The tie bin's 0.317 is the tie-break favouring the first
+candidate, which is the policy's top action, not information.)
+
+Spearman-Brown estimate (assumes the same noise structure; indicative only): to reach a 0.8 test-retest reliability from a single-rollout
+correlation of 0.07-0.14, each candidate needs roughly 25-50 rollouts (M), i.e. 25-50x the search cost. Not affordable at this scale.
+
+**Puzzle, not explained:** the search as a whole still wins (0.76-0.84 vs raw; worst-candidate arm 0.005, random-of-top-8 arm 0.150), yet its
+"best" pick is near-chance reproducible. Hypothesis (untested): the useful signal is a VETO of rare catastrophic candidates (a conceded goal inside
+2 s is consistent across passes), not a ranking of the good ones. The test that would show it: agreement of the WORST candidate across passes,
+and of the top-3 / bottom-3 sets. If true, distillation should learn "avoid these actions" (a penalty or a clipped negative-advantage update),
+not "play this action" (cross-entropy toward the best). Not run.

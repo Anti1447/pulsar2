@@ -486,6 +486,8 @@ int main(int argc, char** argv) {
 	// calibration accumulators for G ~ a*V + b
 	double cn = 0, cV = 0, cG = 0, cVV = 0, cGG = 0, cVG = 0;
 	std::vector<Snap> snaps(G);
+	const bool retest = std::getenv("RETEST") && std::string(std::getenv("RETEST")) == "1";
+	long long rtN[4] = {}, rtCorrN[4] = {}; double rtAgree[4] = {}, rtRegret[4] = {}, rtCorr[4] = {};
 	// LABEL_OUT=path (search mode): append one record per searched decision, for Test B (docs/GCO_SEARCH_DISTILL_ORACLE_TEST.md section 3).
 	// Record = int32 gameId, float obs[D], uint8 mask[A], int32 cand[K], float score[K], int32 chosen. Header: int32 D, A, K.
 	FILE* labelF = nullptr; long long labelRows = 0;
@@ -549,6 +551,11 @@ int main(int argc, char** argv) {
 				for (int k = 0; k < K; k++) cand[g].push_back(val[k].item<float>() > 0 ? (int)idx[k].item<int64_t>() : (int)idx[0].item<int64_t>());
 				Capture(*real, g, snaps[g]);
 			}
+			// RETEST=1: every decision is searched twice with different ROLLOUT randomness (same state, candidates and settings); pass 0 is what
+			// gets played and labelled, pass 1 only feeds the test-retest statistics (docs/GCO_SEARCH_DISTILL_ORACLE_TEST.md section 11).
+			std::vector<std::vector<double>> pass0Score(G); std::vector<int> pass0Best(G, -1);
+			for (int pass = 0; pass < (retest ? 2 : 1); pass++) {
+			const uint64_t rseed = pass ? (seed ^ 0xA5A5A5A5DEADBEEFULL) : seed;
 			double tl = NowS();
 			for (int g = 0; g < G; g++) if (slots[g].active) for (int r = 0; r < R; r++) Load(*roll, g * R + r, snaps[g]);
 			tLoad += NowS() - tl;
@@ -560,7 +567,7 @@ int main(int argc, char** argv) {
 				if (!slots[g].active) continue;
 				int opp = 1 - PlayerIdx(real->state.gameStates[g], slots[g].searchTeam);
 				std::vector<float> uu(M); torch::Tensor row = probs[2 * g + opp].unsqueeze(0).expand({ M, NUM_ACTIONS }).contiguous();
-				for (int m = 0; m < M; m++) uu[m] = Uni(seed, cycle, 11, g, m);
+				for (int m = 0; m < M; m++) uu[m] = Uni(rseed, cycle, 11, g, m);
 				torch::Tensor a = SampleFromProbs(row, uu);
 				for (int m = 0; m < M; m++) oppFirst[g][m] = (int)a[m].item<int64_t>();
 			}
@@ -591,7 +598,7 @@ int main(int argc, char** argv) {
 					std::vector<float> ru(RP);
 					for (int g = 0; g < G; g++) for (int r = 0; r < R; r++) {
 						int base = roll->state.arenaPlayerStartIdx[g * R + r];
-						for (int i = 0; i < 2; i++) ru[base + i] = Uni(seed, cycle, 100 + h, g * 64 + (r % M), i); // CRN: independent of the candidate k
+						for (int i = 0; i < 2; i++) ru[base + i] = Uni(rseed, cycle, 100 + h, g * 64 + (r % M), i); // CRN: independent of the candidate k
 					}
 					torch::Tensor ra = SampleFromProbs(rp, ru);
 					for (int i = 0; i < RP; i++) racts[i] = (int)ra[i].item<int64_t>();
@@ -628,6 +635,17 @@ int main(int argc, char** argv) {
 				if (pick == 0) { for (int k = 1; k < K; k++) if (score[k] > score[best]) best = k; }
 				else if (pick == 1) { for (int k = 1; k < K; k++) if (score[k] < score[best]) best = k; }
 				else best = std::min(K - 1, (int)(Uni(seed, cycle, 13, g, 0) * K));
+				if (pass == 1) {
+					const std::vector<double>& s0 = pass0Score[g];
+					double mx = *std::max_element(s0.begin(), s0.end()), mn = *std::min_element(s0.begin(), s0.end()), rng0 = mx - mn;
+					int bi = rng0 < 0.05 ? 0 : rng0 < 0.2 ? 1 : rng0 < 0.5 ? 2 : 3;
+					double m0 = 0, m1 = 0; for (int k = 0; k < K; k++) { m0 += s0[k] / K; m1 += score[k] / K; }
+					double c01 = 0, v0 = 0, v1 = 0; for (int k = 0; k < K; k++) { c01 += (s0[k] - m0) * (score[k] - m1); v0 += (s0[k] - m0) * (s0[k] - m0); v1 += (score[k] - m1) * (score[k] - m1); }
+					rtN[bi]++; rtAgree[bi] += (best == pass0Best[g]); rtRegret[bi] += mx - s0[best]; // regret: how much the first pass's own scores lose if the second pass's pick is played
+					if (v0 > 1e-12 && v1 > 1e-12) { rtCorr[bi] += c01 / std::sqrt(v0 * v1); rtCorrN[bi]++; }
+					continue;
+				}
+				pass0Score[g] = score; pass0Best[g] = best;
 				actions[2 * g + ours] = cand[g][best];
 				if (labelF) {
 					int32_t gid = slots[g].game; fwrite(&gid, 4, 1, labelF);
@@ -641,6 +659,7 @@ int main(int argc, char** argv) {
 				}
 				decisions++;
 			}
+			} // pass
 			tSearch += NowS() - tsearch;
 		}
 
@@ -687,6 +706,17 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	if (retest) {
+		const char* nm[4] = { "range < 0.05 (ties)", "0.05 - 0.2", "0.2 - 0.5", ">= 0.5" };
+		printf("\n== test-retest of the search's pick (two passes, different rollout randomness; chance agreement = %.3f) ==\n", 1.0 / K);
+		long long tn = 0; double ta = 0;
+		for (int b = 0; b < 4; b++) {
+			tn += rtN[b]; ta += rtAgree[b];
+			if (rtN[b]) printf("score range %-20s rows %6lld  same pick %.3f  score correlation across passes %.3f  regret %.4f\n", nm[b], rtN[b], rtAgree[b] / rtN[b], rtCorrN[b] ? rtCorr[b] / rtCorrN[b] : 0.0, rtRegret[b] / rtN[b]);
+		}
+		long long in = tn - rtN[0]; double ia = ta - rtAgree[0];
+		if (in) printf("informative rows (range >= 0.05): %lld, same pick %.3f\n", in, ia / in);
+	}
 	if (labelF) { fclose(labelF); printf("labels written: %lld rows\n", labelRows); }
 	const double el = NowS() - t0;
 	printf("\n== result (%s) ==  games %d, mean length %.1f s, wall %.0f s\n", mode.c_str(), N, sumSteps / N * TICK_SKIP / 120.0, el);
