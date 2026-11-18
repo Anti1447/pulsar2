@@ -165,6 +165,44 @@ is too ambitious for the first pass. Revised, before any main run:
 - Cut arms for the first pass: R, S4, S4-noleaf only (S2 added only if S4 shows a gain).
 - Win share vs R tightened to the same 8-point floor (0.58) for the first pass.
 
+### 11b. CPU inference throughput (2026-11-18, `LookaheadInferBench`, copy of `best_r2721_62750066410`, niced, no GPU)
+
+The live architecture is much larger than the layer sizes in CLAUDE.md suggested (shared 2x1152, policy 4x1024,
+critic trunk 2x1280; 12.49M parameters, obs 278, 90 actions), so the earlier inference estimate in section 11 was
+too low by about 2x. The checkpoint loaded with all parameters finite; I did not check its behavior (no kickoff test
+was run on the copy, so "loaded and finite" is all this establishes).
+
+Rows per second (sampled policy action; "+V" adds the critic value):
+
+| batch | 1 thread, policy | 4 threads, policy | 4 threads, policy+V |
+|---|---|---|---|
+| 1 | 1,015 | 2,612 | 658 |
+| 16 | 5,023 | 8,698 | 4,278 |
+| 64 | 7,387 | 20,421 | 8,987 |
+| 256 | 8,348 | 24,768 | 10,202 |
+| 1024 | 7,628 | 27,320 | 11,715 |
+
+Takeaways. (1) Throughput needs batch >= 64 to approach its ceiling (about 27k policy rows/s on 4 threads), so the
+search must batch candidates x rollouts across many concurrent games, not one decision at a time (one decision is
+about 16 rows, which runs at about a third of the ceiling). (2) The critic costs about as much again as the policy per
+row, so it should be evaluated only at leaves (about 16 rows per decision), never at every rollout step.
+
+**Budget, 1v1, K=8 candidates, M=2 rollouts, 4 threads, ceiling throughput:** one decision is 16 rollouts x H steps x
+2 sides (ours + the mirrored opponent model). H=30: 960 policy rows, about 35 ms of inference plus about 3 ms of sim.
+A 1v1 game is about 20 s (gauntlet log mean) = about 300 decisions, so about 11 s per game at H=30 and about 21 s at
+H=60. Inference is therefore roughly 10x the sim cost, as suspected. 600 games per arm per bot is then about
+1.8 h (H=30) or 3.5 h (H=60) per arm per bot on 4 threads; the full first pass (S4 and S4-noleaf over three bots, plus
+vs R) would be about 20+ hours. This excludes the external bots' own inference. 2v2/3v3 are costlier on every term.
+
+**Therefore the test is staged, cheapest first (replaces the single Phase 2 comparison):**
+
+- **Phase 2a, screen:** S2 (H=30, K=8, M=1 to halve the cost, about 5 s per game) vs R, both orientations, 200 paired
+  games, about 20 min on 4 threads. The standard error of the win share is about 0.035, so this detects a gain of
+  about 10 points or more, which is the only size worth building on. Gate: win share < 0.55 -> stop, H-0, nothing else
+  is run. Win share >= 0.55 -> continue.
+- **Phase 2b, confirm:** S2 and S4 vs R and vs bots at the 8-point floor, N chosen from the paired variance measured
+  in 2a. S4-noleaf only if S4 shows a gain (it answers whether the critic matters, which only matters if search does).
+
 ## 10. Record (fill in)
 
 | Item | Value |

@@ -59,3 +59,10 @@ target_link_libraries(EngineProbe GigaLearnCPP ${TORCH_LIBRARIES})
 add_executable(LookaheadBench EXCLUDE_FROM_ALL ../tools/lookahead_bench/bench.cpp)
 set_target_properties(LookaheadBench PROPERTIES CXX_STANDARD 20)
 target_link_libraries(LookaheadBench GigaLearnCPP)
+
+# Phase 0b of docs/GCO_LOOKAHEAD_TEST.md: CPU libtorch inference throughput. CPU only.
+add_executable(LookaheadInferBench EXCLUDE_FROM_ALL ../tools/lookahead_bench/infer_bench.cpp)
+set_target_properties(LookaheadInferBench PROPERTIES CXX_STANDARD 20)
+target_include_directories(LookaheadInferBench PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearnCPP/src/private")
+target_include_directories(LookaheadInferBench PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(LookaheadInferBench GigaLearnCPP ${TORCH_LIBRARIES})
