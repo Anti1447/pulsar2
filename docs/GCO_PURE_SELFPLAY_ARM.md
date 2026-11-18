@@ -92,7 +92,7 @@ User direction: **a TRUE fresh start**, 1v1 only, goal-only reward, **pure self-
 | Modes | 1v1 only: all 1024 arenas 1v1, skill tracker and gauntlet 1v1 |
 | Reward | `GoalReward` +1 scored / -1 conceded, plus -0.5 to both cars on a 20 s no-touch timeout (a real ending, no bootstrap): GCO as it stands |
 | Opponents in training | Pure self-play: `trainAgainstOldVersions` off, external `serveFrac` 0, no exploiter pool. Old versions, references and the four bots stay loaded for the skill tracker and the gauntlet ONLY |
-| Resets | GCO's fixed non-adaptive mix with air drill 20% -> 10% and air play 20% -> 10%, and the freed 20% to a NEW "ball and players near goal" setter: ball near car 30%, kickoff 20%, near-goal 20%, air drill 10%, air play 10%, random 10% (sums to 100%) |
+| Resets | GCO's fixed non-adaptive mix with air drill 20% -> 10% and air play 20% -> 10%, and the freed 20% to a NEW "ball and players near goal" setter: ball near car 20%, kickoff 20%, random 20%, near-goal 20% (new), air drill 10%, air play 10% (sums to 100%). Corrected after reading `MakeEnv`: the live mix is five slices at 20% each (older prose in `docs/GCO.md` quoting 30/20/20/20/10 is stale) |
 | Critics | V_real (gamma 0.9969) + the long-horizon goal critic (gamma 0.9994, beta 0.25) + the critic-context heads (measurement only; in pure self-play the source one-hot is constant, so only the clock features carry information). V-dagger, geo, gap sensor, reachability OFF |
 | Policy LR | Fixed 1.5e-4 from the start (no EV gate, no ramp); critic LR 1.5e-4 |
 | Entropy | 0.035 (main's value) |
