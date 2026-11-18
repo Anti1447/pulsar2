@@ -121,12 +121,56 @@ critic reliability); S4-noleaf >= S4 (critic adds nothing, the search is rollout
 - Winner's curse: even with common random numbers, picking the max of K noisy estimates inflates the chosen
   candidate's score. Measured here only through the end-to-end result, not separately.
 
+## 11. Phase 0 result (2026-11-18, `tools/lookahead_bench/bench.cpp`, target `LookaheadBench`, run niced from `build/`)
+
+CPU only, no checkpoint, no GPU, trainer untouched (the live `GigaLearnBot` binary was not rebuilt; only the bench
+target and the library it links). Control inputs were RANDOM, not policy play, so contact-heavy states are
+under-represented in the cost numbers.
+
+**(b) Exactness: PASS.** 12 of 12 runs (1v1, 2v2, 3v3 x 4 seeds each): restore equals the snapshot state, and
+replaying the same 240-step (128 s) control stream after restore matches the first run bit-for-bit (ball, cars, boost
+pads), through the raw FFI snapshot alone, with boost pads changing state during every drive. Not covered: the
+facade-side `_ballHitInfo` and `GameEventTracker` state live outside the engine snapshot, so a rollout that reads
+touch events must save/restore them itself (a goal-only score does not need them).
+
+**(a)+(c) Cost, one thread, one arena:**
+
+| mode | Step(8 ticks) | snapshot | restore | rollouts/s, H=30 (2 s) | rollouts/s, H=60 (4 s) |
+|---|---|---|---|---|---|
+| 1v1 | 6.6 us | 11.0 us | 10.6 us | 5,773 | 2,484 |
+| 2v2 | 10.8 us | 11.6 us | 11.5 us | 3,270 | 1,571 |
+| 3v3 | 15.7 us | 12.8 us | 14.1 us | 1,681 | 1,050 |
+
+Four threads on independent arenas: 1v1 19,392 rollouts/s total (4,848 per thread, about 84% of one thread);
+3v3 8,036 total (2,009 per thread, about 120% of the single-thread figure, so no contention penalty; the single
+run is noisy). A rollout is snapshot + H steps + restore, with no policy inference.
+
+**What this settles.** The simulator side is cheap: 8 candidates x 2 rollouts of 2 s at 1v1 is about 3 ms of sim per
+decision on one thread. It does NOT settle the search cost, because each rollout step also needs policy forwards
+(ours and the modeled opponent's): about 16 rollouts x 30 steps x 2 sides = 960 forwards per decision. That
+inference is UNMEASURED; from the layer sizes in CLAUDE.md I estimate it at 10x or more the sim cost on CPU, so the
+CPU libtorch forward throughput (batched across candidates and arenas) is the next number to measure, not sim speed.
+
+**The binding constraint is game count, not compute.** Using the gauntlet log (`GAUNTLET_LOG.jsonl`: 96 games per
+bot per entry, 1v1 wins about 28-38 of 96 vs Chronos/Dice) and a binomial approximation that ignores draws and any
+pairing benefit (both unmeasured): detecting a 5-point goals-for-share difference with 80% power needs roughly
+1,500 games per arm per bot; a 0.55 win share against R needs roughly 800 games. So the pre-registered MDE of 5 pts
+is too ambitious for the first pass. Revised, before any main run:
+
+- Practical-significance floor: **8 points** goals-for share vs bots (a search that is a real improvement operator
+  should show far more than that; below 8 it is not worth its inference cost anyway). That needs roughly 600 games
+  per arm per bot under the same approximation.
+- Use paired kickoff seeds (both arms play the same layouts) and report the paired difference; measure how much
+  variance that removes in Phase 1 before committing N.
+- Cut arms for the first pass: R, S4, S4-noleaf only (S2 added only if S4 shows a gain).
+- Win share vs R tightened to the same 8-point floor (0.58) for the first pass.
+
 ## 10. Record (fill in)
 
 | Item | Value |
 |---|---|
 | Checkpoint(s) / step | |
-| Snapshot+restore cost, decisions/sec | |
+| Snapshot+restore cost, decisions/sec | Phase 0: snapshot about 11 us, restore about 11 us, 1v1 step 6.6 us; exact (section 11). Decisions/sec needs inference cost. |
 | N per arm, MDE | |
 | Phase 1 sanity (H=0 == R) | |
 | vs R: S2 / S4 / S4-noleaf win share | |

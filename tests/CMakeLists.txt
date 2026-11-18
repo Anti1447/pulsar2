@@ -54,3 +54,8 @@ set_target_properties(EngineProbe PROPERTIES CXX_STANDARD 20)
 target_include_directories(EngineProbe PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearnCPP/src/private")
 target_include_directories(EngineProbe PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(EngineProbe GigaLearnCPP ${TORCH_LIBRARIES})
+
+# Phase 0 of docs/GCO_LOOKAHEAD_TEST.md (tools/lookahead_bench): snapshot/restore/step cost and exactness. CPU only.
+add_executable(LookaheadBench EXCLUDE_FROM_ALL ../tools/lookahead_bench/bench.cpp)
+set_target_properties(LookaheadBench PROPERTIES CXX_STANDARD 20)
+target_link_libraries(LookaheadBench GigaLearnCPP)
