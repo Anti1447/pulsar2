@@ -135,3 +135,14 @@ for the gauntlet, never served); checkpoints written to `checkpoints_gco_fresh`.
 `systemctl --user unset-environment GGL_CRITIC_CTX`, then `../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco-fresh`. Do NOT use `trainerctl restart` (it starts the bare main run). First check in the boot log:
 `Checkpoint Save/Load Dir: "checkpoints_gco_fresh"`, "starting new model", "128 1v1 / 0 / 0", no "Critic context" line. Revert: stop it; the live GCO run resumes from `checkpoints_gco_6.1` with
 `../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco`. Milestone reviews at 500M, 1B, 2B and 3B steps.
+
+## 11. Launch record (2026-11-18)
+
+Live GCO run stopped cleanly at checkpoint 67,553,331,755 (exit 0, 5,093 s after its restart); its backup `build/checkpoints_gco_6.1_BACKUP_20261118` re-synced and verified (a superset of the source: 16 numbered
+checkpoints; the five main model files of the final checkpoint byte-identical). The bot at the last released checkpoint was packaged first: **Pulsar2 v1.0.33**, checkpoint 67,550,920,389, installed in the
+Windows RLBot folder (client binary byte-identical to the one in v1.0.32; not yet played in a match).
+
+Fresh run started 17:42 CST as unit `gigalearn-trainer-20261118-174231` with `./GigaLearnBot --gco-fresh`. Boot log: save dir `checkpoints_gco_fresh`, "starting new model", 1024 1v1 / 0 / 0 arenas, skill tracker
+32 1v1, gauntlet 96 games per bot 1v1 every 50 iterations, no "will be reset" lines, no "Critic context" line; policy LR 1.5e-4; first iteration collection about 149k steps/s, overall about 52k steps/s
+(so 500M steps is about 2.7 h and 3B about 16 h at that rate). Milestone reviews at 500M, 1B, 2B, 3B steps (section 9).
+To go back to the old run: stop this one, then from `build/`: `../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco`.
