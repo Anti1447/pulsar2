@@ -117,11 +117,55 @@ re-run the sweep: the best lambda shifts toward smaller values as V improves.
 
 | Item | Control | Treatment |
 |---|---|---|
-| Fork checkpoint / step range | | |
-| Goals-for share Dice / Galactus / Chronos / mean | | |
-| Far-bin EV pooled (and per mode) | | |
-| Near-bin EV 0-2 s, 2-5 s | | |
-| Pooled EV per mode | | |
-| Entropy, clip fraction, KL | | |
-| Ref/Oldest Share, Rating/2v2, 3v3 | | |
-| Verdict | | |
+| Fork checkpoint / step range | 61,390,223,087 -> 61,690,667,351 (control) | 61,390,223,087 -> 61,692,730,053 (lambda 0.99) |
+| Goals-for share Dice / Galactus / Chronos / mean (last 150M) | 0.288 / 0.223 / 0.257 / 0.256 | 0.240 / 0.206 / 0.218 / 0.221 |
+| Far-bin EV 1v1 / 2v2 / 3v3 | -0.276 / -0.240 / -0.167 | -0.273 / -0.256 / -0.206 |
+| Near-bin EV 0-2 s, 2-5 s (1v1 / 3v3) | 0.938 / 0.861 ; 0.678 / 0.433 | 0.942 / 0.873 ; 0.689 / 0.503 |
+| Pooled EV per mode 1v1 / 2v2 / 3v3 | 0.387 / 0.287 / 0.268 | 0.389 / 0.298 / 0.259 |
+| Entropy, clip fraction, KL | 0.556, 0.0144, 0.00173 | 0.539, 0.0142, 0.00172 |
+| Ref/Oldest Share, Rating 1v1 / 2v2 / 3v3 | 0.9868; 2608 / 1027 / 1479 | 0.9868; 2575 / 999 / 1463 |
+| Verdict | see section 12 | H-H signature on outcomes; see section 12 |
+
+## 12. Result (2026-11-17, from `metrics.jsonl` of each arm, medians over the last 150M of each 300M-step arm)
+
+| Measure | control | lambda 0.99 | diff |
+|---|---|---|---|
+| Goals-for share vs Dice | 0.288 | 0.240 | -4.8 pts |
+| vs GalactusV2 | 0.223 | 0.206 | -1.7 |
+| vs ChronosV2 | 0.257 | 0.218 | -3.9 |
+| **mean of the three (primary)** | **0.256** | **0.221** | **-3.5 pts** |
+| vs Nexto (not in the primary) | 0.516 | 0.486 | -3.0 |
+| Far-bin EV (>10 s), 1v1 / 2v2 / 3v3 | -0.28 / -0.24 / -0.17 | -0.27 / -0.26 / -0.21 | flat |
+| Pooled EV per mode | 0.387 / 0.287 / 0.268 | 0.389 / 0.298 / 0.259 | flat |
+| Policy entropy | 0.556 | 0.539 | -3% |
+| `SB3 Clip Fraction`, `Mean KL Divergence` | 0.0144, 0.00173 | 0.0142, 0.00172 | unchanged |
+| `Rating` 1v1 / 2v2 / 3v3 (n = 5-6, inflated) | 2608 / 1027 / 1479 | 2575 / 999 / 1463 | lower, inside the +-50 band |
+| `Ref/Oldest Share` | 0.9868 | 0.9868 | same |
+
+**The lever reached the learner**, though not through the pre-registered mechanism check (far-bin EV and clip/KL did not
+move, so by that check alone this would have read "no effect on the learner" - wrong):
+
+| Panel | control | lambda 0.99 |
+|---|---|---|
+| `AdvFilter/Kept Abs Adv Mean` | 0.286 | 0.674 (2.4x) |
+| `AdvFilter/Threshold` | 0.082 | 0.252 (3.1x) |
+| `GoalCritic/Loss` | 0.0011 | 0.0053 (5x) |
+| `GoalCritic/Adv-Outcome Corr` | 0.28 | 0.56 |
+| `GoalCritic/Injected Abs Mean` | 0.033 | 0.080 |
+
+Reading: lambda 0.99 makes the policy's advantages ~2.4x larger and much more outcome-linked, but `Policy Update Magnitude` is
+unchanged (0.1014 in both arms; a normalised step), so the larger, noisier advantages move the policy the same distance in a
+direction that is noisier. The critic did not improve (far-bin EV flat). The outcome moved the wrong way on all four bots.
+
+**Verdict under section 8: H-H (the outcome row), not H-L.** The primary effect is -3.5 points against a ~2.5-3 point MDE,
+so it clears the threshold, but this is ONE pair of sequential arms; the sign is the same on all four bots (a weak sign test),
+and Dice and Chronos are below the whole 800M-step baseline range in section 4. The KL > 2x guard did not trip, so the harm
+is on outcomes, not on update stability. Confidence: moderate that 0.99 does not help here; lower that it hurts by exactly 3.5.
+
+Decision: **revert to 0.95** (done, `ExampleMain.cpp`); the live checkpoint folder is the control arm's (`checkpoints_gco_6.1`
+at 61.69B); the treatment arm's is kept as `checkpoints_gco_6.1_ARM_lambda099` and the fork as
+`checkpoints_gco_6.1_FORK_lambdatest` (both can be deleted once this is settled).
+
+Next, per the doc's own rule: not a larger lambda. Candidates: a smaller step in the same direction (0.97) is unlikely to
+help given 0.99 hurt; the std-matched long-lambda blend (a second advantage channel scaled to the primary's std) is the
+variant that avoids the 2.4x advantage inflation; and the critic-conditioning lever, since far-bin EV did not move at all.
