@@ -3,10 +3,24 @@
 
 #include "../Util/ModelConfig.h"
 
+#include <cstdlib>
+#include <string>
+
 namespace RLGC {
 }
 
 namespace GGL {
+
+	// CRITIC CONTEXT, Phase A (docs/GCO_CRITIC_CONTEXT_TEST.md; 2026-11-18). MEASUREMENT ONLY: four small side heads read the DETACHED
+	// critic-trunk output plus per-row context (opponent source one-hot, no-touch clock, episode clock) and learn a zero-initialised
+	// correction Delta on top of the live critic. Nothing reads them: collection value predictions, GAE, the critic's own loss and the
+	// policy are unchanged. Off unless the environment variable GGL_CRITIC_CTX=1 is set at process start (default off, so a rebuilt
+	// binary is inert until a restart opts in; unset it to revert). Context layout: [0,8) source one-hot, [8,10) clock features.
+	constexpr int CTX_SRC_DIMS = 8, CTX_CLK_DIMS = 2, CTX_DIMS = CTX_SRC_DIMS + CTX_CLK_DIMS;
+	inline bool CriticCtxEnabled() {
+		static const bool on = [] { const char* v = std::getenv("GGL_CRITIC_CTX"); return v && std::string(v) == "1"; }();
+		return on;
+	}
 
 	// Learned goal-reachability (InfoNCE + HER), used ONLY as:
 	//  (a) an auxiliary representation loss on the shared head, and

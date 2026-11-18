@@ -54,6 +54,37 @@ GGL::PPOLearner::PPOLearner(int obsSize, int numActions, PPOLearnerConfig _confi
 		}
 	}
 
+	// CRITIC CONTEXT Phase A (docs/GCO_CRITIC_CONTEXT_TEST.md): four measurement-only side heads on the DETACHED critic-trunk output.
+	// src/clk/both add the source one-hot / clock features / both; nul adds nothing (the control: what the trunk read alone buys).
+	// Last layer zero-initialised so Delta = 0 and V_ctx = V_old exactly at the start.
+	if (CriticCtxEnabled()) {
+		RG_ASSERT(models["critic"]);
+		const int trunkW = models["critic"]->config.numInputs;
+		struct CtxHead { const char* name; int extra; };
+		for (CtxHead h : { CtxHead{ "critic_ctx_src", CTX_SRC_DIMS }, CtxHead{ "critic_ctx_clk", CTX_CLK_DIMS },
+			CtxHead{ "critic_ctx_both", CTX_DIMS }, CtxHead{ "critic_ctx_nul", 0 } }) {
+			ModelConfig cc = models["critic"]->config; // optimizer type and activation follow the critic head
+			cc.layerSizes = { 256, 256 };
+			cc.addResiduals = false;
+			cc.numInputs = trunkW + h.extra;
+			cc.numOutputs = 1;
+			Model* m = new Model(h.name, cc, device);
+			{
+				torch::NoGradGuard ng;
+				torch::nn::LinearImpl* last = nullptr;
+				for (auto& c : m->seq->children())
+					if (auto* l = dynamic_cast<torch::nn::LinearImpl*>(c.get()))
+						last = l;
+				RG_ASSERT(last);
+				last->weight.zero_();
+				if (last->bias.defined())
+					last->bias.zero_();
+			}
+			models.Add(m);
+		}
+		RG_LOG("Critic context Phase A ENABLED (GGL_CRITIC_CTX=1): 4 measurement-only side heads, zero-initialised");
+	}
+
 	// GEOMETRY (4th rung). Three INDEPENDENT nets on raw obs — no trunk, like the original
 	// goal-critic form — so this rung cannot co-adapt the shared perception path on day one.
 	//   geo_sigma : obs -> 2*obs   conditional (mean, log-std) of the one-step displacement.
@@ -282,6 +313,28 @@ torch::Tensor GGL::PPOLearner::InferVdagMin(torch::Tensor obs) {
 	return torch::minimum(a, b);
 }
 
+torch::Tensor GGL::PPOLearner::InferCtxDeltas(torch::Tensor obs, torch::Tensor ctx) {
+	if (!models["critic_ctx_both"])
+		return torch::Tensor();
+	RG_NO_GRAD;
+	const int64_t n = obs.size(0), chunk = 32768;
+	torch::Tensor out = torch::zeros({ n, 4 });
+	for (int64_t i = 0; i < n; i += chunk) {
+		int64_t j = RS_MIN(n, i + chunk);
+		torch::Tensor trunk = ValueTrunk(obs.slice(0, i, j).to(device, true), false).to(torch::kFloat32);
+		torch::Tensor c = ctx.slice(0, i, j).to(device, true);
+		torch::Tensor ins[4] = {
+			torch::cat({ c.slice(1, 0, CTX_SRC_DIMS), trunk }, 1),
+			torch::cat({ c.slice(1, CTX_SRC_DIMS, CTX_DIMS), trunk }, 1),
+			torch::cat({ c, trunk }, 1),
+			trunk };
+		const char* names[4] = { "critic_ctx_src", "critic_ctx_clk", "critic_ctx_both", "critic_ctx_nul" };
+		for (int h = 0; h < 4; h++)
+			out.slice(0, i, j).select(1, h).copy_(models[names[h]]->Forward(ins[h], false).flatten().to(torch::kFloat32).cpu());
+	}
+	return out;
+}
+
 torch::Tensor GGL::PPOLearner::InferRhatMax(torch::Tensor obs) {
 	RG_NO_GRAD;
 	obs = ValueTrunk(obs.to(device, true), config.useHalfPrecision);
@@ -405,6 +458,12 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 	// V-dagger: the direct "are these weights actually moving?" signal. Frozen at lr=0 this
 	// read exactly 0 for the life of the run, which nothing would have revealed.
 	auto vdagBefore = models["vdag1"] ? models["vdag1"]->CopyParams() : torch::Tensor();
+	// Same trap as V-dagger: report whether the ctx heads actually move (their LR must be named in SetLearningRates)
+	static const char* CTX_HEADS[4] = { "critic_ctx_src", "critic_ctx_clk", "critic_ctx_both", "critic_ctx_nul" };
+	torch::Tensor ctxBefore[4];
+	for (int h = 0; h < 4; h++)
+		if (models[CTX_HEADS[h]])
+			ctxBefore[h] = models[CTX_HEADS[h]]->CopyParams();
 
 	bool trainPolicy = config.policyLR != 0;
 	bool trainCritic = config.criticLR != 0;
@@ -739,6 +798,30 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					dbgYvAbs = yv.abs().mean().item<float>();
 				}
 
+				// CRITIC CONTEXT Phase A: measurement-only side heads. Every input is DETACHED (the trunk read, the live critic's value),
+				// so no gradient reaches critic_trunk, shared_head or the policy; the loss trains only these heads' own weights.
+				torch::Tensor ctxLoss;
+				if (batch.criticCtx.defined() && models["critic_ctx_both"]) {
+					torch::Tensor ctxB = batch.criticCtx.slice(0, start, stop).to(device, true, true);
+					torch::Tensor trunkD = fnValueTrunk().detach().to(torch::kFloat32);
+					torch::Tensor vOld;
+					{
+						RG_NO_GRAD;
+						vOld = models["critic"]->Forward(trunkD, false).flatten().to(torch::kFloat32);
+					}
+					torch::Tensor tgt = targetValues.flatten().to(torch::kFloat32);
+					torch::Tensor ins[4] = {
+						torch::cat({ ctxB.slice(1, 0, CTX_SRC_DIMS), trunkD }, 1),
+						torch::cat({ ctxB.slice(1, CTX_SRC_DIMS, CTX_DIMS), trunkD }, 1),
+						torch::cat({ ctxB, trunkD }, 1),
+						trunkD };
+					for (int h = 0; h < 4; h++) {
+						auto delta = models[CTX_HEADS[h]]->Forward(ins[h], false).flatten().to(torch::kFloat32);
+						auto l = mseLoss(vOld + delta, tgt) * batchSizeRatio;
+						ctxLoss = ctxLoss.defined() ? ctxLoss + l : l;
+					}
+				}
+
 				// ===================== GEOMETRY: the HJB residual =====================
 				// (1 - gamma) V(s) = r_hat(s) + gamma * || grad_s V(s) ||_Sigma(s)
 				//
@@ -892,6 +975,8 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					totalLoss = totalLoss.defined() ? totalLoss + rhatLoss : rhatLoss;
 				if (geoLoss.defined())
 					totalLoss = totalLoss.defined() ? totalLoss + geoLoss : geoLoss;
+				if (ctxLoss.defined())
+					totalLoss = totalLoss.defined() ? totalLoss + ctxLoss : ctxLoss;
 
 				// ARCHIVE replay: convert the field into POLICY. PBRS with a good field is
 				// neutral BY THEOREM, so ascent must be imitated directly. Weights are
@@ -970,6 +1055,10 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 			for (const char* n : { "geo_sigma", "geo_rew", "geo_v" })
 				if (models[n])
 					nn::utils::clip_grad_norm_(models[n]->parameters(), 1.0f);
+
+			for (int h = 0; h < 4; h++)
+				if (models[CTX_HEADS[h]])
+					nn::utils::clip_grad_norm_(models[CTX_HEADS[h]]->parameters(), 0.5f);
 
 			if (reach) {
 				nn::utils::clip_grad_norm_(reach->phi->parameters(), 0.5f);
@@ -1077,6 +1166,14 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 		report["SB3 Clip Fraction"] = avgClip.Get();
 		report["Policy Update Magnitude"] = policyUpdateMagnitude;
 		report["Critic Update Magnitude"] = criticUpdateMagnitude;
+	{
+		// Must be > 0 for every head (the lr=0 trap): 0 means the side heads are inert and the paired EV panels read nothing.
+		const char* suf[4] = { "src", "clk", "both", "nul" };
+		for (int h = 0; h < 4; h++)
+			if (ctxBefore[h].defined())
+				report[std::string("GCO/Ctx Update Magnitude ") + suf[h]] = (ctxBefore[h] - models[CTX_HEADS[h]]->CopyParams()).norm().item<float>();
+	}
+
 
 		// PLASTICITY (promoted from the retired PSD subsystem, 2026-07-25). Weights-only, no data
 		// batch, so it is cheap enough to run every iteration. Effective-rank decay is the
@@ -1150,6 +1247,11 @@ void GGL::PPOLearner::SetLearningRates(float policyLR, float criticLR) {
 		if (models[n])
 			models[n]->SetOptimLR(config.geoLR);
 
+	// CRITIC CONTEXT Phase A heads: the same lr=0 trap as every head above. Named explicitly; "Ctx Update Magnitude" must read > 0.
+	for (const char* n : { "critic_ctx_src", "critic_ctx_clk", "critic_ctx_both", "critic_ctx_nul" })
+		if (models[n])
+			models[n]->SetOptimLR(criticLR);
+
 	// THEORY r-hat twins: same trap (ctor builds optimizers at lr=0 = exact no-op under
 	// Muon). They regress a REWARD, not a return, so they take criticLR as well.
 	for (const char* n : { "rhat1", "rhat2" })
@@ -1190,6 +1292,10 @@ GGL::ModelSet GGL::PPOLearner::GetPolicyModels() {
 		// slimmed exploiter runs, docs/EXPLOITERS.md) load as an opponent. Old version dirs keep their now-unread
 		// GEO_* files; Load() only requires the models the template asks for.
 		if (name.rfind("geo_", 0) == 0)
+			continue;
+
+		// CRITIC CONTEXT Phase A heads are value-side measurement heads: never cloned into policy versions
+		if (name.rfind("critic_ctx", 0) == 0)
 			continue;
 
 		result.Add(model);

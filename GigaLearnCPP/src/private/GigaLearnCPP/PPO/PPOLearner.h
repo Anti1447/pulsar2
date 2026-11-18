@@ -97,6 +97,10 @@ namespace GGL {
 		// HEADROOM composition critic: min of the twin V-dagger heads (shared trunk).
 		// No-grad; used at learn-prep for one-iteration-frozen TD targets + the H field.
 		torch::Tensor InferVdagMin(torch::Tensor obs);
+
+		// CRITIC CONTEXT Phase A (measurement only): Delta of the four side heads, [N, 4] in the order src, clk, both, nul, on CPU.
+		// obs is [N, obsSize] and ctx [N, CTX_DIMS]; no gradient, chunked. Empty tensor when the heads do not exist.
+		torch::Tensor InferCtxDeltas(torch::Tensor obs, torch::Tensor ctx);
 		// THEORY: max of the twin reward models (optimism under ambiguity), clamped by
 		// the caller to the largest reward actually observed (never invent magnitudes).
 		torch::Tensor InferRhatMax(torch::Tensor obs);

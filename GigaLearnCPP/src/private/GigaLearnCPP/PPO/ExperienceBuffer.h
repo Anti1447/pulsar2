@@ -27,6 +27,9 @@ namespace GGL {
 			// THEORY: scaled per-step reward that LANDED on this row's arrival state
 			// (r-hat regression target; undefined unless vdagTheoryEnabled)
 			rhatTargets,
+			// CRITIC CONTEXT Phase A: float [rows, CTX_DIMS] per-row context for the measurement-only side heads
+			// (undefined unless GGL_CRITIC_CTX=1; see PPOLearnerConfig.h)
+			criticCtx,
 			// ADVANTAGE FILTERING: float 0/1, 1 = this row ranked in the top advFilterFrac of
 			// the iteration - by signed advantage or by |advantage|, per advFilterMode - and the
 			// POLICY may train on it (value heads ignore this mask). Undefined unless

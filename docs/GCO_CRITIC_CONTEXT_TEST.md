@@ -1,6 +1,6 @@
 # GCO critic-context test (pre-registration, 2026-11-18)
 
-Status: **PROPOSED, nothing implemented or enabled.** Branch `gco-goalcritic`. Doctrine: measurement before machinery;
+Status: **IMPLEMENTED and smoke-tested (section 12); NOT enabled on the live trainer.** Branch `gco-goalcritic`. Doctrine: measurement before machinery;
 one lever; an automatic guard; a revert path. Follows `GCO_CRITIC_LR_TEST.md` (neutral), `GCO_LAMBDA_TEST.md` (reverted),
 `GCO_TEAM_CRITIC_TEST.md` (the horizon-composition finding, section 12).
 
@@ -139,3 +139,36 @@ checkpoint files (`Load` only reads the models the template asks for), so a roll
 | Decomposition (src vs clk) | |
 | Control panels vs prior bands | |
 | Verdict | |
+
+## 12. Implementation record (2026-11-18)
+
+Code (additive, 243 lines in 5 files, nothing else touched): `PPOLearnerConfig.h` (the `GGL_CRITIC_CTX` switch, context layout), `ExperienceBuffer.h`
+(per-row `criticCtx`), `PPOLearner.h/.cpp` (heads, loss, LR, clip, magnitude panel, `InferCtxDeltas`, excluded from policy versions),
+`Learner.cpp` (per-row clock collection, context tensor, paired EV panels). Default OFF: the rebuilt library is inert until a process starts with `GGL_CRITIC_CTX=1`.
+
+**Differences from sections 3-5 (all disclosed):**
+1. **Four heads, not three:** `critic_ctx_src`, `_clk`, `_both`, plus `_nul` (trunk read only, context absent), the control named in section 5's falsifiers.
+   Every gain must be read AGAINST `nul`, not against 0: the heads can also absorb the gap between the collection-time prediction (one iteration
+   stale, bf16) and the current fp32 trunk read, and `nul` measures exactly that. Success needs src/clk/both to beat `nul`.
+2. **Panels:** `GCO/EVctx <head>` (pooled, and per mode `EVctx <head> <mode>`), `GCO/Ctx Gain <head> <All|mode>`, `GCO/Ctx Gain TTE <head> <bin> <mode>`,
+   `GCO/EVctx TTE <bin> <mode>` (both head only), `GCO/Ctx Delta Abs <head>`, `GCO/Ctx Update Magnitude <head>`. **`EVctx SrcCorr` was not built:** the
+   `src` head's out-of-sample gain answers the same question without the in-sample intercept bias. TTE panels follow the existing every-10th-iteration cadence.
+3. **Definitions:** source = `rowTag / 4` (0 self-play, 1 old version, 2 exploiter pool, 3 frozen opponent, 4.. external bot in `externalOpps` order, capped at slot 7);
+   no-touch clock = `NoTouchCondition::timeSinceTouch / 20 s` read BEFORE the step (so it describes the obs the row holds); episode clock =
+   steps since the arena's last `Reset()` x tickSkip / 120 / 60 s, both clamped to 1.
+4. **Evaluation order:** the heads' Delta is computed before this iteration's update on this iteration's rows, so each is judged out of sample.
+
+**Smoke (CPU, `GGL_SMOKE=1`, throwaway directory, copy of one checkpoint; the live checkpoint folder and the GPU untouched).** Passed:
+- Boot log: ONLY the four `critic_ctx_*` models list "will be reset"; no other model does (the section 6 loader guard).
+- Zero-init: first evaluation logs mean |Delta| = 0 for all four heads; `Delta Abs` then grows to 0.02-0.05.
+- LR trap: `Ctx Update Magnitude` about 0.178 for all four heads (nonzero). A first smoke showed the panel missing: it had been placed inside the `if (reach)` brace
+  (reachability is off here); moved to the always-reported block and rerun.
+- No crash over 6 recorded iterations; panels populate; gains near 0 (about +-0.005) with all four heads similar, as expected at this size.
+**Not verified:** behaviour under the live trainer (pipelined collection, bf16 collection, GPU memory), the control panels (entropy, clip fraction) under the live run, and the
+policy staying bit-untouched (by construction every head input is detached and the heads' loss never reaches the trunk, but only a live comparison shows it).
+
+**Restart procedure (needs the user's approval; nothing has been restarted).** `systemd-run --user` does not forward a shell's environment, so
+`GGL_CRITIC_CTX=1 tools/trainerctl restart` would NOT enable it. Use:
+`systemctl --user set-environment GGL_CRITIC_CTX=1` then `tools/trainerctl restart` (the wrapper's own crash-restarts then inherit it).
+Revert: `systemctl --user unset-environment GGL_CRITIC_CTX` then `tools/trainerctl restart`; old binaries ignore the extra `CRITIC_CTX_*.lt` files.
+On start, check the boot log lists only the four ctx heads as "will be reset" and that "first evaluation: mean |Delta|" reads 0.

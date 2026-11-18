@@ -22,6 +22,7 @@
 #include <private/GigaLearnCPP/PolicyVersionManager.h>
 #include <private/GigaLearnCPP/NextoOpponent.h>
 #include <private/GigaLearnCPP/GGLBotOpponent.h>
+#include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
 #include <private/GigaLearnCPP/ExternalPlayMonitor.h>
 #include <private/GigaLearnCPP/ExploiterPool.h>
 #include <private/GigaLearnCPP/ExploiterEval.h>
@@ -1404,6 +1405,9 @@ void GGL::Learner::Start() {
 			// 0 self-play, 1 old version, 2 imported exploiter, 3 exploiter-run frozen opponent, 4 + i external bot i.
 			// Read only by the explained-variance panels; nothing trains on it.
 			std::vector<uint8_t> rowTag;
+			// CRITIC CONTEXT Phase A (PPOLearnerConfig.h): 2 floats per row, [no-touch clock / 20 s, episode time / 60 s], both clamped to 1,
+			// read from the arena BEFORE the step so they describe the obs the row holds. Empty unless GGL_CRITIC_CTX=1.
+			std::vector<float> ctxClock;
 			std::vector<uint8_t> actionMasks;
 			std::vector<int8_t> terminals;
 			std::vector<int32_t> actions;
@@ -1469,6 +1473,7 @@ void GGL::Learner::Start() {
 				rewards.clear();
 				goalRews.clear();
 				rowTag.clear();
+				ctxClock.clear();
 				logProbs.clear();
 				actionMasks.clear();
 				terminals.clear();
@@ -1505,6 +1510,8 @@ void GGL::Learner::Start() {
 				rewards.reserve(rows);
 				goalRews.reserve(rows);
 				rowTag.reserve(rows);
+				if (CriticCtxEnabled())
+					ctxClock.reserve(rows * CTX_CLK_DIMS);
 				logProbs.reserve(rows);
 				terminals.reserve(rows);
 				actions.reserve(rows);
@@ -1550,6 +1557,7 @@ void GGL::Learner::Start() {
 				rewards += other.rewards;
 				goalRews += other.goalRews;
 				rowTag += other.rowTag;
+				ctxClock += other.ctxClock;
 				logProbs += other.logProbs;
 				actionMasks += other.actionMasks;
 				terminals += other.terminals;
@@ -1588,6 +1596,7 @@ void GGL::Learner::Start() {
 				if (!goalRews.empty())
 					RG_ASSERT(goalRews.size() == n);
 				RG_ASSERT(rowTag.size() == n || rowTag.empty());
+				RG_ASSERT(ctxClock.size() == n * CTX_CLK_DIMS || ctxClock.empty());
 				if (!touched.empty()) {
 					RG_ASSERT(touched.size() == n && oppTouched.size() == n && gatedPos.size() == n);
 					RG_ASSERT(teamTouched.size() == n);
@@ -1694,6 +1703,9 @@ void GGL::Learner::Start() {
 		// Static per-player maps: owning arena, slot within it, and the first opposing player
 		// (whose obs row supplies rho_opp for the control read); teams never change mid-run
 		std::vector<int> playerArenaIdx(numPlayers), playerSlotIdx(numPlayers), playerPartnerIdx(numPlayers, -1);
+		// CRITIC CONTEXT Phase A: steps since each arena's episode began (reset where Reset() re-rolls the arena; 0 at the first row)
+		const bool ctxOn = CriticCtxEnabled();
+		std::vector<int> ctxEpStep(ctxOn ? envSet->state.gameStates.size() : 0, 0);
 		// Per-arena "did team X touch this step" scratch, indexed [team][arena] (hoisted out of the step loop)
 		std::vector<uint8_t> arenaTeamTouched[2];
 
@@ -2286,7 +2298,14 @@ void GGL::Learner::Start() {
 						// 2026-11-05, i.e. always zero: Nexto's previous-action memory was never cleared at an episode boundary.
 						if (oppExternal)
 							extStartedFresh = envSet->state.terminals;
+						std::vector<uint8_t> ctxPrevTerm;
+						if (ctxOn)
+							ctxPrevTerm = envSet->state.terminals;
 						envSet->Reset();
+						if (ctxOn)
+							for (size_t a = 0; a < ctxEpStep.size() && a < ctxPrevTerm.size(); a++)
+								if (ctxPrevTerm[a])
+									ctxEpStep[a] = 0;
 						envStepTime += stepTimer.Elapsed();
 
 						// Sampled every 4th step: this is a hard-stop debug guard, and any obs-NaN
@@ -2346,6 +2365,18 @@ void GGL::Learner::Start() {
 								int newPlayerIdx = newPlayerIndices[k];
 								trajectories[newPlayerIdx].states += envSet->state.obs.GetRow(newPlayerIdx);
 								trajectories[newPlayerIdx].actionMasks += envSet->state.actionMasks.GetRow(newPlayerIdx);
+								if (ctxOn) {
+									const int ai = playerArenaIdx[newPlayerIdx];
+									float sinceTouch = 0;
+									for (auto* cond : envSet->terminalConditions[ai])
+										if (auto* nt = dynamic_cast<RLGC::NoTouchCondition*>(cond)) {
+											sinceTouch = nt->timeSinceTouch;
+											break;
+										}
+									const float epSec = (float)ctxEpStep[ai] * (float)envSet->config.tickSkip / 120.f;
+									trajectories[newPlayerIdx].ctxClock.push_back(RS_MIN(sinceTouch / 20.f, 1.f));
+									trajectories[newPlayerIdx].ctxClock.push_back(RS_MIN(epSec / 60.f, 1.f));
+								}
 
 								if (reachOn) {
 									auto& traj = trajectories[newPlayerIdx];
@@ -2362,6 +2393,9 @@ void GGL::Learner::Start() {
 								}
 							});
 							prepTime += prepTimer.Elapsed();
+							if (ctxOn)
+								for (int& e : ctxEpStep)
+									e++;
 						}
 
 						envSet->StepFirstHalf(true);
@@ -3176,6 +3210,26 @@ void GGL::Learner::Start() {
 						config.ppo.gaeGamma, config.ppo.gaeLambda, returnStat ? returnStat->GetSTD() : 1, config.ppo.rewardClipRange
 					);
 					report["GAE Time"] = gaeTimer.Elapsed();
+
+					// CRITIC CONTEXT Phase A: per-row context = source one-hot (rowTag / 4: 0 self-play, 1 old version, 2 exploiter pool,
+					// 3 frozen opponent, 4.. external bot index, capped at slot 7) + the two clock features collected before each step.
+					torch::Tensor tCtx;
+					if (ctxOn) {
+						const int64_t nR = tStates.size(0);
+						if ((int64_t)combinedTraj.rowTag.size() == nR && (int64_t)combinedTraj.ctxClock.size() == nR * CTX_CLK_DIMS) {
+							std::vector<float> ctxRows((size_t)nR * CTX_DIMS, 0.f);
+							for (int64_t i = 0; i < nR; i++) {
+								int src = RS_MIN((int)(combinedTraj.rowTag[i] / 4), CTX_SRC_DIMS - 1);
+								ctxRows[(size_t)i * CTX_DIMS + src] = 1.f;
+								ctxRows[(size_t)i * CTX_DIMS + CTX_SRC_DIMS] = combinedTraj.ctxClock[(size_t)i * CTX_CLK_DIMS];
+								ctxRows[(size_t)i * CTX_DIMS + CTX_SRC_DIMS + 1] = combinedTraj.ctxClock[(size_t)i * CTX_CLK_DIMS + 1];
+							}
+							tCtx = torch::tensor(ctxRows).reshape({ nR, CTX_DIMS });
+						} else {
+							RG_LOG("WARNING: critic context rows misaligned (rowTag " << combinedTraj.rowTag.size() << ", ctxClock " << combinedTraj.ctxClock.size()
+								<< ", rows " << nR << "): context heads skipped this iteration");
+						}
+					}
 					report["Clipped Reward Portion"] = rewClipPortion;
 
 					if (exploiterRun || config.gcoRun) {
@@ -3214,6 +3268,46 @@ void GGL::Learner::Start() {
 							fnGroupEV(tSrc == 3, "EV Src frozen opponent");
 							for (size_t b = 0; b < externalOpps.size(); b++)
 								fnGroupEV(tSrc == (int)(4 + b), "EV Src " + externalOpps[b]->name);
+
+							// --- CRITIC CONTEXT Phase A (docs/GCO_CRITIC_CONTEXT_TEST.md section 4). MEASUREMENT ONLY. Paired predictions on the SAME
+							// rows: the live critic's collection-time value (tValPreds, untouched) and V_old + Delta from the four side heads,
+							// evaluated BEFORE this iteration's update, so each head is judged out of sample. ---
+							torch::Tensor tCtxDelta;
+							if (tCtx.defined() && ppo->models["critic_ctx_both"]) {
+								tCtxDelta = ppo->InferCtxDeltas(tStates, tCtx); // [N, 4]: src, clk, both, nul
+								static bool ctxFirstLogged = false;
+								if (!ctxFirstLogged) { // zero-init check: on a fresh head this reads exactly 0 (the files were absent, "will be reset")
+									ctxFirstLogged = true;
+									RG_LOG("Critic context heads, first evaluation: mean |Delta| src " << tCtxDelta.select(1, 0).abs().mean().item<float>()
+										<< " clk " << tCtxDelta.select(1, 1).abs().mean().item<float>() << " both " << tCtxDelta.select(1, 2).abs().mean().item<float>()
+										<< " nul " << tCtxDelta.select(1, 3).abs().mean().item<float>() << " (0 expected on a fresh start)");
+								}
+								const char* hn[4] = { "src", "clk", "both", "nul" };
+								auto fnEVof = [&](const torch::Tensor& mask, const torch::Tensor& pred, float* out) {
+									if (mask.sum().item<int64_t>() < 300)
+										return false;
+									float rv = tScaledReturns.index({ mask }).var().item<float>();
+									*out = 1 - (tScaledReturns.index({ mask }) - pred.index({ mask })).var().item<float>() / RS_MAX(rv, 1e-8f);
+									return (bool)std::isfinite(*out);
+								};
+								torch::Tensor allRows = torch::ones({ tScaledReturns.size(0) }, torch::kBool);
+								for (int h = 0; h < 4; h++) {
+									torch::Tensor pred = tValPreds + tCtxDelta.select(1, h);
+									float e0 = 0, e1 = 0;
+									if (fnEVof(allRows, pred, &e1) && fnEVof(allRows, tValPreds, &e0)) {
+										report[rampPrefix + std::string("EVctx ") + hn[h]] = e1;
+										report[rampPrefix + std::string("Ctx Gain ") + hn[h] + " All"] = e1 - e0;
+									}
+									for (int m = 0; m < 3; m++) {
+										torch::Tensor mk = (tTag % 4) == m;
+										if (fnEVof(mk, pred, &e1) && fnEVof(mk, tValPreds, &e0)) {
+											report[rampPrefix + std::string("EVctx ") + hn[h] + " " + modeNames[m]] = e1;
+											report[rampPrefix + std::string("Ctx Gain ") + hn[h] + " " + modeNames[m]] = e1 - e0;
+										}
+									}
+									report[rampPrefix + std::string("Ctx Delta Abs ") + hn[h]] = tCtxDelta.select(1, h).abs().mean().item<float>();
+								}
+							}
 
 							// --- Team-critic diagnostics (2026-11-17; docs/GCO_TEAM_CRITIC_TEST.md section 4). TELEMETRY ONLY: nothing
 							// here feeds back into training. Same EV definition as above (value pred vs the scaled raw discounted MC
@@ -3389,6 +3483,27 @@ void GGL::Learner::Start() {
 									for (int m = 0; m < 3; m++)
 										for (int b = 0; b < 4; b++)
 											fnGroupEV(((tTag % 4) == m) & (tBin == b), std::string("EV TTE ") + binNames[b] + " " + modeNames[m]);
+									// CRITIC CONTEXT Phase A: the same bins, paired. EVctx (both head) and the gain of every head over the live critic.
+									if (tCtxDelta.defined()) {
+										const char* hn[4] = { "src", "clk", "both", "nul" };
+										for (int m = 0; m < 3; m++)
+											for (int b = 0; b < 4; b++) {
+												torch::Tensor mk = ((tTag % 4) == m) & (tBin == b);
+												if (mk.sum().item<int64_t>() < 300)
+													continue;
+												torch::Tensor r = tScaledReturns.index({ mk });
+												float rv = RS_MAX(r.var().item<float>(), 1e-8f);
+												float e0 = 1 - (r - tValPreds.index({ mk })).var().item<float>() / rv;
+												for (int h = 0; h < 4; h++) {
+													float e1 = 1 - (r - (tValPreds + tCtxDelta.select(1, h)).index({ mk })).var().item<float>() / rv;
+													if (!std::isfinite(e1) || !std::isfinite(e0))
+														continue;
+													if (h == 2)
+														report[rampPrefix + std::string("EVctx TTE ") + binNames[b] + " " + modeNames[m]] = e1;
+													report[rampPrefix + std::string("Ctx Gain TTE ") + hn[h] + " " + binNames[b] + " " + modeNames[m]] = e1 - e0;
+												}
+											}
+									}
 								}
 							}
 						}
@@ -3905,6 +4020,7 @@ void GGL::Learner::Start() {
 					// "mask defined" as "filtering is on", so a leftover mask from a previous
 					// iteration would keep filtering after advFilterFrac was set back to 1.
 					experience.data.advFilterMask = tAdvFilterMask;
+					experience.data.criticCtx = tCtx; // assigned unconditionally for the same reason (undefined = heads off this iteration)
 					if (goalCriticOn)
 						experience.data.goalTargetValues = tGoalTargetVals;
 
