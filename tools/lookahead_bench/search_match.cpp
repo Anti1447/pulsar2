@@ -16,8 +16,14 @@
 //
 // Usage (from build/):  taskset -c 0-3 nice -n 19 ./LookaheadSearch <ckpt dir> <selftest|calib|argmax|search> [games=200]
 //                       [slots=16] [H=30] [K=8] [M=1] [leaf=1] [a=1] [b=0] [seed=12345] [pick=0 best|1 worst|2 random] [oppArgmax=0]
+//
+// Frozen external opponent (docs/GCO_LOOKAHEAD_TEST.md section 14): set EXT_BOT=galactus|chronos|dice|nexto. In modes `raw` (the
+// side samples the policy, no search) and `search`, the OTHER side in the real game is then that bot (argmax, as shipped), while the
+// rollouts still model it as our own policy. Run from build/ (bot weights at ../rlbot-run/).
 #include <GigaLearnCPP/Util/Models.h>
 #include <GigaLearnCPP/PPO/PPOLearner.h>
+#include <GigaLearnCPP/GGLBotOpponent.h>
+#include <GigaLearnCPP/NextoOpponent.h>
 
 #include <RLGymCPP/EnvSet/EnvSet.h>
 #include <RLGymCPP/ObsBuilders/AdvancedObsPadded.h>
@@ -232,8 +238,24 @@ int main(int argc, char** argv) {
 	if (mode == "selftest") return SelfTest(nets, std::max(H, 10));
 
 	const bool searching = mode == "search";
+	const bool rawCtl = mode == "raw"; // control: the "search" side samples the raw policy (same as the other side, or vs EXT_BOT)
 	const bool argmaxCtl = mode == "argmax"; // control: the "search" side plays the policy's deterministic argmax, the other side samples
+	// Frozen external opponent
+	std::shared_ptr<ExternalOpponent> bot;
+	std::string botName = "none";
+	if (const char* eb = std::getenv("EXT_BOT"); eb && eb[0]) {
+		botName = eb;
+		torch::Device cpu(torch::kCPU);
+		if (botName == "nexto") bot = std::make_shared<NextoOpponent>("../rlbot-run/nexto/nexto-model.pt", cpu);
+		else if (botName == "galactus") bot = std::make_shared<GGLBotOpponent>(GGLBotKind::GALACTUS_V2, "../rlbot-run/galactus_v2", cpu);
+		else if (botName == "chronos") bot = std::make_shared<GGLBotOpponent>(GGLBotKind::CHRONOS_V2, "../rlbot-run/chronos_v2", cpu);
+		else if (botName == "dice") bot = std::make_shared<GGLBotOpponent>(GGLBotKind::DICE, "../rlbot-run/dice", cpu);
+		else { printf("unknown EXT_BOT %s\n", eb); return 2; }
+		bot->temperature = 0.f; // argmax: the bot as shipped
+	}
 	auto real = MakeEnv(G);
+	if (bot) { bot->BeginServe(real->state.numPlayers); printf("opponent in the real game: %s (argmax)\n", bot->name.c_str()); }
+	std::vector<uint8_t> botFresh(G, 1);
 	std::unique_ptr<EnvSet> roll;
 	if (searching) roll = MakeEnv(G * R);
 	printf("mode %s: %d games, %d slots%s\n", mode.c_str(), N, G, searching ? "" : " (raw vs raw)");
@@ -376,6 +398,14 @@ int main(int argc, char** argv) {
 
 		double tr0 = NowS();
 		real->StepFirstHalf(false);
+		if (bot) {
+			std::vector<bool> isBot(real->state.numPlayers, false);
+			for (int g = 0; g < G; g++) if (slots[g].active) isBot[2 * g + 1 - PlayerIdx(real->state.gameStates[g], slots[g].searchTeam)] = true;
+			std::vector<int> ext(real->state.numPlayers, 0);
+			bot->Act(real->state.gameStates, isBot, botFresh, ext);
+			for (int i = 0; i < real->state.numPlayers; i++) if (isBot[i]) actions[i] = ext[i];
+			std::fill(botFresh.begin(), botFresh.end(), 0);
+		}
 		real->StepSecondHalf(actions, false);
 		tReal += NowS() - tr0;
 
@@ -396,13 +426,13 @@ int main(int argc, char** argv) {
 					cn++; cV += V; cG += Gt; cVV += V * V; cGG += Gt * Gt; cVG += V * Gt;
 				}
 			}
-			if (searching || argmaxCtl) {
+			if (searching || argmaxCtl || rawCtl) {
 				int ourSign = sl_.searchTeam == 0 ? +1 : -1;
 				if (sgn == 0) { sd++; searchScore += 0.5; } else if (sgn == ourSign) { sw++; searchScore += 1; } else sl++;
 			}
 			if (finished % 20 == 0 || finished == N) {
 				double el = NowS() - t0;
-				if (searching || argmaxCtl) printf("[%.0fs] %d/%d games: search W/L/D %d/%d/%d, score %.3f\n", el, finished, N, sw, sl, sd, searchScore / finished);
+				if (searching || argmaxCtl || rawCtl) printf("[%.0fs] %d/%d games: search W/L/D %d/%d/%d, score %.3f\n", el, finished, N, sw, sl, sd, searchScore / finished);
 				else printf("[%.0fs] %d/%d games\n", el, finished, N);
 			}
 			startGame(g);
@@ -418,10 +448,11 @@ int main(int argc, char** argv) {
 		printf("critic vs realised discounted outcome over %.0f rows: mean V %.4f, mean G %.4f, var V %.5f, var G %.5f, corr^2 %.3f\n", cn, mV, mG, vV, vG, r2);
 		printf("FIT  G ~ a*V + b:  a = %.4f  b = %.4f    (use: ... search ... %d %d %d %d 1 %.4f %.4f)\n", a, b, N, G, H, K, a, b);
 	}
+	if (rawCtl) printf("RAW side (vs %s): W %d  L %d  D %d  score %.3f  (se about %.3f)\n", botName.c_str(), sw, sl, sd, searchScore / N, std::sqrt(0.25 / N));
 	if (argmaxCtl) printf("ARGMAX side (control): W %d  L %d  D %d  score %.3f\n", sw, sl, sd, searchScore / N);
 	if (searching) {
 		double p = searchScore / N, se = std::sqrt(0.25 / N);
-		printf("SEARCH side: W %d  L %d  D %d  score %.3f  (se about %.3f; 0.5 = parity)\n", sw, sl, sd, p, se);
+		printf("SEARCH side (vs %s): W %d  L %d  D %d  score %.3f  (se about %.3f; 0.5 = parity)\n", botName.c_str(), sw, sl, sd, p, se);
 		printf("timing: %lld decisions; per decision: search %.1f ms (load %.1f, rollout steps %.1f, of which inference %.1f ms), real step %.1f ms\n",
 			decisions, tSearch / decisions * 1e3, tLoad / decisions * 1e3, tRoll / decisions * 1e3, tInf / decisions * 1e3, tReal / (double)cycle * 1e3);
 	}

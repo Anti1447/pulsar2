@@ -275,3 +275,21 @@ gain may come from avoiding bad actions in the policy's own sampled support, whi
 | vs R: S2 / S4 / S4-noleaf win share | |
 | vs bots goals-for share: R / S2 / S4 / S4-noleaf | |
 | Verdict | |
+
+## 14. Phase 2b: frozen external bots (2026-11-18)
+
+Harness: `EXT_BOT=galactus|chronos|dice|nexto` makes the real opponent the shipped bot (argmax, adapters from the trainer); rollouts
+still model it as our own policy. Checkpoint best_r2721, 1v1, H=30, K=8, M=1, leaf a=0.4618 b=-0.0033, seed 12345. New mode `raw`
+(our side samples the policy, no search) is the baseline.
+
+| Bot | Raw (100 games) | Search (200 games) | Gap |
+|---|---|---|---|
+| GalactusV2 | 0.220 (15/71/14) | 0.150 (25/165/10) | -0.07 |
+| Dice | 0.365 (26/53/21) | 0.205 (32/150/18) | -0.16 |
+| ChronosV2 | 0.270 (18/64/18) | 0.190 (32/156/12) | -0.08 |
+| Nexto | 0.730 (62/16/22) | 0.703 (133/52/15) | -0.03 |
+
+se about 0.05 (raw), 0.035 (search). Search is below raw against all four bots; no gain anywhere. The 0.770 self-play gain does NOT
+transfer to non-self opponents. Hypothesis (untested): the rollouts' opponent model (our policy) is wrong for these bots. Caveats:
+raw baselines have half the games; the lookahead is 1v1 only. Next candidates: oracle-opponent rollouts (diagnostic), raw arms to
+200 games, distillation of search into the policy evaluated in raw play against the bots.
