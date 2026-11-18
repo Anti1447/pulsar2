@@ -14,7 +14,7 @@
 //
 // Game: kickoff, ends at the first goal or after CAP_SECONDS (a draw). Both sides sample from the policy (temperature 1).
 //
-// Usage (from build/):  taskset -c 0-3 nice -n 19 ./LookaheadSearch <ckpt dir> <selftest|calib|search> [games=200]
+// Usage (from build/):  taskset -c 0-3 nice -n 19 ./LookaheadSearch <ckpt dir> <selftest|calib|argmax|search> [games=200]
 //                       [slots=16] [H=30] [K=8] [M=1] [leaf=1] [a=1] [b=0] [seed=12345]
 #include <GigaLearnCPP/Util/Models.h>
 #include <GigaLearnCPP/PPO/PPOLearner.h>
@@ -204,7 +204,8 @@ namespace {
 
 int main(int argc, char** argv) {
 	std::cout << std::unitbuf;
-	if (argc < 3) { printf("usage: %s <ckpt dir> <selftest|calib|search> [games] [slots] [H] [K] [M] [leaf] [a] [b]\n", argv[0]); return 2; }
+	setvbuf(stdout, NULL, _IOLBF, 0); // progress lines must appear when redirected to a file
+	if (argc < 3) { printf("usage: %s <ckpt dir> <selftest|calib|argmax|search> [games] [slots] [H] [K] [M] [leaf] [a] [b]\n", argv[0]); return 2; }
 	const std::filesystem::path ckpt = argv[1];
 	const std::string mode = argv[2];
 	const int N = argc > 3 ? atoi(argv[3]) : 200;
@@ -227,6 +228,7 @@ int main(int argc, char** argv) {
 	if (mode == "selftest") return SelfTest(nets, std::max(H, 10));
 
 	const bool searching = mode == "search";
+	const bool argmaxCtl = mode == "argmax"; // control: the "search" side plays the policy's deterministic argmax, the other side samples
 	auto real = MakeEnv(G);
 	std::unique_ptr<EnvSet> roll;
 	if (searching) roll = MakeEnv(G * R);
@@ -271,6 +273,10 @@ int main(int argc, char** argv) {
 		IList actions(real->state.numPlayers, 0);
 		for (int i = 0; i < real->state.numPlayers; i++) actions[i] = (int)rawAct[i].item<int64_t>();
 
+		if (argmaxCtl) {
+			torch::Tensor am = probs.argmax(1);
+			for (int g = 0; g < G; g++) if (slots[g].active) actions[2 * g + PlayerIdx(real->state.gameStates[g], slots[g].searchTeam)] = (int)am[2 * g + PlayerIdx(real->state.gameStates[g], slots[g].searchTeam)].item<int64_t>();
+		}
 		if (searching) {
 			double tsearch = NowS();
 			// candidates + snapshots
@@ -378,13 +384,13 @@ int main(int argc, char** argv) {
 					cn++; cV += V; cG += Gt; cVV += V * V; cGG += Gt * Gt; cVG += V * Gt;
 				}
 			}
-			if (searching) {
+			if (searching || argmaxCtl) {
 				int ourSign = sl_.searchTeam == 0 ? +1 : -1;
 				if (sgn == 0) { sd++; searchScore += 0.5; } else if (sgn == ourSign) { sw++; searchScore += 1; } else sl++;
 			}
 			if (finished % 20 == 0 || finished == N) {
 				double el = NowS() - t0;
-				if (searching) printf("[%.0fs] %d/%d games: search W/L/D %d/%d/%d, score %.3f\n", el, finished, N, sw, sl, sd, searchScore / finished);
+				if (searching || argmaxCtl) printf("[%.0fs] %d/%d games: search W/L/D %d/%d/%d, score %.3f\n", el, finished, N, sw, sl, sd, searchScore / finished);
 				else printf("[%.0fs] %d/%d games\n", el, finished, N);
 			}
 			startGame(g);
@@ -400,6 +406,7 @@ int main(int argc, char** argv) {
 		printf("critic vs realised discounted outcome over %.0f rows: mean V %.4f, mean G %.4f, var V %.5f, var G %.5f, corr^2 %.3f\n", cn, mV, mG, vV, vG, r2);
 		printf("FIT  G ~ a*V + b:  a = %.4f  b = %.4f    (use: ... search ... %d %d %d %d 1 %.4f %.4f)\n", a, b, N, G, H, K, a, b);
 	}
+	if (argmaxCtl) printf("ARGMAX side (control): W %d  L %d  D %d  score %.3f\n", sw, sl, sd, searchScore / N);
 	if (searching) {
 		double p = searchScore / N, se = std::sqrt(0.25 / N);
 		printf("SEARCH side: W %d  L %d  D %d  score %.3f  (se about %.3f; 0.5 = parity)\n", sw, sl, sd, p, se);

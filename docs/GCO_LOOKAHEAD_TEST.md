@@ -1,6 +1,6 @@
 # GCO lookahead test: does short real-sim search improve the policy? (pre-registration, 2026-11-18)
 
-Status: **PROPOSED, nothing implemented.** Offline and evaluation-only: no training change, no trainer change, no GPU.
+Status: **Phase 0, 1 and 2a DONE (sections 11-12): the screen passed (0.770 vs raw).** Phase 2b not run. Offline and evaluation-only: no training change, no trainer change, no GPU.
 Branch `gco-goalcritic`. Doctrine: measurement before machinery. This follows the critic tests
 (`GCO_CRITIC_LR_TEST.md` neutral, `GCO_LAMBDA_TEST.md` reverted) and the finding that far-row credit is the binding
 constraint (EV falls 0.94 -> 0.69 -> 0.23 -> negative with time-to-end, `GCO_TEAM_CRITIC_TEST.md` section 12).
@@ -202,6 +202,42 @@ vs R) would be about 20+ hours. This excludes the external bots' own inference. 
   is run. Win share >= 0.55 -> continue.
 - **Phase 2b, confirm:** S2 and S4 vs R and vs bots at the 8-point floor, N chosen from the paired variance measured
   in 2a. S4-noleaf only if S4 shows a gain (it answers whether the critic matters, which only matters if search does).
+
+## 12. Phase 1 and Phase 2a result (2026-11-18, `tools/lookahead_bench/search_match.cpp`, target `LookaheadSearch`)
+
+Checkpoint: copy of `best_r2721_62750066410` (1v1 rating 2721 in the run's own units). CPU only, 4 pinned cores, niced.
+Game: kickoff, first goal ends it, 30 s cap = draw (scored 0.5). Both sides SAMPLE from the policy (temperature 1).
+Sides alternate blue/orange. Opponent model inside rollouts = the same raw policy (an exact distributional model
+here, the best case for search; see caveats). Common random numbers across candidates for opponent actions and
+every rollout step after the first.
+
+**Phase 1 (fidelity): PASS.** Snapshot into a different arena + replay of 20 recorded decisions: end state
+bit-identical in 6 of 6 trials; obs identical in the final run (one earlier run showed 2e-6 on one trial, no cause
+found; pass bar set to obs within 1e-4 plus an identical end state). This covers `car->controls`, `_ballHitInfo`,
+GameState/prevAction copy and the split-step protocol, not only engine state.
+
+**Calibration (400 raw-vs-raw games):** blue score 0.505 (parity); critic vs realised discounted outcome
+corr^2 = 0.289, fit G = 0.4618 V - 0.0033 (the critic over-predicts; leaf values are shrunk by 0.46).
+
+**Phase 2a screen, S2 (H=30 steps = 2 s, K=8, M=1, leaf on) vs raw, 200 games, seed 777:**
+W 138, L 30, D 32, **score 0.770** (se about 0.035), mean game 18.0 s vs 24.4 s raw-vs-raw. Gate was >= 0.55: **PASSED**
+(about 6 se above the gate). A 16-game smoke test beforehand (0.750, different seed) is not part of the 200.
+
+**Control (added after seeing the result, so labelled as post-hoc): the same raw policy played with deterministic argmax**
+against a sampled raw opponent, 400 games: W 128, L 84, D 188, **score 0.555** (se about 0.025). So de-noising the
+action (argmax instead of a temperature-1 sample) is worth about +5.5 points and a lot of draws; the search's +27 is
+mostly not that. Search still wins 0.77 against the same sampled opponent.
+
+**What this does and does not show.** It shows that, against an opponent whose behaviour the rollouts model exactly,
+a 2 s lookahead on the real sim improves this checkpoint a lot more than de-noising does. It does NOT show:
+- improvement against the frozen bots (their actions cannot be modeled; Phase 2b, untested);
+- improvement against a differently-behaving opponent (e.g. a deterministic one, which the model mismatches);
+- that the critic leaf matters (S2-noleaf not run), or the horizon shape (S4 not run);
+- anything about 2v2/3v3.
+The scale of the effect also makes a harness leak worth ruling out before building on it. I checked by reading: the
+real opponent action and the rollout opponent samples use different uniforms (no future-action leak), and the snapshot
+carries no future information, but I have not run a leak test (for example giving the search an opponent that plays
+argmax while the rollouts model sampling, or a search that is told the wrong opponent).
 
 ## 10. Record (fill in)
 
