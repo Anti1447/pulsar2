@@ -58,6 +58,7 @@
 #include <RLGymCPP/StateSetters/BallNearCarState.h>
 #include <RLGymCPP/StateSetters/AirDrillState.h>
 #include <RLGymCPP/StateSetters/AirPlayState.h>
+#include <RLGymCPP/StateSetters/NearGoalState.h>
 #include <RLGymCPP/StateSetters/CombinedState.h>
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
 
@@ -524,6 +525,10 @@ static bool g_GCOMode = false;
 // 2026-11-14 (user-directed): `--gco` is now GCO ON THE CURRENT MAIN LINEAGE (6.1: ball-prediction obs, GELU nets, all four external bots,
 // the 6.0 exploiter pool), seeded from checkpoints_6.1 into its own folder. The original 5.3-lineage GCO is `--gco-5.3` (g_GCOLegacy).
 static bool g_GCOLegacy = false;
+// --gco-fresh (docs/GCO_PURE_SELFPLAY_ARM.md section 9): a TRUE fresh start, 1v1 only, goal-only reward, pure self-play (no old versions, bots or exploiters
+// in training), its own folder. The ordinary --gco run is untouched by this flag.
+static bool g_GCOFresh = false;
+static const char* GCO_FRESH_CHECKPOINT_FOLDER = "checkpoints_gco_fresh";
 static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco_6.1";
 static const char* GCO_LEGACY_CHECKPOINT_FOLDER = "checkpoints_gco";
 // What a 20s no-touch timeout costs every car in a GCO game, in goals (a goal is +-1)
@@ -634,6 +639,22 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		};
 	} else {
 		result.rewards = BuildRewards(TRAIN_GAMMA);
+	}
+	if (g_GCOFresh) {
+		// FRESH-START GCO reset mix (user-directed 2026-11-18): the live mix's five 20% slices with air drill and air play cut to 10% each and the
+		// freed 20% given to NearGoalState (ball and players near a goal, a denser goal signal for a policy that has never scored). Fixed and
+		// non-adaptive. Revert: do not pass --gco-fresh.
+		result.stateSetter = new CombinedState({
+			{ new BallNearCarState(600, 900), 0.20f },
+			{ new AirDrillState(), 0.10f },
+			{ new AirPlayState(), 0.10f },
+			{ new KickoffState(), 0.20f },
+			{ new RandomState(true, true, false), 0.20f },
+			{ new NearGoalState(), 0.20f },
+		});
+		result.terminalConditions = terminalConditions;
+		result.arena = arena;
+		return result;
 	}
 	AirDrillState* airDrill = new AirDrillState();
 	result.stateSetter = new CombinedState({
@@ -929,6 +950,39 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
 
+// === GCO FRESH: a true fresh start, 1v1, pure self-play (docs/GCO_PURE_SELFPLAY_ARM.md section 9) ===
+// Called AFTER every main-run setting is in place, like ConfigureGCO, but it does NOT seed from any checkpoint, keeps main's entropy (0.035, not
+// 0.4x), runs the policy at its full LR from step one, trains against itself only, and plays 1v1 only. Old versions, references and the four bots
+// stay LOADED for the skill tracker and the gauntlet (metrics only); none of them is sampled for training.
+static void ConfigureGCOFresh(LearnerConfig& cfg) {
+	cfg.gcoRun = true; // goal-only reward path, the "GCO/" panel prefix, the EV panels
+
+	// Entropy: main's 0.035 (cfg.ppo.entropyScale is untouched here)
+	// Policy LR fixed at main's 1.5e-4 from the start: start scale 1.0 makes the Learner's gated/continuous ramp a no-op (lrScale = 1 at every step)
+	cfg.exploiter.policyLRStartScale = 1.0f;
+	cfg.exploiter.policyLRStepInterval = 0;
+
+	// Pure self-play: no old versions, no external bots served, no imported exploiters
+	cfg.trainAgainstOldVersions = false;
+	cfg.externalOpponent.serveFrac = 0.f;
+	cfg.exploiterPool.enabled = false;
+
+	// 1v1 only: the gauntlet plays 1v1 against the four bots, nothing in 2v2/3v3
+	cfg.gauntlet.extraTeamSizes.clear();
+	cfg.gauntlet.teamEnvCreateFn = nullptr;
+	cfg.skillTracker.numArenas = 32;
+
+	// Critics: V_real + the long-horizon goal critic (main's settings: gamma 0.9994, beta 0.25); everything else off
+	cfg.ppo.reachability.enabled = false;
+	cfg.ppo.vdagEnabled = false;
+	cfg.ppo.geoEnabled = false;
+	cfg.gapSensor.enabled = false;
+
+	cfg.metricsRunName = "gco-fresh";
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
+		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
+}
+
 void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
 	// To prevent expensive metrics from eating at performance, we will only run them on 1/4th of steps
 	// This doesn't really matter unless you have expensive metrics (which this example doesn't)
@@ -1129,7 +1183,7 @@ int main(int argc, char* argv[]) {
 	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg, exploiterTargetArg;
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
-	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false;
+	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false;
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -1156,6 +1210,9 @@ int main(int argc, char* argv[]) {
 			runTogether = (arg == "--together");
 		} else if (arg == "--gco") {
 			gcoArg = true;
+		} else if (arg == "--gco-fresh") {
+			gcoArg = true;
+			gcoFreshArg = true;
 		} else if (arg == "--gco-5.3") {
 			gcoArg = true;
 			gcoLegacyArg = true;
@@ -1168,7 +1225,7 @@ int main(int argc, char* argv[]) {
 			std::cout << "Unknown argument \"" << arg << "\". Options: --exploiter-auto, --slot <N>, --new-exploiter, "
 				<< "--exploiter <checkpoint folder>, --exploiter-name <name>, --exploiter-steps <N>, --exploiter-target <bot>, "
 				<< "--finish-exploiter [name], --discard-exploiter [name], --together, --alone, "
-				<< "--gco, --gco-5.3, --gco-from <checkpoint folder>, --no-exploiter-pool\n";
+				<< "--gco, --gco-fresh, --gco-5.3, --gco-from <checkpoint folder>, --no-exploiter-pool\n";
 			return 1;
 		}
 	}
@@ -1897,7 +1954,7 @@ int main(int argc, char* argv[]) {
 	// exploiters folder is the original exploiters/ (the 5.3 lineage's); main 6.0 has its own.
 	std::filesystem::path mainCheckpointFolder = cfg.checkpointFolder;
 	if (gcoArg) {
-		cfg.checkpointFolder = g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER;
+		cfg.checkpointFolder = gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
 		mainCheckpointFolder = g_GCOLegacy ? GCO_LEGACY_SOURCE_FOLDER : GCO_SOURCE_FOLDER;
 	}
 	ConfigureExploiterSettings(cfg);
@@ -1975,10 +2032,17 @@ int main(int argc, char* argv[]) {
 		RG_LOG("Together: main miniBatchSize " << cfg.ppo.miniBatchSize << " (halved to fit beside the exploiter slots)");
 	}
 	if (gcoArg && !exploiterRunArg && !cfg.renderMode) {
-		if (!SeedGCORun(cfg.checkpointFolder, mainCheckpointFolder, gcoFromArg))
-			return 1;
-		g_GCOMode = true;
-		ConfigureGCO(cfg);
+		if (gcoFreshArg) {
+			// A TRUE fresh start: no seeding, the network is randomly initialised, its own folder
+			g_GCOFresh = true;
+			g_GCOMode = true;
+			ConfigureGCOFresh(cfg);
+		} else {
+			if (!SeedGCORun(cfg.checkpointFolder, mainCheckpointFolder, gcoFromArg))
+				return 1;
+			g_GCOMode = true;
+			ConfigureGCO(cfg);
+		}
 	}
 	RG_LOG("Compute: " << (runTogether ? "sharing the machine with the exploiter slots" : "alone") << ", numGames "
 		<< cfg.numGames);
@@ -2032,8 +2096,8 @@ int main(int argc, char* argv[]) {
 	const bool gcoFleet = g_GCOMode || g_ExploiterExternal;
 	// 2026-11-16 (user-directed): the external-bot exploiter trains 20/40/40 (1v1/2v2/3v3), not GCO's 1/3 each: Galactus exploiter evals
 	// showed 1v1 climbing (0.39 -> 0.77) while 2v2 fell (0.34 -> 0.13) and 3v3 collapsed (0.28 -> 0.04), and the finish rule averages all modes.
-	const float frac2v2 = g_ExploiterExternal ? 0.4f : (gcoFleet ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2);
-	const float frac3v3 = g_ExploiterExternal ? 0.4f : (gcoFleet ? GCO_FRAC_3V3 : PHASE_B_FRAC_3V3);
+	const float frac2v2 = g_GCOFresh ? 0.f : (g_ExploiterExternal ? 0.4f : (gcoFleet ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2));
+	const float frac3v3 = g_GCOFresh ? 0.f : (g_ExploiterExternal ? 0.4f : (gcoFleet ? GCO_FRAC_3V3 : PHASE_B_FRAC_3V3));
 	auto fnArenas = [&](int n, float frac) { return gcoFleet ? (int)std::lround(n * frac) : (int)(n * frac); };
 	g_NumArenas2v2 = g_PhaseB ? fnArenas(cfg.numGames, frac2v2) : 0;
 	g_NumArenas3v3 = g_PhaseB ? fnArenas(cfg.numGames, frac3v3) : 0;
@@ -2050,8 +2114,8 @@ int main(int argc, char* argv[]) {
 	// low indices, i.e. an all-1v1 eval fleet - the bug this function exists to prevent.
 	g_SkillNumArenas = cfg.skillTracker.numArenas;
 	// (GCO: 32 arenas -> 10 / 11 / 11)
-	g_SkillArenas2v2 = g_PhaseB ? RS_MAX(1, fnArenas(g_SkillNumArenas, frac2v2)) : 0;
-	g_SkillArenas3v3 = g_PhaseB ? RS_MAX(1, fnArenas(g_SkillNumArenas, frac3v3)) : 0;
+	g_SkillArenas2v2 = (g_PhaseB && !g_GCOFresh) ? RS_MAX(1, fnArenas(g_SkillNumArenas, frac2v2)) : 0;
+	g_SkillArenas3v3 = (g_PhaseB && !g_GCOFresh) ? RS_MAX(1, fnArenas(g_SkillNumArenas, frac3v3)) : 0;
 	cfg.skillTracker.envCreateFn = SkillEnvCreateFunc;
 	if (cfg.skillTracker.enabled)
 		RG_LOG("Skill tracker eval fleet: "

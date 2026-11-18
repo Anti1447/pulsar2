@@ -1,6 +1,6 @@
 # GCO pure self-play arm (pre-registration draft, 2026-11-18)
 
-Status: **DECISIONS MADE (section 9); implementation in progress, nothing run.** Branch `gco-goalcritic`. Doctrine: measurement before machinery; one lever; pre-registered criteria;
+Status: **IMPLEMENTED and smoke-tested (section 10); the real run is NOT started.** Branch `gco-goalcritic`. Doctrine: measurement before machinery; one lever; pre-registered criteria;
 an automatic guard; a revert path. User direction (2026-11-18): pure self-play for training, with old versions and external bots used ONLY for skill
 metrics; test it as an arm of the "fresh base" comparison, after the critic-context Phase A (`GCO_CRITIC_CONTEXT_TEST.md`) reports.
 
@@ -113,3 +113,25 @@ the acquisition wall holds for this reward/reset set: the response is a separate
 **Known risks / overlap.** Another session has uncommitted edits to the reset setters (`AirDrillState.h`, `AirPlayState.h`, `BallNearCarState.h`, `StateSetter.h`; `docs/GCO_RESET_MIX.md`)
 and to `ExampleMain.cpp`. The new setter goes in its own header and the fresh mode in new code behind a new flag, so that work is not overwritten, but the reset mix lives in the
 same function (`MakeEnv`); coordinate before merging.
+
+## 10. Implementation record (2026-11-18)
+
+**Flag:** `./GigaLearnBot --gco-fresh` (new; `--gco` is unchanged). Code: `ConfigureGCOFresh` and a `g_GCOFresh` branch in `MakeEnv` (`src/ExampleMain.cpp`), `NearGoalState.h`
+(committed with tests `tests/test_near_goal_state.cpp`: valid and overlap-free in 1v1/2v2/3v3, blue-attacks share 0.506, 12% of idle-car resets score within 3 s). No Learner change: the fixed
+policy LR comes from `exploiter.policyLRStartScale = 1.0` (the ramp's `lrScale` is then 1 at every step). Folder: `checkpoints_gco_fresh` (new). Entropy stays 0.035 (main's).
+Critic-context heads: DROPPED (user, after the Phase A null); the run must start WITHOUT `GGL_CRITIC_CTX`.
+
+**What the flag sets:** `gcoRun`, 1v1 only (fleet fractions 0 for 2v2/3v3, 32-game 1v1 skill tracker, gauntlet 1v1 only), `trainAgainstOldVersions` off, external `serveFrac` 0, exploiter pool off,
+V_real + goal critic on and V-dagger / geo / gap sensor / reachability off, the reset mix of section 9, metrics run name `gco-fresh`.
+
+**CPU smoke (`GGL_SMOKE=1`, throwaway directory, no checkpoint), 25 iterations, no crash:** "No (loadable) checkpoints found, starting new model"; "128 1v1 / 0 2v2 / 0 3v3"; skill tracker 32 1v1;
+gauntlet 8 games per bot 1v1 vs the four bots; `GCO/Policy LR` 1.5e-4 from the first iteration; the only opponent source in the EV panels is self-play, and every bot reads 0 goals for/against in training (loaded
+for the gauntlet, never served); checkpoints written to `checkpoints_gco_fresh`.
+
+**Backups taken (before the start), under `build/`:** `checkpoints_gco_6.1_BACKUP_20261118` (the live GCO run, point-in-time; re-synced after the stop), `checkpoints_gco_6.1_FORK_lambdatest_BACKUP_20261118`,
+`checkpoints_gco_6.1_ARM_lambda099_BACKUP_20261118`; all verified against their sources.
+
+**Start procedure (needs the user's go-ahead to stop the live run):** `../tools/run_trainer.sh --stop` (saves a clean checkpoint) from `build/`, then `rsync -a checkpoints_gco_6.1/ checkpoints_gco_6.1_BACKUP_20261118/`,
+`systemctl --user unset-environment GGL_CRITIC_CTX`, then `../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco-fresh`. Do NOT use `trainerctl restart` (it starts the bare main run). First check in the boot log:
+`Checkpoint Save/Load Dir: "checkpoints_gco_fresh"`, "starting new model", "128 1v1 / 0 / 0", no "Critic context" line. Revert: stop it; the live GCO run resumes from `checkpoints_gco_6.1` with
+`../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco`. Milestone reviews at 500M, 1B, 2B and 3B steps.
