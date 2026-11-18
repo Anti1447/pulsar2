@@ -488,6 +488,7 @@ int main(int argc, char** argv) {
 	std::vector<Snap> snaps(G);
 	const bool retest = std::getenv("RETEST") && std::string(std::getenv("RETEST")) == "1";
 	long long rtN[4] = {}, rtCorrN[4] = {}; double rtAgree[4] = {}, rtRegret[4] = {}, rtCorr[4] = {};
+	double rtWorst[4] = {}, rtTop3[4] = {}, rtBot3[4] = {}, rtPersistBest[4] = {}, rtPersistWorst[4] = {};
 	// LABEL_OUT=path (search mode): append one record per searched decision, for Test B (docs/GCO_SEARCH_DISTILL_ORACLE_TEST.md section 3).
 	// Record = int32 gameId, float obs[D], uint8 mask[A], int32 cand[K], float score[K], int32 chosen. Header: int32 D, A, K.
 	FILE* labelF = nullptr; long long labelRows = 0;
@@ -641,6 +642,14 @@ int main(int argc, char** argv) {
 					int bi = rng0 < 0.05 ? 0 : rng0 < 0.2 ? 1 : rng0 < 0.5 ? 2 : 3;
 					double m0 = 0, m1 = 0; for (int k = 0; k < K; k++) { m0 += s0[k] / K; m1 += score[k] / K; }
 					double c01 = 0, v0 = 0, v1 = 0; for (int k = 0; k < K; k++) { c01 += (s0[k] - m0) * (score[k] - m1); v0 += (s0[k] - m0) * (s0[k] - m0); v1 += (score[k] - m1) * (score[k] - m1); }
+					{ // veto statistics: is the WORST candidate (and the bottom/top 3) reproducible, and which end persists more?
+						int w0 = 0, w1 = 0; for (int k = 1; k < K; k++) { if (s0[k] < s0[w0]) w0 = k; if (score[k] < score[w1]) w1 = k; }
+						auto order = [&](const std::vector<double>& v, bool desc) { std::vector<int> o(K); for (int k = 0; k < K; k++) o[k] = k; std::stable_sort(o.begin(), o.end(), [&](int a, int b) { return desc ? v[a] > v[b] : v[a] < v[b]; }); return o; };
+						auto t0 = order(s0, true), t1 = order(score, true), b0 = order(s0, false), b1 = order(score, false);
+						int top = 0, bot = 0; for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) { top += t0[i] == t1[j]; bot += b0[i] == b1[j]; }
+						rtWorst[bi] += (w0 == w1); rtTop3[bi] += top; rtBot3[bi] += bot;
+						rtPersistBest[bi] += score[pass0Best[g]] - m1; rtPersistWorst[bi] += score[w0] - m1; // pass-1 score (vs its mean) of pass 0's best / worst
+					}
 					rtN[bi]++; rtAgree[bi] += (best == pass0Best[g]); rtRegret[bi] += mx - s0[best]; // regret: how much the first pass's own scores lose if the second pass's pick is played
 					if (v0 > 1e-12 && v1 > 1e-12) { rtCorr[bi] += c01 / std::sqrt(v0 * v1); rtCorrN[bi]++; }
 					continue;
@@ -714,6 +723,14 @@ int main(int argc, char** argv) {
 			tn += rtN[b]; ta += rtAgree[b];
 			if (rtN[b]) printf("score range %-20s rows %6lld  same pick %.3f  score correlation across passes %.3f  regret %.4f\n", nm[b], rtN[b], rtAgree[b] / rtN[b], rtCorrN[b] ? rtCorr[b] / rtCorrN[b] : 0.0, rtRegret[b] / rtN[b]);
 		}
+		printf("-- veto check: is the worst end reproducible? (chance: same worst %.3f, top-3 overlap %.3f of 3, bottom-3 overlap %.3f of 3) --\n", 1.0 / K, 9.0 / K, 9.0 / K);
+		long long iN = 0; double iW = 0, iT = 0, iB = 0, iPB = 0, iPW = 0;
+		for (int b = 0; b < 4; b++) {
+			if (!rtN[b]) continue;
+			printf("score range %-20s same WORST %.3f  top-3 overlap %.3f  bottom-3 overlap %.3f | pass-1 score of pass-0 BEST %+.4f, of pass-0 WORST %+.4f (vs pass-1 mean)\n", nm[b], rtWorst[b] / rtN[b], rtTop3[b] / rtN[b], rtBot3[b] / rtN[b], rtPersistBest[b] / rtN[b], rtPersistWorst[b] / rtN[b]);
+			if (b > 0) { iN += rtN[b]; iW += rtWorst[b]; iT += rtTop3[b]; iB += rtBot3[b]; iPB += rtPersistBest[b]; iPW += rtPersistWorst[b]; }
+		}
+		if (iN) printf("informative: same WORST %.3f, top-3 overlap %.3f, bottom-3 overlap %.3f | pass-1 score of pass-0 BEST %+.4f, WORST %+.4f\n", iW / iN, iT / iN, iB / iN, iPB / iN, iPW / iN);
 		long long in = tn - rtN[0]; double ia = ta - rtAgree[0];
 		if (in) printf("informative rows (range >= 0.05): %lld, same pick %.3f\n", in, ia / in);
 	}

@@ -262,3 +262,16 @@ correlation of 0.07-0.14, each candidate needs roughly 25-50 rollouts (M), i.e. 
 2 s is consistent across passes), not a ranking of the good ones. The test that would show it: agreement of the WORST candidate across passes,
 and of the top-3 / bottom-3 sets. If true, distillation should learn "avoid these actions" (a penalty or a clipped negative-advantage update),
 not "play this action" (cross-entropy toward the best). Not run.
+
+### 11b. Veto check (same 60 games, same seed; 16,583 decisions, search side 0.833, 45/5/10)
+
+Hypothesis from section 11: the search's signal is a veto of bad candidates, so the WORST candidate should reproduce across passes better than the best.
+**Not supported.** On informative rows (10,474): same WORST 0.170 vs same BEST 0.164 (chance 0.125); top-3 overlap 1.230 vs bottom-3 overlap 1.234
+(chance 1.125 of 3). Persistence is symmetric: pass 0's best scores +0.0150 above the pass-1 mean, pass 0's worst -0.0188 below it. By range bin
+(range >= 0.5): same worst 0.188, same pick 0.178, persistence +0.0425 / -0.0501. No bin shows a veto asymmetry.
+
+Reading: the signal is a weak, symmetric ranking, small against rollout noise per decision, summed over about 330 decisions per game. That reconciles
+the puzzle (the search wins 0.76-0.84 while its best pick is near-chance reproducible): a small consistent edge per decision accumulates, and no
+single label can be trusted. It also says a penalty-style distillation would not rescue Test B. The one untried form is regression (learn a
+score-difference head by squared error, which averages the noise across states) instead of classification toward a pick; low expectation.
+**Distillation line closed.**
