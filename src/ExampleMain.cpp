@@ -529,6 +529,10 @@ static bool g_GCOLegacy = false;
 // in training), its own folder. The ordinary --gco run is untouched by this flag.
 static bool g_GCOFresh = false;
 static const char* GCO_FRESH_CHECKPOINT_FOLDER = "checkpoints_gco_fresh";
+// --gco-fresh2 (2026-11-19, user-directed): the second fresh start. Same as --gco-fresh (1v1, pure self-play, goal-only) with its own folder, a near-goal-heavy
+// reset mix and the V-dagger composition-critic twins ON (docs/GCO_FRESH2.md). --gco-fresh itself is unchanged so the first run can still be resumed.
+static bool g_GCOFresh2 = false;
+static const char* GCO_FRESH2_CHECKPOINT_FOLDER = "checkpoints_gco_fresh2";
 static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco_6.1";
 static const char* GCO_LEGACY_CHECKPOINT_FOLDER = "checkpoints_gco";
 // What a 20s no-touch timeout costs every car in a GCO game, in goals (a goal is +-1)
@@ -648,6 +652,22 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// NearGoal 0.20 -> 0.10, BallNearCar 0.20 -> 0.24, AirDrill 0.10 -> 0.13, AirPlay 0.10 -> 0.13. Kickoff/Random unchanged.
 		// Revert: restore 0.20/0.20/0.10/0.10/0.20/0.20 (BallNearCar/NearGoal/AirDrill/AirPlay/Kickoff/Random).
 		// REVERTED the same day (user-directed): the mix is back to 0.20/0.10/0.10/0.20/0.20/0.20 as launched; see docs/GCO_PURE_SELFPLAY_ARM.md section 13.
+		if (g_GCOFresh2) {
+			// FRESH2 reset mix (user-directed 2026-11-19): NearGoal 30%, the far "kinda near goal" NearGoal(1600,3200) 20%, and the remaining 50% split evenly over
+			// the five other setters (10% each). Fixed and non-adaptive. See docs/GCO_FRESH2.md.
+			result.stateSetter = new CombinedState({
+				{ new NearGoalState(), 0.30f },
+				{ new NearGoalState(1600, 3200), 0.20f },
+				{ new BallNearCarState(600, 900), 0.10f },
+				{ new AirDrillState(), 0.10f },
+				{ new AirPlayState(), 0.10f },
+				{ new KickoffState(), 0.10f },
+				{ new RandomState(true, true, false), 0.10f },
+			});
+			result.terminalConditions = terminalConditions;
+			result.arena = arena;
+			return result;
+		}
 		result.stateSetter = new CombinedState({
 			// 2026-11-19 (user-directed, at ~3.1B steps): NearGoalState(1600, 3200) added as a sibling slice at 0.10 (same setter, ball 1000 uu deeper
 			// than the near one: 1600..3200 uu in front of the attacked goal line vs 600..2200). Donors: Random 0.20 -> 0.14, BallNearCar/AirDrill/
@@ -992,6 +1012,20 @@ static void ConfigureGCOFresh(LearnerConfig& cfg) {
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
 
+// === GCO FRESH2: ConfigureGCOFresh plus the V-dagger composition-critic twins (docs/GCO_FRESH2.md) ===
+// Everything else is the first fresh run's configuration. Twins on the shared trunk from step zero (the paper's co-adaptation), tau 0.75, seek beta 0.15
+// (the paper's deployed value, research/reports/COMPOSITION_CRITIC.md section on beta), Phi = +H. The config default beta is 0.30; 0.15 is the paper's choice
+// for long budgets and keeps the injected term near 6% of the advantage scale.
+static void ConfigureGCOFresh2(LearnerConfig& cfg) {
+	ConfigureGCOFresh(cfg);
+	cfg.ppo.vdagEnabled = true;
+	cfg.ppo.vdagTau = 0.75f;
+	cfg.ppo.vdagSeekBeta = 0.15f;
+	cfg.metricsRunName = "gco-fresh2";
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
+		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
+}
+
 void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
 	// To prevent expensive metrics from eating at performance, we will only run them on 1/4th of steps
 	// This doesn't really matter unless you have expensive metrics (which this example doesn't)
@@ -1192,7 +1226,7 @@ int main(int argc, char* argv[]) {
 	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg, exploiterTargetArg;
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
-	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false;
+	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false, gcoFresh2Arg = false;
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -1222,6 +1256,10 @@ int main(int argc, char* argv[]) {
 		} else if (arg == "--gco-fresh") {
 			gcoArg = true;
 			gcoFreshArg = true;
+		} else if (arg == "--gco-fresh2") {
+			gcoArg = true;
+			gcoFreshArg = true;
+			gcoFresh2Arg = true;
 		} else if (arg == "--gco-5.3") {
 			gcoArg = true;
 			gcoLegacyArg = true;
@@ -1963,7 +2001,7 @@ int main(int argc, char* argv[]) {
 	// exploiters folder is the original exploiters/ (the 5.3 lineage's); main 6.0 has its own.
 	std::filesystem::path mainCheckpointFolder = cfg.checkpointFolder;
 	if (gcoArg) {
-		cfg.checkpointFolder = gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
+		cfg.checkpointFolder = gcoFresh2Arg ? GCO_FRESH2_CHECKPOINT_FOLDER : gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
 		mainCheckpointFolder = g_GCOLegacy ? GCO_LEGACY_SOURCE_FOLDER : GCO_SOURCE_FOLDER;
 	}
 	ConfigureExploiterSettings(cfg);
@@ -2044,8 +2082,9 @@ int main(int argc, char* argv[]) {
 		if (gcoFreshArg) {
 			// A TRUE fresh start: no seeding, the network is randomly initialised, its own folder
 			g_GCOFresh = true;
+			g_GCOFresh2 = gcoFresh2Arg;
 			g_GCOMode = true;
-			ConfigureGCOFresh(cfg);
+			if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
 		} else {
 			if (!SeedGCORun(cfg.checkpointFolder, mainCheckpointFolder, gcoFromArg))
 				return 1;

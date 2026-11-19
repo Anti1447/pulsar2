@@ -1104,6 +1104,9 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 		if (avgReachCarStateLoss.count > 0)
 			report["Reach/Car State Loss"] = avgReachCarStateLoss.Get();
 		report["Reach/Aux Loss"] = avgReachLoss.Get();
+	}
+	// 2026-11-19: this block used to sit INSIDE `if (reach)` despite its indentation, so with reachability off (every GCO run) the twin-health panels
+	// (Vdag Loss / Update Magnitude / Twin Spread / Yv Abs) never printed and an inert or collapsed twin pair was invisible.
 	if (models["vdag1"]) {
 		report["Headroom/Vdag Loss"] = avgVdagLoss.Get();
 		// Must be > 0. It was exactly 0 for the whole run until the LR was wired (2026-07-25);
@@ -1145,7 +1148,6 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 			report["Geo/V Mean"] = dbgGeoMean;
 			report["Geo/Reservoir Fill"] = (float)geoResFill;
 		}
-	}
 	}
 
 	// Assemble and return report
