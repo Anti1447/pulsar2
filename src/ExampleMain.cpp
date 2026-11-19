@@ -644,13 +644,16 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// FRESH-START GCO reset mix (user-directed 2026-11-18): the live mix's five 20% slices with air drill and air play cut to 10% each and the
 		// freed 20% given to NearGoalState (ball and players near a goal, a denser goal signal for a policy that has never scored). Fixed and
 		// non-adaptive. Revert: do not pass --gco-fresh.
+		// 2026-11-18 at ~1B steps (user-directed, after the acquisition wall broke: touches 15x, goals 2x, time-in-air 0.87 -> 0.44):
+		// NearGoal 0.20 -> 0.10, BallNearCar 0.20 -> 0.24, AirDrill 0.10 -> 0.13, AirPlay 0.10 -> 0.13. Kickoff/Random unchanged.
+		// Revert: restore 0.20/0.20/0.10/0.10/0.20/0.20 (BallNearCar/NearGoal/AirDrill/AirPlay/Kickoff/Random).
 		result.stateSetter = new CombinedState({
-			{ new BallNearCarState(600, 900), 0.20f },
-			{ new AirDrillState(), 0.10f },
-			{ new AirPlayState(), 0.10f },
+			{ new BallNearCarState(600, 900), 0.24f },
+			{ new AirDrillState(), 0.13f },
+			{ new AirPlayState(), 0.13f },
 			{ new KickoffState(), 0.20f },
 			{ new RandomState(true, true, false), 0.20f },
-			{ new NearGoalState(), 0.20f },
+			{ new NearGoalState(), 0.10f },
 		});
 		result.terminalConditions = terminalConditions;
 		result.arena = arena;

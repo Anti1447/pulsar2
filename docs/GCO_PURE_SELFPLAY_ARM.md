@@ -146,3 +146,10 @@ Fresh run started 17:42 CST as unit `gigalearn-trainer-20261118-174231` with `./
 32 1v1, gauntlet 96 games per bot 1v1 every 50 iterations, no "will be reset" lines, no "Critic context" line; policy LR 1.5e-4; first iteration collection about 149k steps/s, overall about 52k steps/s
 (so 500M steps is about 2.7 h and 3B about 16 h at that rate). Milestone reviews at 500M, 1B, 2B, 3B steps (section 9).
 To go back to the old run: stop this one, then from `build/`: `../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco`.
+
+
+## 12. 1B milestone read and reset-mix change (2026-11-18)
+
+1B read (1006M steps, iter 2500): ball touch ratio 0.0098 (15x the start), time in air 0.43 (was 0.89), speed toward ball 492, goals/10k 5.07 (2x start), episode length ~944 (no longer timing out; penalty 0), entropy 0.569, critic EV 0.30, gauntlet first-touch 7-10% (median 6.3%), gauntlet win 0% vs all four bots (n=49). The acquisition wall broke between 500M and 1B. Aerial touch ratio fell to 6e-5 (ground play learned first).
+
+User-directed reset-mix change applied at 1,006,362,624 steps (clean stop, resume from checkpoints_gco_fresh): NearGoal 0.20 -> 0.10, BallNearCar 0.20 -> 0.24, AirDrill 0.10 -> 0.13, AirPlay 0.10 -> 0.13; Kickoff 0.20 and Random 0.20 unchanged. One lever. Compare post-1B panels against the 1B read above. Watch: aerial touch ratio (expect up), goals/10k (NearGoal is cut, so a drop in free goals is expected and not a regression by itself), gauntlet first-touch/win. Revert: restore 0.20/0.20/0.10/0.10/0.20/0.20.
