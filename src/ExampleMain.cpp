@@ -649,12 +649,17 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// Revert: restore 0.20/0.20/0.10/0.10/0.20/0.20 (BallNearCar/NearGoal/AirDrill/AirPlay/Kickoff/Random).
 		// REVERTED the same day (user-directed): the mix is back to 0.20/0.10/0.10/0.20/0.20/0.20 as launched; see docs/GCO_PURE_SELFPLAY_ARM.md section 13.
 		result.stateSetter = new CombinedState({
-			{ new BallNearCarState(600, 900), 0.20f },
-			{ new AirDrillState(), 0.10f },
-			{ new AirPlayState(), 0.10f },
-			{ new KickoffState(), 0.20f },
-			{ new RandomState(true, true, false), 0.20f },
+			// 2026-11-19 (user-directed, at ~3.1B steps): NearGoalState(1600, 3200) added as a sibling slice at 0.10 (same setter, ball 1000 uu deeper
+			// than the near one: 1600..3200 uu in front of the attacked goal line vs 600..2200). Donors: Random 0.20 -> 0.14, BallNearCar/AirDrill/
+			// AirPlay/Kickoff -0.01 each; the proven near slice stays 0.20. Revert: remove the far line and restore Random 0.20, BallNearCar 0.20,
+			// AirDrill 0.10, AirPlay 0.10, Kickoff 0.20.
+			{ new BallNearCarState(600, 900), 0.19f },
+			{ new AirDrillState(), 0.09f },
+			{ new AirPlayState(), 0.09f },
+			{ new KickoffState(), 0.19f },
+			{ new RandomState(true, true, false), 0.14f },
 			{ new NearGoalState(), 0.20f },
+			{ new NearGoalState(1600, 3200), 0.10f },
 		});
 		result.terminalConditions = terminalConditions;
 		result.arena = arena;

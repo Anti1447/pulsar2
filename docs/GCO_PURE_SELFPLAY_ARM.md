@@ -177,3 +177,9 @@ User-directed: the section 12 mix (NearGoal 0.10 / BallNearCar 0.24 / AirDrill 0
 4. Start over with the near-goal-heavy reset mix of the observation above, if the run looks stuck in a local style.
 5. Continue unchanged if the plateau looks like a long flat stretch with a late climb (check the entropy and the Plasticity panels first).
 Each is one lever with pre-registered criteria, per the doctrine.
+
+## 15. Far near-goal slice added (2026-11-19, user-directed, at 3,344,556,032 steps)
+
+A second `NearGoalState`, `NearGoalState(1600, 3200)` (ball 1600..3200 uu in front of the attacked goal line; the near slice is 600..2200, so the new one is the same setter 1000 uu deeper), added at 10%. Donors: Random 0.20 -> 0.14, and BallNearCar, AirDrill, AirPlay, Kickoff 0.01 each (0.19 / 0.09 / 0.09 / 0.19); the proven near slice stays at 0.20. New mix: BallNearCar 0.19 / AirDrill 0.09 / AirPlay 0.09 / Kickoff 0.19 / Random 0.14 / NearGoal 0.20 / NearGoal-far 0.10. Clean stop, resumed from checkpoints_gco_fresh/3344556032. Test `NearGoal_far_variant_is_valid_and_deeper` passes in 1v1/2v2/3v3 (no out-of-bounds, no overlaps, the attacker is within 1200 uu horizontally in 100% of resets; the 3D distance reads 0.95-0.96 because the ball is airborne in 45% of resets).
+
+Pre-registration. Hypothesis: a mid-range scoring-chance slice helps the late-game plateau (more attacking and defending practice between kickoff and the goal mouth). Compare the 500M windows before (2.5-3.0B, and 3.0-3.3B) and after against the plateau panels of section 14 (gauntlet win %, goals per 10k rows, touch ratio). Expected: goals per 10k rows should move (more resets near goals) without that being skill, so read goals/10k together with the gauntlet. One lever; revert by removing the far line and restoring Random 0.20, BallNearCar 0.20, AirDrill 0.10, AirPlay 0.10, Kickoff 0.20. The plateau rule of section 14 restarts its two-window count from this point.
