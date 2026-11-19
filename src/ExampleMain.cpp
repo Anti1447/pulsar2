@@ -647,13 +647,14 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// 2026-11-18 at ~1B steps (user-directed, after the acquisition wall broke: touches 15x, goals 2x, time-in-air 0.87 -> 0.44):
 		// NearGoal 0.20 -> 0.10, BallNearCar 0.20 -> 0.24, AirDrill 0.10 -> 0.13, AirPlay 0.10 -> 0.13. Kickoff/Random unchanged.
 		// Revert: restore 0.20/0.20/0.10/0.10/0.20/0.20 (BallNearCar/NearGoal/AirDrill/AirPlay/Kickoff/Random).
+		// REVERTED the same day (user-directed): the mix is back to 0.20/0.10/0.10/0.20/0.20/0.20 as launched; see docs/GCO_PURE_SELFPLAY_ARM.md section 13.
 		result.stateSetter = new CombinedState({
-			{ new BallNearCarState(600, 900), 0.24f },
-			{ new AirDrillState(), 0.13f },
-			{ new AirPlayState(), 0.13f },
+			{ new BallNearCarState(600, 900), 0.20f },
+			{ new AirDrillState(), 0.10f },
+			{ new AirPlayState(), 0.10f },
 			{ new KickoffState(), 0.20f },
 			{ new RandomState(true, true, false), 0.20f },
-			{ new NearGoalState(), 0.10f },
+			{ new NearGoalState(), 0.20f },
 		});
 		result.terminalConditions = terminalConditions;
 		result.arena = arena;

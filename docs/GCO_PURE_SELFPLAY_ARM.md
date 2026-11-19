@@ -153,3 +153,27 @@ To go back to the old run: stop this one, then from `build/`: `../tools/run_trai
 1B read (1006M steps, iter 2500): ball touch ratio 0.0098 (15x the start), time in air 0.43 (was 0.89), speed toward ball 492, goals/10k 5.07 (2x start), episode length ~944 (no longer timing out; penalty 0), entropy 0.569, critic EV 0.30, gauntlet first-touch 7-10% (median 6.3%), gauntlet win 0% vs all four bots (n=49). The acquisition wall broke between 500M and 1B. Aerial touch ratio fell to 6e-5 (ground play learned first).
 
 User-directed reset-mix change applied at 1,006,362,624 steps (clean stop, resume from checkpoints_gco_fresh): NearGoal 0.20 -> 0.10, BallNearCar 0.20 -> 0.24, AirDrill 0.10 -> 0.13, AirPlay 0.10 -> 0.13; Kickoff 0.20 and Random 0.20 unchanged. One lever. Compare post-1B panels against the 1B read above. Watch: aerial touch ratio (expect up), goals/10k (NearGoal is cut, so a drop in free goals is expected and not a regression by itself), gauntlet first-touch/win. Revert: restore 0.20/0.20/0.10/0.10/0.20/0.20.
+
+## 13. Reset-mix change reverted (2026-11-18)
+
+User-directed: the section 12 mix (NearGoal 0.10 / BallNearCar 0.24 / AirDrill 0.13 / AirPlay 0.13) was in effect for about 312M steps (1,006M to ~1,318M); the run was stopped cleanly at ~1,318M and resumed from checkpoints_gco_fresh with the launch mix restored: BallNearCar 0.20 / AirDrill 0.10 / AirPlay 0.10 / Kickoff 0.20 / Random 0.20 / NearGoal 0.20. PulsarGCO v1.0.0 (checkpoint 1,025M) was cut during the changed-mix window.
+
+## 14. Plateau rule and what comes after (pre-registered 2026-11-19, user-directed; written at ~1.7B steps)
+
+**Direction (user).** The bootstrapping wall is broken (section 12). Keep this run on 1v1 pure self-play until skill gain plateaus for a sustained period, then decide: activate 2v2 and/or 3v3, start over, or keep going. The 3B stop-and-review of section 9 is a review point, NOT an endpoint; the run continues past it unless a guard trips.
+
+**Observation to carry forward (single run, no ablation).** The NearGoal setter was in the mix from the start and the wall broke between 500M and 1B. That is consistent with near-goal resets being what supplied the early goal density, but it was never ablated (the 1B-to-1.3B mix change moved four slices at once and was reverted), so treat it as a hypothesis. For a future fresh run, the cheap test is a higher NearGoal share from step 0 (for example 30-40%) and a comparison of steps-to-first-gauntlet-win.
+
+**Skill signals, in order of trust.** (1) Gauntlet mean win % and per-bot win % (real match play against fixed bots; currently near 0, so it is the LAST to move and the most meaningful once it does). (2) `Ref/Oldest Share` (frozen opponent, cannot inflate; 0.76 at 640M, 0.95 at 1.58B; it SATURATES near 1, so it stops being informative soon). (3) Goals per 10k rows, ball-touch ratio, speed toward ball (behavioral, not skill). `Rating/1v1` is inflated and is NOT a plateau signal, whatever it does. Manual out-of-run checks (user matches vs Psyonix bots, `anchor_battery.py` / `match_play_eval.py`) count and should be recorded here with the checkpoint step.
+
+**Plateau definition.** Evaluated at each 500M-step boundary from 2B on, on the median of the last 500M steps versus the median of the 500M before it. PLATEAU = all three: (a) gauntlet mean win % has not risen by more than 1.0 percentage point (and no single bot's win % has risen by more than 3 points); (b) goals per 10k rows within +-5%; (c) ball-touch ratio within +-5%. Because the gauntlet near zero is noisy (n of about 48 per bot per 500M window), a plateau must hold for TWO consecutive windows (1B steps) before it is called, and any manual match result that shows a clear gain (a new Psyonix tier beaten, a gauntlet bot beaten more than twice in a row) resets the count.
+
+**Guards (manual, each evaluation).** Stop and report if gauntlet scores fall for three consecutive evaluations, if policy entropy leaves its own band (currently about 0.57) by more than 30%, or if episode length or goals per 10k rows collapse by more than 30% over a window. A restart only ever resumes from this run's own full checkpoint (recovery doctrine).
+
+**Decision menu once a plateau is called (to be chosen then, with the numbers; not chosen now).**
+1. Activate 2v2/3v3 on this lineage: only if 1v1 skill is flat and the team-play machinery (the padded obs, 230-dim plus the 48-dim ball prediction, already supports it) can be turned on without a reward or net change; record per-mode gauntlet and EV before and after, and compare against the paused 1v1 curve.
+2. Add the deferred V-dagger / composition critic (memory note, section 9) as a one-lever change on this base.
+3. Re-introduce old versions or external bots into training (the pure self-play arm's counterfactual), since the plateau could be self-play myopia.
+4. Start over with the near-goal-heavy reset mix of the observation above, if the run looks stuck in a local style.
+5. Continue unchanged if the plateau looks like a long flat stretch with a late climb (check the entropy and the Plasticity panels first).
+Each is one lever with pre-registered criteria, per the doctrine.
