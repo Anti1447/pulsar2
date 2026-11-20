@@ -73,7 +73,7 @@ Guards (manual, each 100M): stop and report if entropy leaves 0.56 +-30%, the ga
 - The three folders were prepared from run 1's final checkpoint: `checkpoints_gco_fork_{ctrl,kick,opp}/4995887104` plus a full copy of `policy_versions` (1.1 GB each). The ONLY edit to the copied
   checkpoints is deleting the `run_id` key from `RUNNING_STATS.json` (it holds the W&B run id; left in place each arm would resume run 1's W&B run and mix the curves). Weights, optimizers and running stats are
   byte-identical to run 1's (checked on `POLICY.lt`). Run 1's folder is untouched. `metrics.jsonl` was NOT copied, so each arm's log starts at 4,995,887,104 and holds only its own 500M steps.
-- Chain: `systemd --user` unit `gco-forks-chain` (script `scratchpad/chain_forks.sh`, independent of any Claude session). It waits for fresh3 >= 1,000,000,000 steps, stops it cleanly, then for each arm in the order
+- Chain: `systemd --user` unit `gco-forks-chain` (script `tools/gco_health/chain_forks.sh`, independent of any Claude session). It waits for fresh3 >= 1,000,000,000 steps, stops it cleanly, then for each arm in the order
   ctrl, kick, opp: starts it, checks the boot log shows `Loading checkpoint "checkpoints_gco_fork_<arm>/4995887104"` (otherwise ABORTS and starts nothing further), writes a health read every 100M steps, runs to
   4,995,887,104 + 500,000,000 = 5,495,887,104, stops it cleanly, and starts the next. Status: `build/forks_status.log`; health reads (arm vs control vs run 1 at 4.5-5.0B): `build/forks_health.log`.
   It aborts (rather than starts anything) if a trainer dies or will not stop. Stop the whole thing with `systemctl --user stop gco-forks-chain` (the running arm's trainer keeps going until stopped separately).
