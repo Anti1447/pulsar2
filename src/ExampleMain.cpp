@@ -1060,7 +1060,7 @@ static void ConfigureGCOFresh3(LearnerConfig& cfg) {
 static void ConfigureGCOFork(LearnerConfig& cfg, const std::string& arm) {
 	ConfigureGCOFresh(cfg);
 	cfg.metricsRunName = "gco-fork-" + arm;
-	if (arm == "opp") {
+	if (arm == "opp" || arm == "kickopp") {
 		// Opponent exposure: old versions from the ring, drawn per iteration. The four gauntlet bots are NOT served (serveFrac stays 0) so the gauntlet stays held out.
 		cfg.trainAgainstOldVersions = true;
 		cfg.trainAgainstOldChance = 0.30f;
@@ -1309,7 +1309,7 @@ int main(int argc, char* argv[]) {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoFresh3Arg = true;
-		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp") {
+		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp") {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoForkArm = arg.substr(std::string("--gco-fork-").size());
@@ -2137,7 +2137,7 @@ int main(int argc, char* argv[]) {
 			g_GCOFresh = true;
 			g_GCOFresh2 = gcoFresh2Arg;
 			g_GCOFresh3 = gcoFresh3Arg;
-			g_GCOForkKick = (gcoForkArm == "kick");
+			g_GCOForkKick = (gcoForkArm == "kick" || gcoForkArm == "kickopp"); // kickopp = arms 2 and 3 combined (docs/GCO_POSTWALL_FORKS.md section 9)
 			g_GCOMode = true;
 			if (!gcoForkArm.empty()) ConfigureGCOFork(cfg, gcoForkArm); else if (gcoFresh3Arg) ConfigureGCOFresh3(cfg); else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
 		} else {

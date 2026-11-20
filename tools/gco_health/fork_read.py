@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Health read for a post-wall fork arm vs the control arm and run 1's 4.5-5.0B window (docs/GCO_POSTWALL_FORKS.md). usage: fork_read.py ctrl|kick|opp"""
+"""Health read for a post-wall fork arm vs the control arm and run 1's 4.5-5.0B window (docs/GCO_POSTWALL_FORKS.md). usage: fork_read.py ctrl|kick|opp|kickopp"""
 import json,sys,statistics as st
 arm=sys.argv[1]
 B='/home/nhafe/pulsar2/build/'

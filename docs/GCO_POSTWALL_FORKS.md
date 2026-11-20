@@ -121,3 +121,15 @@ after run 3. If the control shows the gauntlet is simply oscillating at 1-1.6%, 
 | Gauntlet first-touch | | | |
 | Guards | | | |
 | Verdict | | | |
+
+## 9. Arm KO (kickopp): arms 2 and 3 combined (user-directed 2026-11-20, written BEFORE it ran)
+
+Config: `--gco-fork-kickopp`, folder `checkpoints_gco_fork_kickopp`, forked from the same checkpoint (4,995,887,104; run_id removed). Reset mix = the kick arm's (Kickoff 0.35, BallNearCar 0.16,
+NearGoal 0.16, Random 0.11, far NearGoal 0.08, AirDrill 0.07, AirPlay 0.07). Opponents = the opp arm's (old ring versions at 0.30, serveFrac 0). +500M steps, 100M health reads.
+Chained to start after the opp arm finishes (`tools/gco_health/chain_kickopp.sh`, unit `gco-kickopp-chain`). Single seed.
+
+Note: this is the only arm with TWO levers, by user direction; it measures the combination, not either lever. Pre-registered reading (control, kick, opp are the comparison set):
+- **Combination helps beyond either alone:** KO gauntlet mean win (500M) exceeds BOTH kick's and opp's by >= 0.5 points AND exceeds control by >= 1.0.
+- **Additive-ish:** KO - ctrl within 0.5 of (kick - ctrl) + (opp - ctrl).
+- **Interference:** KO below the better single arm by >= 0.5 points.
+- Otherwise inconclusive. Guards as section 4. The kick arm's weak first-touch result (5.4% vs 10.1%) is a known open question; the first-touch panel is read for KO but not gated.
