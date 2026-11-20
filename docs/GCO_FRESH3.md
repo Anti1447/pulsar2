@@ -14,7 +14,7 @@ are expected to matter more than on the ground-touch wall measured here).
 
 Identical to run 2 (docs/GCO_FRESH2.md section 2): NearGoal 0.30, far NearGoal(1600,3200) 0.20, 0.10 each BallNearCar/AirDrill/AirPlay/Kickoff/Random; 1v1 pure self-play,
 goal +-1 plus the -0.5 no-touch timeout, entropy 0.035, policy LR 1.5e-4, batch 400k, minibatch 25k, 2 epochs, 1024 games, goal critic on. Only change: `vdagEnabled = false`.
-Expected throughput about 62-65k steps/s (run 2 ran about 49k), so 1B steps takes about 4.3 h.
+Throughput about 64k steps/s (run 2 with twins ran about 49k), so 1B steps takes about 4.3 h (measured).
 
 ## 3. Reference points at matched steps (from run 1 and run 2 logs)
 
@@ -46,11 +46,16 @@ Every 100M steps, run 3 beside runs 1 and 2 at the same step: touch / aerial / i
 update magnitude, gauntlet win and first-touch per bot, steps per second. Stop and report if entropy leaves 0.77 +-30% before the wall breaks, the gauntlet falls three evaluations
 in a row after it is nonzero, or a crash loop / OOM. Restart only ever resumes from this run's own full checkpoint.
 
-## 6. Record (fill in)
+## 6. Record (2026-11-20)
+
+Run 3 ran 79.5M steps, was stopped by hand and resumed, ran to 561M, was stopped cleanly by a WSL shutdown (01:59) and resumed from checkpoint 561,045,504 at 08:13, and was stopped at
+1,001,613,312 steps by the fork chain. Throughput about 64k steps/s (run 2 with twins about 49k).
 
 | Item | Value |
 |---|---|
-| Start (automatic, chained to run 2's 1B) | |
-| Wall-break step run 1 / run 2 / run 3 | |
-| Touch ratio at 1B run 1 / 2 / 3 | |
-| Verdict (inside or outside the 250M margin) | |
+| Start | 2026-11-19 ~23:04 (chained to run 2's 1B) |
+| Wall-break window (median episode length > 600 and no-touch penalty ~0, 100M window, 20M stride) | run 1: 620-720M; run 2: 760-860M; run 3: 580-680M |
+| Touch ratio at 1B (60M median) | run 1 0.00940; run 2 0.00920; run 3 0.01039 (+10% / +13%) |
+| Other panels at 1B | goals/10k 5.0 / 6.1 / 5.7; episode length 966 / 814 / 869; entropy 0.576 / 0.538 / 0.559; EV 0.30 / 0.33 / 0.30; gauntlet mean win 0 / 0 / 0.26%; first-touch 8.9% / 1.3% / 1.8% |
+| Verdict | INSIDE the section-4 margins: wall-break gaps of 40M (vs run 1) and 180M (vs run 2) are below 250M, and the touch ratio at 1B is within 25% of both. The mix and the twins show no effect on the wall that is distinguishable from seed noise. Run 3 led at 700-800M on behavior (touch ratio 0.0062 vs 0.0049 at 700M) and was level with runs 1 and 2 by 900M, so the lead was transient. Single seed per arm; run 3 vs run 2 hints that the twins cost a little time at the wall, not testable here. |
+| Side findings | Twins cost about 25% of throughput. Run 2's V-dagger level (6.5) was unbacked by real values (~0) and drifted down to 2.9 by 1B as scoring appeared, no guard tripped. A WSL shutdown stops the trainer cleanly and the chain unit with it. |
