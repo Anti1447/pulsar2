@@ -80,6 +80,26 @@ Guards (manual, each 100M): stop and report if entropy leaves 0.56 +-30%, the ga
 - NOT automated: the guards of section 4 are read by hand from `forks_health.log`; the chain does not stop an arm on a guard.
 - Not tested before the first arm boots: no second trainer can run beside run 3 on the one GPU, so a bad flag would surface at 1B as an ABORT line in the status log with no trainer running.
 
+## 5b. Pre-registered decision table (written 2026-11-20, BEFORE any arm has run)
+
+Read after all arms finish (or after each, for the control). "Margin" is section 4's: 1.0 point of gauntlet mean win % over the 500M window AND 0.5 over the last 250M versus the control;
+for arm K's first-touch measure, +5 points. All verdicts are single-seed.
+
+| Observation | Reading | Next step (decided now) |
+|---|---|---|
+| Control's 500M gauntlet mean win differs from run 1's 4.5-5.0B window (1.65%) by more than 1.0 point | The resume is not neutral (or noise is bigger than 0.45 points) | Stop. Do not read the arms against run 1. Investigate the resume (optimizer state, version ring, running stats) before any further arm; compare arms against the control only. |
+| Control stays within about 1.0-1.6% and neither K nor O clears the margin | Run 1's plateau is real; kickoff weight and old-version exposure do not move it | Report INCONCLUSIVE-to-NULL for both. Next: the section-14 decision menu of `GCO_PURE_SELFPLAY_ARM.md` (2v2/3v3, resume run 2 for an aerial-touch comparison, V-dagger, or a restart), chosen with the user. Do not stack more small mix tweaks. |
+| K clears the first-touch margin (+5 points) but not the gauntlet win margin | Kickoff play improves but does not convert into goals on this gauntlet | Do not adopt K as a win. Look at what happens after the first touch (post-kickoff possession) before another kickoff run; consider a longer K run only if first-touch keeps rising. |
+| K clears the gauntlet-win margin | Kickoff weight helps | Adopt Kickoff 0.35 as the working mix for later arms; next test is whether more (0.50) helps further, one lever, from the same checkpoints. |
+| O clears the margin | Pure self-play myopia is real | Next arm: larger exposure (chance 0.50 and/or draw from the log-spaced reference set as well), still gauntlet-held-out; compare against this arm, not the control. |
+| O is worse than the control by more than the margin | Old-version opponents hurt (stale styles dilute the signal) | Revert; record. Do not retry with the same ring. |
+| Any arm worse than the control by more than the margin | The lever hurts | Revert, record, and do not combine it with another lever. |
+| Both K and O clear the margin | Two independent helps | One combined arm (K+O) against the better single arm before adopting both. |
+| All three arms and run 1's late windows overlap | Gauntlet noise dominates | State that the measure cannot resolve effects below about 1 point at 500M; the next arms need either 1B steps or more gauntlet games per evaluation (96 per bot now) before any more lever tests. |
+
+Rules that apply to every row: only the control is a valid comparison for the arms (never run 1's slope); first-touch and goals per 10k rows are not skill measures for arm K; a result inside the margin is
+reported as inconclusive and not as a trend; no new lever is added to an arm mid-run.
+
 ## 6. Order and cost
 
 Run 3 finishes first (about 2.5 h from 01:25 on 2026-11-20 at 64k steps/s). Then C, K, O in that order, about 2.1-2.3 h each: the control first so a broken resume is found before spending on the other two. Total about 6.5-7 h
