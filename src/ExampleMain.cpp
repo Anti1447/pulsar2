@@ -536,6 +536,9 @@ static const char* GCO_FRESH2_CHECKPOINT_FOLDER = "checkpoints_gco_fresh2";
 // --gco-fresh3 (2026-11-19, user-directed): the ablation of fresh2 - the SAME reset mix and everything else, V-dagger twins OFF (docs/GCO_FRESH3.md).
 static bool g_GCOFresh3 = false;
 static const char* GCO_FRESH3_CHECKPOINT_FOLDER = "checkpoints_gco_fresh3";
+// --gco-fork-ctrl|kick|opp (2026-11-20, docs/GCO_POSTWALL_FORKS.md): post-wall arms forked from run 1's final checkpoint, each in its own folder checkpoints_gco_fork_<arm>.
+// ctrl = nothing changed (control); kick = Kickoff slice 0.35; opp = old versions as training opponents at 0.30. Built on ConfigureGCOFresh (1v1, goal-only, twins off).
+static bool g_GCOForkKick = false;
 static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco_6.1";
 static const char* GCO_LEGACY_CHECKPOINT_FOLDER = "checkpoints_gco";
 // What a 20s no-touch timeout costs every car in a GCO game, in goals (a goal is +-1)
@@ -655,6 +658,21 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// NearGoal 0.20 -> 0.10, BallNearCar 0.20 -> 0.24, AirDrill 0.10 -> 0.13, AirPlay 0.10 -> 0.13. Kickoff/Random unchanged.
 		// Revert: restore 0.20/0.20/0.10/0.10/0.20/0.20 (BallNearCar/NearGoal/AirDrill/AirPlay/Kickoff/Random).
 		// REVERTED the same day (user-directed): the mix is back to 0.20/0.10/0.10/0.20/0.20/0.20 as launched; see docs/GCO_PURE_SELFPLAY_ARM.md section 13.
+		if (g_GCOForkKick) {
+			// FORK ARM K (docs/GCO_POSTWALL_FORKS.md section 3): Kickoff 0.19 -> 0.35, every other slice of run 1's final mix scaled by 0.65/0.81 and rounded (sum 1.00).
+			result.stateSetter = new CombinedState({
+				{ new BallNearCarState(600, 900), 0.16f },
+				{ new AirDrillState(), 0.07f },
+				{ new AirPlayState(), 0.07f },
+				{ new KickoffState(), 0.35f },
+				{ new RandomState(true, true, false), 0.11f },
+				{ new NearGoalState(), 0.16f },
+				{ new NearGoalState(1600, 3200), 0.08f },
+			});
+			result.terminalConditions = terminalConditions;
+			result.arena = arena;
+			return result;
+		}
 		if (g_GCOFresh2 || g_GCOFresh3) {
 			// FRESH2 reset mix (shared by fresh3, the no-twins ablation) (user-directed 2026-11-19): NearGoal 30%, the far "kinda near goal" NearGoal(1600,3200) 20%, and the remaining 50% split evenly over
 			// the five other setters (10% each). Fixed and non-adaptive. See docs/GCO_FRESH2.md.
@@ -1038,6 +1056,20 @@ static void ConfigureGCOFresh3(LearnerConfig& cfg) {
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
 
+// === GCO FORK ARMS (docs/GCO_POSTWALL_FORKS.md): ConfigureGCOFresh plus the one lever of the arm ===
+static void ConfigureGCOFork(LearnerConfig& cfg, const std::string& arm) {
+	ConfigureGCOFresh(cfg);
+	cfg.metricsRunName = "gco-fork-" + arm;
+	if (arm == "opp") {
+		// Opponent exposure: old versions from the ring, drawn per iteration. The four gauntlet bots are NOT served (serveFrac stays 0) so the gauntlet stays held out.
+		cfg.trainAgainstOldVersions = true;
+		cfg.trainAgainstOldChance = 0.30f;
+		cfg.externalOpponent.serveFrac = 0.f;
+	}
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
+		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
+}
+
 void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
 	// To prevent expensive metrics from eating at performance, we will only run them on 1/4th of steps
 	// This doesn't really matter unless you have expensive metrics (which this example doesn't)
@@ -1239,6 +1271,7 @@ int main(int argc, char* argv[]) {
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
 	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false, gcoFresh2Arg = false, gcoFresh3Arg = false;
+	std::string gcoForkArm; // "ctrl" / "kick" / "opp" (--gco-fork-<arm>)
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -1276,6 +1309,10 @@ int main(int argc, char* argv[]) {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoFresh3Arg = true;
+		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp") {
+			gcoArg = true;
+			gcoFreshArg = true;
+			gcoForkArm = arg.substr(std::string("--gco-fork-").size());
 		} else if (arg == "--gco-5.3") {
 			gcoArg = true;
 			gcoLegacyArg = true;
@@ -2017,7 +2054,7 @@ int main(int argc, char* argv[]) {
 	// exploiters folder is the original exploiters/ (the 5.3 lineage's); main 6.0 has its own.
 	std::filesystem::path mainCheckpointFolder = cfg.checkpointFolder;
 	if (gcoArg) {
-		cfg.checkpointFolder = gcoFresh3Arg ? GCO_FRESH3_CHECKPOINT_FOLDER : gcoFresh2Arg ? GCO_FRESH2_CHECKPOINT_FOLDER : gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
+		cfg.checkpointFolder = !gcoForkArm.empty() ? std::filesystem::path("checkpoints_gco_fork_" + gcoForkArm) : gcoFresh3Arg ? GCO_FRESH3_CHECKPOINT_FOLDER : gcoFresh2Arg ? GCO_FRESH2_CHECKPOINT_FOLDER : gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
 		mainCheckpointFolder = g_GCOLegacy ? GCO_LEGACY_SOURCE_FOLDER : GCO_SOURCE_FOLDER;
 	}
 	ConfigureExploiterSettings(cfg);
@@ -2100,8 +2137,9 @@ int main(int argc, char* argv[]) {
 			g_GCOFresh = true;
 			g_GCOFresh2 = gcoFresh2Arg;
 			g_GCOFresh3 = gcoFresh3Arg;
+			g_GCOForkKick = (gcoForkArm == "kick");
 			g_GCOMode = true;
-			if (gcoFresh3Arg) ConfigureGCOFresh3(cfg); else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
+			if (!gcoForkArm.empty()) ConfigureGCOFork(cfg, gcoForkArm); else if (gcoFresh3Arg) ConfigureGCOFresh3(cfg); else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
 		} else {
 			if (!SeedGCORun(cfg.checkpointFolder, mainCheckpointFolder, gcoFromArg))
 				return 1;

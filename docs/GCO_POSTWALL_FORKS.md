@@ -1,7 +1,7 @@
 # GCO post-wall fork arms: control, kickoff weight, opponent exposure (pre-registration DRAFT, 2026-11-20)
 
-Status: **DRAFT, nothing implemented, nothing run.** Branch `gco-goalcritic`. To be started only after fresh run 3 finishes its 1B steps (`docs/GCO_FRESH3.md`) and the user approves.
-One GPU, so the arms run one after another.
+Status: **ARMED (2026-11-20), user-directed: the chain starts automatically when fresh run 3 passes 1B steps** (`docs/GCO_FRESH3.md`). Implemented and built; nothing has run yet.
+Branch `gco-goalcritic`. One GPU, so the arms run one after another: run 3 is stopped cleanly at 1B, then ctrl, kick, opp each run +500M steps.
 
 ## 1. Why this, and what changed in the picture
 
@@ -65,18 +65,24 @@ Noise: from run 1 the 500M-window SD of the gauntlet mean win % is about 0.45 po
 Guards (manual, each 100M): stop and report if entropy leaves 0.56 +-30%, the gauntlet mean win falls three evaluations in a row to below half of the control's, a crash loop or OOM, or
 (arm O) the ring cannot serve opponents. Each arm resumes only from its own full checkpoint.
 
-## 5. Implementation notes (not done)
+## 5. Implementation (done 2026-11-20)
 
-- New flags in `ExampleMain.cpp`, each its own folder: `--gco-fork-ctrl` -> `checkpoints_gco_fork_ctrl`, `--gco-fork-kick` -> `checkpoints_gco_fork_kick`, `--gco-fork-opp` -> `checkpoints_gco_fork_opp`,
-  all built on `ConfigureGCOFresh` (the fresh-run machinery: 1v1, goal-only, twins off) and the same reset mix as run 1's stop for C and O.
-- The copy is a plain `cp -a` of `build/checkpoints_gco_fresh/<final step>` plus `policy_versions`, done while run 1 is stopped (it is). Run 1's `metrics.jsonl` should be copied too so the arm's
-  log continues the run-1 curve; verify the arm loads `Loading checkpoint ... 4995887104` and not a fresh start.
-- Arm O needs only the two config lines of section 3 on top of `ConfigureGCOFresh` (which currently sets both false/0).
-- A test or check that the arm's reset mix sums to 1.0 and the Kickoff slice is 0.35.
+- `ExampleMain.cpp`: flags `--gco-fork-ctrl`, `--gco-fork-kick`, `--gco-fork-opp`, folder `checkpoints_gco_fork_<arm>`, W&B run name `gco-fork-<arm>`, all built on `ConfigureGCOFresh`
+  (1v1, goal-only, twins off) via `ConfigureGCOFork`. ctrl and opp use run 1's final reset mix (the default fresh branch: 0.19/0.09/0.09/0.19/0.14/0.20/0.10); kick uses the section-3 mix (a separate
+  block, sums to 1.00). Arm O sets `trainAgainstOldVersions = true`, `trainAgainstOldChance = 0.30`, `externalOpponent.serveFrac = 0`.
+- The three folders were prepared from run 1's final checkpoint: `checkpoints_gco_fork_{ctrl,kick,opp}/4995887104` plus a full copy of `policy_versions` (1.1 GB each). The ONLY edit to the copied
+  checkpoints is deleting the `run_id` key from `RUNNING_STATS.json` (it holds the W&B run id; left in place each arm would resume run 1's W&B run and mix the curves). Weights, optimizers and running stats are
+  byte-identical to run 1's (checked on `POLICY.lt`). Run 1's folder is untouched. `metrics.jsonl` was NOT copied, so each arm's log starts at 4,995,887,104 and holds only its own 500M steps.
+- Chain: `systemd --user` unit `gco-forks-chain` (script `scratchpad/chain_forks.sh`, independent of any Claude session). It waits for fresh3 >= 1,000,000,000 steps, stops it cleanly, then for each arm in the order
+  ctrl, kick, opp: starts it, checks the boot log shows `Loading checkpoint "checkpoints_gco_fork_<arm>/4995887104"` (otherwise ABORTS and starts nothing further), writes a health read every 100M steps, runs to
+  4,995,887,104 + 500,000,000 = 5,495,887,104, stops it cleanly, and starts the next. Status: `build/forks_status.log`; health reads (arm vs control vs run 1 at 4.5-5.0B): `build/forks_health.log`.
+  It aborts (rather than starts anything) if a trainer dies or will not stop. Stop the whole thing with `systemctl --user stop gco-forks-chain` (the running arm's trainer keeps going until stopped separately).
+- NOT automated: the guards of section 4 are read by hand from `forks_health.log`; the chain does not stop an arm on a guard.
+- Not tested before the first arm boots: no second trainer can run beside run 3 on the one GPU, so a bad flag would surface at 1B as an ABORT line in the status log with no trainer running.
 
 ## 6. Order and cost
 
-Run 3 finishes first (about 2.3 h from now). Then C, K, O in that order, about 2.1-2.3 h each: the control first so a broken resume is found before spending on the other two. Total about 6.5-7 h
+Run 3 finishes first (about 2.5 h from 01:25 on 2026-11-20 at 64k steps/s). Then C, K, O in that order, about 2.1-2.3 h each: the control first so a broken resume is found before spending on the other two. Total about 6.5-7 h
 after run 3. If the control shows the gauntlet is simply oscillating at 1-1.6%, a single arm's result needs the 1.0-point margin above to count.
 
 ## 7. Open questions for the user
