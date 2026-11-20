@@ -533,6 +533,9 @@ static const char* GCO_FRESH_CHECKPOINT_FOLDER = "checkpoints_gco_fresh";
 // reset mix and the V-dagger composition-critic twins ON (docs/GCO_FRESH2.md). --gco-fresh itself is unchanged so the first run can still be resumed.
 static bool g_GCOFresh2 = false;
 static const char* GCO_FRESH2_CHECKPOINT_FOLDER = "checkpoints_gco_fresh2";
+// --gco-fresh3 (2026-11-19, user-directed): the ablation of fresh2 - the SAME reset mix and everything else, V-dagger twins OFF (docs/GCO_FRESH3.md).
+static bool g_GCOFresh3 = false;
+static const char* GCO_FRESH3_CHECKPOINT_FOLDER = "checkpoints_gco_fresh3";
 static const char* GCO_CHECKPOINT_FOLDER = "checkpoints_gco_6.1";
 static const char* GCO_LEGACY_CHECKPOINT_FOLDER = "checkpoints_gco";
 // What a 20s no-touch timeout costs every car in a GCO game, in goals (a goal is +-1)
@@ -652,8 +655,8 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// NearGoal 0.20 -> 0.10, BallNearCar 0.20 -> 0.24, AirDrill 0.10 -> 0.13, AirPlay 0.10 -> 0.13. Kickoff/Random unchanged.
 		// Revert: restore 0.20/0.20/0.10/0.10/0.20/0.20 (BallNearCar/NearGoal/AirDrill/AirPlay/Kickoff/Random).
 		// REVERTED the same day (user-directed): the mix is back to 0.20/0.10/0.10/0.20/0.20/0.20 as launched; see docs/GCO_PURE_SELFPLAY_ARM.md section 13.
-		if (g_GCOFresh2) {
-			// FRESH2 reset mix (user-directed 2026-11-19): NearGoal 30%, the far "kinda near goal" NearGoal(1600,3200) 20%, and the remaining 50% split evenly over
+		if (g_GCOFresh2 || g_GCOFresh3) {
+			// FRESH2 reset mix (shared by fresh3, the no-twins ablation) (user-directed 2026-11-19): NearGoal 30%, the far "kinda near goal" NearGoal(1600,3200) 20%, and the remaining 50% split evenly over
 			// the five other setters (10% each). Fixed and non-adaptive. See docs/GCO_FRESH2.md.
 			result.stateSetter = new CombinedState({
 				{ new NearGoalState(), 0.30f },
@@ -1026,6 +1029,15 @@ static void ConfigureGCOFresh2(LearnerConfig& cfg) {
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
 
+// === GCO FRESH3: ConfigureGCOFresh with fresh2's reset mix and the V-dagger twins OFF (docs/GCO_FRESH3.md) - the mix-only arm of the ablation ===
+static void ConfigureGCOFresh3(LearnerConfig& cfg) {
+	ConfigureGCOFresh(cfg);
+	cfg.ppo.vdagEnabled = false; // explicit: the whole point of this arm (ConfigureGCOFresh already disables it)
+	cfg.metricsRunName = "gco-fresh3";
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
+		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
+}
+
 void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
 	// To prevent expensive metrics from eating at performance, we will only run them on 1/4th of steps
 	// This doesn't really matter unless you have expensive metrics (which this example doesn't)
@@ -1226,7 +1238,7 @@ int main(int argc, char* argv[]) {
 	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg, exploiterTargetArg;
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
-	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false, gcoFresh2Arg = false;
+	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false, gcoFresh2Arg = false, gcoFresh3Arg = false;
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -1260,6 +1272,10 @@ int main(int argc, char* argv[]) {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoFresh2Arg = true;
+		} else if (arg == "--gco-fresh3") {
+			gcoArg = true;
+			gcoFreshArg = true;
+			gcoFresh3Arg = true;
 		} else if (arg == "--gco-5.3") {
 			gcoArg = true;
 			gcoLegacyArg = true;
@@ -2001,7 +2017,7 @@ int main(int argc, char* argv[]) {
 	// exploiters folder is the original exploiters/ (the 5.3 lineage's); main 6.0 has its own.
 	std::filesystem::path mainCheckpointFolder = cfg.checkpointFolder;
 	if (gcoArg) {
-		cfg.checkpointFolder = gcoFresh2Arg ? GCO_FRESH2_CHECKPOINT_FOLDER : gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
+		cfg.checkpointFolder = gcoFresh3Arg ? GCO_FRESH3_CHECKPOINT_FOLDER : gcoFresh2Arg ? GCO_FRESH2_CHECKPOINT_FOLDER : gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
 		mainCheckpointFolder = g_GCOLegacy ? GCO_LEGACY_SOURCE_FOLDER : GCO_SOURCE_FOLDER;
 	}
 	ConfigureExploiterSettings(cfg);
@@ -2083,8 +2099,9 @@ int main(int argc, char* argv[]) {
 			// A TRUE fresh start: no seeding, the network is randomly initialised, its own folder
 			g_GCOFresh = true;
 			g_GCOFresh2 = gcoFresh2Arg;
+			g_GCOFresh3 = gcoFresh3Arg;
 			g_GCOMode = true;
-			if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
+			if (gcoFresh3Arg) ConfigureGCOFresh3(cfg); else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
 		} else {
 			if (!SeedGCORun(cfg.checkpointFolder, mainCheckpointFolder, gcoFromArg))
 				return 1;
