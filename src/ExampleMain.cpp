@@ -1309,7 +1309,7 @@ int main(int argc, char* argv[]) {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoFresh3Arg = true;
-		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp") {
+		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2") {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoForkArm = arg.substr(std::string("--gco-fork-").size());
