@@ -22,3 +22,10 @@ checkpoint to 5.0B (`chain_fresh4_resume.sh`). Status in `build/forks_status.log
 ## Record (fill in)
 | Arm | steps | H2H vs ctrl | H2H vs ctrl2 | held-out gauntlet | verdict |
 |---|---|---|---|---|---|
+
+## Addendum 2026-11-21: arm nexchron (Nexto + ChronosV2 together)
+User-directed, after the single-bot arms (Nexto, Chronos, Galactus finished with held-out gauntlet gains of several times control). `--gco-fork-nexchron`: the same 30% serve share split between Nexto and ChronosV2 (15% each,
+uniform pick per serve iteration); Galactus and Dice stay held out; reset mix and everything else as ctrl; +500M from 4,995,887,104; own folder `checkpoints_gco_fork_nexchron`.
+Pre-registered comparison: against the better of the nexto and chronos arms on the held-out bots (Galactus, Dice) in the 1024-game gauntlet and in head-to-head against each single-bot arm and ctrl/ctrl2.
+It counts as a combination effect only if it beats BOTH single-bot arms on held-out gauntlet wins by more than the same-checkpoint rerun noise and wins the head-to-head against each at more than 3x the effective SE.
+Queue: runs after the dice arm; the critic run (fresh4) resumes after it instead of after dice (resume chain re-armed on "NEXCHRON ALL DONE").

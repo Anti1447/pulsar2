@@ -1068,6 +1068,14 @@ static void ConfigureGCOFork(LearnerConfig& cfg, const std::string& arm) {
 		cfg.trainAgainstOldChance = 0.30f;
 		cfg.externalOpponent.serveFrac = 0.f;
 	}
+	if (arm == "nexchron") {
+		// Nexto + ChronosV2 together (user-directed 2026-11-21, after the single-bot arms): the same 30% total serve share, split by the uniform pick (15% each).
+		// Galactus and Dice stay in the gauntlet as the held-out bots.
+		int served = 0;
+		for (auto& b : cfg.externalOpponent.bots) { b.trainServe = (b.kind == ExternalBotKind::NEXTO || b.kind == ExternalBotKind::CHRONOS_V2); served += b.trainServe; }
+		if (served != 2) { RG_LOG("ERROR: nexchron arm: Nexto and Chronos must both be in the bot list"); std::exit(1); }
+		cfg.externalOpponent.serveFrac = 0.30f;
+	}
 	if (arm == "nexto" || arm == "galactus" || arm == "chronos" || arm == "dice") {
 		// External-opponent arms (docs/GCO_EXTOPP_FORKS.md): ONE bot is served on 30% of iterations (the same total non-self exposure as the opp arm); the
 		// other three stay in the gauntlet bot list (trainServe false) so they remain a held-out yardstick. The served bot's own gauntlet column is contaminated.
@@ -1317,18 +1325,19 @@ int main(int argc, char* argv[]) {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoFresh2Arg = true;
-		} else if (arg == "--gco-fresh3") {
-			gcoArg = true;
-			gcoFreshArg = true;
-			gcoFresh3Arg = true;
-		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2") {
-			gcoArg = true;
 		} else if (arg == "--gco-fresh4") {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoFresh3Arg = true; // the same configuration as fresh3 (mix, twins off), then the heads on and its own folder / run name
 			gcoFresh4Arg = true;
 			setenv("GGL_CRITIC_HEADS", "1", 1); // before the first CriticHeadsEnabled() call (the models are built later)
+		} else if (arg == "--gco-fresh3") {
+			gcoArg = true;
+			gcoFreshArg = true;
+			gcoFresh3Arg = true;
+		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2"
+			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron") {
+			gcoArg = true;
 			gcoFreshArg = true;
 			gcoForkArm = arg.substr(std::string("--gco-fork-").size());
 		} else if (arg == "--gco-5.3") {

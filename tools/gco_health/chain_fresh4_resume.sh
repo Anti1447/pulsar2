@@ -1,5 +1,5 @@
 #!/bin/bash
-# Waits for the last external-opponent arm ("DICE ALL DONE"), resumes fresh4 from its own folder, health reads every 100M (continuing), stops at 5.0B.
+# Waits for the last external-opponent arm ("NEXCHRON ALL DONE"), resumes fresh4 from its own folder, health reads every 100M (continuing), stops at 5.0B.
 # Launch: systemd-run --user --unit=gco-fresh4-resume tools/gco_health/chain_fresh4_resume.sh
 export PATH=/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin:$PATH
 cd /home/nhafe/pulsar2
@@ -9,9 +9,9 @@ alive() { for p in /proc/[0-9]*/exe; do readlink $p 2>/dev/null | grep -q build/
 lastts() { tail -1 "$1" 2>/dev/null | python3 -c "import sys,json;print(int(json.loads(sys.stdin.read())['ts']))" 2>/dev/null; }
 stop_trainer() { tools/trainerctl stop >/dev/null 2>&1; for i in $(seq 1 100); do alive || return 0; sleep 3; done; return 1; }
 END=5000000000
-say "fresh4 resume chain started; waiting for DICE ALL DONE"
-until grep -qE " DICE ALL DONE$" $WAIT_ST; do sleep 30; done
-sleep 20; alive && { say "ABORT resume: trainer still alive after DICE ALL DONE"; exit 1; }
+say "fresh4 resume chain started; waiting for NEXCHRON ALL DONE"
+until grep -qE " NEXCHRON ALL DONE$" $WAIT_ST; do sleep 30; done
+sleep 20; alive && { say "ABORT resume: trainer still alive after NEXCHRON ALL DONE"; exit 1; }
 say "resuming fresh4"
 ( cd build && ../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco-fresh4 >/dev/null 2>&1 )
 sleep 5
