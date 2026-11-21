@@ -1834,6 +1834,8 @@ int main(int argc, char* argv[]) {
 	// checkpoints outside rotation; probe loaded checkpoints rated >= 400).
 
 	cfg.sendMetrics = true; // Send metrics
+	if (const char* h = std::getenv("GGL_H2H_OPP"); h && h[0]) cfg.sendMetrics = false;
+	if (const char* h = std::getenv("GGL_H2H_BOTS"); h && h[0] && std::string(h) != "0") cfg.sendMetrics = false; // offline head-to-head (docs/GCO_H2H_EVAL.md): no W&B run
 
 	// Render/visualization mode. Off by default (this binary trains). Set GGL_RENDER=1 to instead
 	// run a single-arena live viewer against an existing run: it loads the newest checkpoint in

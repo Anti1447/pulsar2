@@ -1374,6 +1374,27 @@ void GGL::Learner::Start() {
 	// OFFLINE HEAD-TO-HEAD (docs/GCO_H2H_EVAL.md): GGL_H2H_OPP=<checkpoint dir>[,<dir>...] plays the checkpoint just loaded (this process's folder) against each
 	// listed checkpoint dir on its own arenas, prints one H2H_RESULT line per opponent and exits. Never trains, never saves. GGL_H2H_GAMES (arenas, 128),
 	// GGL_H2H_SECS (sim seconds per side, 900), GGL_H2H_STOCH=1 samples actions instead of argmax.
+	// GGL_H2H_BOTS=1: the same offline mode against the EXTERNAL bots (Nexto/Galactus/Chronos/Dice, the gauntlet's own rules: real kickoff, one game ends at a goal or after
+	// 10 s without a touch, argmax both sides) with GGL_H2H_GAMES games per bot (512) instead of the in-run 96, a different fixed seed (GGL_H2H_SEED), and optionally
+	// GGL_H2H_BOT_SECS (60). Prints one GAUNT_RESULT line per bot. Power only: the in-run yardstick is the same measurement with a fifth of the games.
+	if (const char* hb = std::getenv("GGL_H2H_BOTS"); hb && hb[0] && std::string(hb) != "0") {
+		auto envI = [](const char* k, int d) { const char* v = std::getenv(k); return (v && v[0]) ? std::atoi(v) : d; };
+		GauntletConfig gc = config.gauntlet;
+		gc.gamesPerBot = envI("GGL_H2H_GAMES", 512);
+		gc.maxGameTime = (float)envI("GGL_H2H_BOT_SECS", 60);
+		gc.seed = (unsigned)envI("GGL_H2H_SEED", 777001);
+		gc.extraTeamSizes.clear();
+		gc.teamEnvCreateFn = nullptr;
+		GauntletEval ge(envSet->config, gc, obsSize);
+		for (auto& opp : externalOpps) {
+			MatchResult r = ge.Run(ppo, *opp, 1);
+			std::cout << "GAUNT_RESULT {\"a\":\"" << config.checkpointFolder.string() << "\",\"a_ts\":" << totalTimesteps << ",\"bot\":\"" << opp->name
+				<< "\",\"games\":" << r.games << ",\"wins\":" << r.winsA << ",\"losses\":" << r.winsB << ",\"draws\":" << r.draws
+				<< ",\"ft_us\":" << r.firstTouchA << ",\"ft_bot\":" << r.firstTouchB << ",\"ft_both\":" << r.firstTouchBoth
+				<< ",\"mean_s\":" << (r.games ? r.seconds / r.games : 0.0) << ",\"seed\":" << gc.seed << ",\"secs\":" << gc.maxGameTime << "}" << std::endl;
+		}
+		return;
+	}
 	if (const char* h2h = std::getenv("GGL_H2H_OPP"); h2h && h2h[0]) {
 		auto envInt = [](const char* k, int d) { const char* v = std::getenv(k); return (v && v[0]) ? std::atoi(v) : d; };
 		RLGC::EnvSetConfig ec = envSet->config;
