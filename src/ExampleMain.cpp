@@ -2255,6 +2255,22 @@ int main(int argc, char* argv[]) {
 			<< (g_SkillNumArenas - g_SkillArenas2v2 - g_SkillArenas3v3) << " 1v1 / "
 			<< g_SkillArenas2v2 << " 2v2 / " << g_SkillArenas3v3 << " 3v3 arenas");
 
+	// GGL_CONFIG_DUMP=1 (tools/gco_health/launch_arm.py): print the effective arm configuration and exit BEFORE the Learner (and so the GPU) is touched. A launch-time check that an arm name
+	// parses and wires the levers the ledger entry says it does (served bots, serve share, old versions, kickoff mix, folder).
+	if (const char* cd = std::getenv("GGL_CONFIG_DUMP"); cd && cd[0] && std::string(cd) != "0") {
+		std::cout << "CONFIG_DUMP {\"folder\":\"" << cfg.checkpointFolder.string() << "\",\"run\":\"" << cfg.metricsRunName << "\",\"serve_frac\":" << cfg.externalOpponent.serveFrac
+			<< ",\"old_versions\":" << (cfg.trainAgainstOldVersions ? 1 : 0) << ",\"old_chance\":" << cfg.trainAgainstOldChance << ",\"kick_mix\":" << (g_GCOForkKick ? 1 : 0)
+			<< ",\"num_games\":" << cfg.numGames << ",\"bots\":[";
+		bool first = true;
+		for (auto& b : cfg.externalOpponent.bots) {
+			std::string n = std::filesystem::path(b.path).parent_path().filename().string();
+			if (b.kind == ExternalBotKind::NEXTO) n = "nexto"; else if (b.kind == ExternalBotKind::GALACTUS_V2) n = "galactus"; else if (b.kind == ExternalBotKind::CHRONOS_V2) n = "chronos"; else if (b.kind == ExternalBotKind::DICE) n = "dice";
+			std::cout << (first ? "" : ",") << "{\"name\":\"" << n << "\",\"serve\":" << (b.trainServe ? 1 : 0) << "}"; first = false;
+		}
+		std::cout << "]}" << std::endl;
+		return 0;
+	}
+
 	// Make the learner with the environment creation function and the config we just made
 	Learner* learner = new Learner(EnvCreateFunc, cfg, StepCallback);
 	// Only now that the run has started: a start that failed never becomes the run later launches try to resume
