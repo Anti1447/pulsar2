@@ -1068,6 +1068,16 @@ static void ConfigureGCOFork(LearnerConfig& cfg, const std::string& arm) {
 		cfg.trainAgainstOldChance = 0.30f;
 		cfg.externalOpponent.serveFrac = 0.f;
 	}
+	if (arm == "nexto" || arm == "galactus" || arm == "chronos" || arm == "dice") {
+		// External-opponent arms (docs/GCO_EXTOPP_FORKS.md): ONE bot is served on 30% of iterations (the same total non-self exposure as the opp arm); the
+		// other three stay in the gauntlet bot list (trainServe false) so they remain a held-out yardstick. The served bot's own gauntlet column is contaminated.
+		ExternalBotKind want = arm == "nexto" ? ExternalBotKind::NEXTO : arm == "galactus" ? ExternalBotKind::GALACTUS_V2
+			: arm == "chronos" ? ExternalBotKind::CHRONOS_V2 : ExternalBotKind::DICE;
+		int served = 0;
+		for (auto& b : cfg.externalOpponent.bots) { b.trainServe = (b.kind == want); served += b.trainServe; }
+		if (served != 1) { RG_LOG("ERROR: external-opponent arm " << arm << ": the bot is not in the list (model file missing?)"); std::exit(1); }
+		cfg.externalOpponent.serveFrac = 0.30f;
+	}
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
