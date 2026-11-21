@@ -22,6 +22,19 @@ namespace GGL {
 		return on;
 	}
 
+	// CRITIC HEADS, fresh-run test (docs/GCO_CRITIC_HEADS_FRESH.md; 2026-11-20). MEASUREMENT ONLY: detached side heads on the critic-trunk output,
+	// nothing reads them (no collection value, GAE, critic loss or policy path). E = event-probability heads (softmax over {none, score, concede,
+	// timeout} at three horizons, plus a touch-within-5s logit) and a shuffled-label control of the same body; U = an independent second value
+	// head V_b (epistemic proxy D = (V - V_b)^2) and an error head. Off unless GGL_CRITIC_HEADS=1 at process start (--gco-fresh4 sets it).
+	constexpr int HEAD_HORIZONS = 3, HEAD_CLASSES = 4;                       // horizons: 5 s, 15 s, whole episode; classes: 0 none, 1 score, 2 concede, 3 timeout
+	constexpr int HEAD_EV_OUT = HEAD_HORIZONS * HEAD_CLASSES + 1;            // 12 class logits + 1 touch-within-5s logit
+	constexpr int HEAD_LABEL_DIMS = HEAD_HORIZONS + 1;                       // class index per horizon, then touch5 (0/1)
+	constexpr int HEAD_OUT_DIMS = HEAD_EV_OUT * 2 + 2;                       // InferHeads columns: ev, ctl, V_b, uerr
+	inline bool CriticHeadsEnabled() {
+		static const bool on = [] { const char* v = std::getenv("GGL_CRITIC_HEADS"); return v && std::string(v) == "1"; }();
+		return on;
+	}
+
 	// Learned goal-reachability (InfoNCE + HER), used ONLY as:
 	//  (a) an auxiliary representation loss on the shared head, and
 	//  (b) the input of a multiplicative reward gate on the WeightedReward::gated components.

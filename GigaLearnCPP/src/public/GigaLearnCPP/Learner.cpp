@@ -32,6 +32,7 @@
 #include <GigaLearnCPP/ExploiterFiles.h>
 #include <GigaLearnCPP/Util/Timer.h>
 #include <private/GigaLearnCPP/Util/Plasticity.h>
+#include <private/GigaLearnCPP/Util/CriticHeadsPanels.h>
 
 #include "Util/KeyPressDetector.h"
 #include <private/GigaLearnCPP/Util/WelfordStat.h>
@@ -1446,6 +1447,8 @@ void GGL::Learner::Start() {
 			// CRITIC CONTEXT Phase A (PPOLearnerConfig.h): 2 floats per row, [no-touch clock / 20 s, episode time / 60 s], both clamped to 1,
 			// read from the arena BEFORE the step so they describe the obs the row holds. Empty unless GGL_CRITIC_CTX=1.
 			std::vector<float> ctxClock;
+			// CRITIC HEADS (PPOLearnerConfig.h): per-row post-step "this player touched the ball" flag. Empty unless GGL_CRITIC_HEADS=1.
+			std::vector<uint8_t> touchRow;
 			std::vector<uint8_t> actionMasks;
 			std::vector<int8_t> terminals;
 			std::vector<int32_t> actions;
@@ -1512,6 +1515,7 @@ void GGL::Learner::Start() {
 				goalRews.clear();
 				rowTag.clear();
 				ctxClock.clear();
+				touchRow.clear();
 				logProbs.clear();
 				actionMasks.clear();
 				terminals.clear();
@@ -1550,6 +1554,8 @@ void GGL::Learner::Start() {
 				rowTag.reserve(rows);
 				if (CriticCtxEnabled())
 					ctxClock.reserve(rows * CTX_CLK_DIMS);
+				if (CriticHeadsEnabled())
+					touchRow.reserve(rows);
 				logProbs.reserve(rows);
 				terminals.reserve(rows);
 				actions.reserve(rows);
@@ -1596,6 +1602,7 @@ void GGL::Learner::Start() {
 				goalRews += other.goalRews;
 				rowTag += other.rowTag;
 				ctxClock += other.ctxClock;
+				touchRow += other.touchRow;
 				logProbs += other.logProbs;
 				actionMasks += other.actionMasks;
 				terminals += other.terminals;
@@ -1635,6 +1642,7 @@ void GGL::Learner::Start() {
 					RG_ASSERT(goalRews.size() == n);
 				RG_ASSERT(rowTag.size() == n || rowTag.empty());
 				RG_ASSERT(ctxClock.size() == n * CTX_CLK_DIMS || ctxClock.empty());
+				RG_ASSERT(touchRow.size() == n || touchRow.empty());
 				if (!touched.empty()) {
 					RG_ASSERT(touched.size() == n && oppTouched.size() == n && gatedPos.size() == n);
 					RG_ASSERT(teamTouched.size() == n);
@@ -1743,6 +1751,8 @@ void GGL::Learner::Start() {
 		std::vector<int> playerArenaIdx(numPlayers), playerSlotIdx(numPlayers), playerPartnerIdx(numPlayers, -1);
 		// CRITIC CONTEXT Phase A: steps since each arena's episode began (reset where Reset() re-rolls the arena; 0 at the first row)
 		const bool ctxOn = CriticCtxEnabled();
+		const bool headsOn = CriticHeadsEnabled();
+		int64_t headPanelCounter = 0;
 		std::vector<int> ctxEpStep(ctxOn ? envSet->state.gameStates.size() : 0, 0);
 		// Per-arena "did team X touch this step" scratch, indexed [team][arena] (hoisted out of the step loop)
 		std::vector<uint8_t> arenaTeamTouched[2];
@@ -2671,6 +2681,9 @@ void GGL::Learner::Start() {
 								int teamSz = (int)envSet->state.gameStates[playerArenaIdx[newPlayerIdx]].players.size() / 2;
 								trajectories[newPlayerIdx].rowTag.push_back((uint8_t)(srcCode * 4 + RS_CLAMP(teamSz - 1, 0, 3)));
 							}
+							if (headsOn) // post-step touch flag of this row's player (CRITIC HEADS touch-within-5s label)
+								trajectories[newPlayerIdx].touchRow.push_back(
+									envSet->state.gameStates[playerArenaIdx[newPlayerIdx]].players[playerSlotIdx[newPlayerIdx]].ballTouchedStep);
 
 							// Steered-practice row tags: ROLE (0 match, 1 steered, 2 control)
 							// + MODE (team size - 1). Tagged by ARENA, not by whether a vector
@@ -3268,6 +3281,40 @@ void GGL::Learner::Start() {
 								<< ", rows " << nR << "): context heads skipped this iteration");
 						}
 					}
+					// CRITIC HEADS labels (docs/GCO_CRITIC_HEADS_FRESH.md): per row, the class of the episode's end ({0 none/truncated, 1 score, 2 concede,
+					// 3 timeout}) if it lands within 5 s / 15 s / whenever, plus "this player touches the ball within 5 s". Rows are whole episodes,
+					// so one backward pass gives steps-to-end. Measurement only.
+					torch::Tensor tHeadLabels;
+					std::vector<int> headTte;
+					const float headStepsPerSec = 120.f / (float)envSet->config.tickSkip;
+					if (headsOn) {
+						const int64_t nR = tStates.size(0);
+						if ((int64_t)combinedTraj.touchRow.size() == nR && (int64_t)combinedTraj.terminals.size() == nR) {
+							torch::Tensor tRewH = tRewards.contiguous();
+							const float* rwH = tRewH.const_data_ptr<float>();
+							const int64_t h5 = (int64_t)(5.f * headStepsPerSec), h15 = (int64_t)(15.f * headStepsPerSec);
+							std::vector<float> lab((size_t)nR * HEAD_LABEL_DIMS, 0.f);
+							headTte.assign((size_t)nR, 1 << 20);
+							int64_t endIdx = -1; int oc = 0; int64_t nextTouch = -1;
+							for (int64_t i = nR - 1; i >= 0; i--) {
+								if (combinedTraj.terminals[i] != 0) {
+									endIdx = i; nextTouch = -1;
+									bool trunc = combinedTraj.terminals[i] == (int8_t)RLGC::TerminalType::TRUNCATED;
+									oc = trunc ? 0 : (rwH[i] > 0.75f ? 1 : (rwH[i] < -0.75f ? 2 : (rwH[i] < -0.25f ? 3 : 0)));
+								}
+								if (combinedTraj.touchRow[i]) nextTouch = i;
+								int64_t tte = endIdx >= 0 ? endIdx - i : (int64_t)(1 << 20);
+								headTte[i] = (int)tte;
+								lab[(size_t)i * HEAD_LABEL_DIMS + 0] = (float)(tte <= h5 ? oc : 0);
+								lab[(size_t)i * HEAD_LABEL_DIMS + 1] = (float)(tte <= h15 ? oc : 0);
+								lab[(size_t)i * HEAD_LABEL_DIMS + 2] = (float)oc;
+								lab[(size_t)i * HEAD_LABEL_DIMS + 3] = (nextTouch >= 0 && nextTouch - i <= h5) ? 1.f : 0.f;
+							}
+							tHeadLabels = torch::tensor(lab).reshape({ nR, HEAD_LABEL_DIMS });
+						} else {
+							RG_LOG("WARNING: critic-heads rows misaligned (touchRow " << combinedTraj.touchRow.size() << ", rows " << nR << "): heads skipped this iteration");
+						}
+					}
 					report["Clipped Reward Portion"] = rewClipPortion;
 
 					if (exploiterRun || config.gcoRun) {
@@ -3345,6 +3392,13 @@ void GGL::Learner::Start() {
 									}
 									report[rampPrefix + std::string("Ctx Delta Abs ") + hn[h]] = tCtxDelta.select(1, h).abs().mean().item<float>();
 								}
+							}
+
+							// --- CRITIC HEADS panels (docs/GCO_CRITIC_HEADS_FRESH.md section 3). MEASUREMENT ONLY. Predictions on this iteration's rows
+							// BEFORE the update (out of sample), every 10th iteration like the TTE panels. ---
+							if (tHeadLabels.defined() && ppo->models["heads_ev"] && (headPanelCounter++ % 10) == 0) {
+								torch::Tensor tHeadOut = ppo->InferHeads(tStates);
+								HeadsPanels::Compute(report, rampPrefix.substr(0, 0) + "Heads/", tHeadOut, tHeadLabels, headTte, headStepsPerSec, tValPreds.cpu(), tScaledReturns.cpu());
 							}
 
 							// --- Team-critic diagnostics (2026-11-17; docs/GCO_TEAM_CRITIC_TEST.md section 4). TELEMETRY ONLY: nothing
@@ -4059,6 +4113,7 @@ void GGL::Learner::Start() {
 					// iteration would keep filtering after advFilterFrac was set back to 1.
 					experience.data.advFilterMask = tAdvFilterMask;
 					experience.data.criticCtx = tCtx; // assigned unconditionally for the same reason (undefined = heads off this iteration)
+					experience.data.headLabels = tHeadLabels; // CRITIC HEADS labels, same convention
 					if (goalCriticOn)
 						experience.data.goalTargetValues = tGoalTargetVals;
 

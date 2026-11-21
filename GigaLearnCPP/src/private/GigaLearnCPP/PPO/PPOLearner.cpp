@@ -85,6 +85,36 @@ GGL::PPOLearner::PPOLearner(int obsSize, int numActions, PPOLearnerConfig _confi
 		RG_LOG("Critic context Phase A ENABLED (GGL_CRITIC_CTX=1): 4 measurement-only side heads, zero-initialised");
 	}
 
+	// CRITIC HEADS (docs/GCO_CRITIC_HEADS_FRESH.md): detached side heads on the critic-trunk output. heads_ev / heads_ctl (event logits; the control is
+	// trained on shuffled labels), heads_vb (an independently initialised second value head), heads_uerr (predicts the live critic's squared error).
+	if (CriticHeadsEnabled()) {
+		RG_ASSERT(models["critic"]);
+		const int trunkW = models["critic"]->config.numInputs;
+		struct HeadSpec { const char* name; int out; bool zeroLast; };
+		for (HeadSpec h : { HeadSpec{ "heads_ev", HEAD_EV_OUT, true }, HeadSpec{ "heads_ctl", HEAD_EV_OUT, true },
+			HeadSpec{ "heads_vb", 1, false }, HeadSpec{ "heads_uerr", 1, true } }) {
+			ModelConfig hc = models["critic"]->config; // optimizer type and activation follow the critic head
+			hc.layerSizes = { 256, 256 };
+			hc.addResiduals = false;
+			hc.numInputs = trunkW;
+			hc.numOutputs = h.out;
+			Model* m = new Model(h.name, hc, device);
+			if (h.zeroLast) {
+				torch::NoGradGuard ng;
+				torch::nn::LinearImpl* last = nullptr;
+				for (auto& c : m->seq->children())
+					if (auto* l = dynamic_cast<torch::nn::LinearImpl*>(c.get()))
+						last = l;
+				RG_ASSERT(last);
+				last->weight.zero_();
+				if (last->bias.defined())
+					last->bias.zero_();
+			}
+			models.Add(m);
+		}
+		RG_LOG("Critic heads ENABLED (GGL_CRITIC_HEADS=1): event heads + shuffled-label control + V_b + error head, all detached, measurement only");
+	}
+
 	// GEOMETRY (4th rung). Three INDEPENDENT nets on raw obs — no trunk, like the original
 	// goal-critic form — so this rung cannot co-adapt the shared perception path on day one.
 	//   geo_sigma : obs -> 2*obs   conditional (mean, log-std) of the one-step displacement.
@@ -335,6 +365,24 @@ torch::Tensor GGL::PPOLearner::InferCtxDeltas(torch::Tensor obs, torch::Tensor c
 	return out;
 }
 
+torch::Tensor GGL::PPOLearner::InferHeads(torch::Tensor obs) {
+	if (!models["heads_ev"])
+		return torch::Tensor();
+	RG_NO_GRAD;
+	const int64_t n = obs.size(0), chunk = 32768;
+	torch::Tensor out = torch::zeros({ n, HEAD_OUT_DIMS });
+	for (int64_t i = 0; i < n; i += chunk) {
+		int64_t j = RS_MIN(n, i + chunk);
+		torch::Tensor trunk = ValueTrunk(obs.slice(0, i, j).to(device, true), false).to(torch::kFloat32);
+		auto o = out.slice(0, i, j);
+		o.slice(1, 0, HEAD_EV_OUT).copy_(models["heads_ev"]->Forward(trunk, false).to(torch::kFloat32).cpu());
+		o.slice(1, HEAD_EV_OUT, 2 * HEAD_EV_OUT).copy_(models["heads_ctl"]->Forward(trunk, false).to(torch::kFloat32).cpu());
+		o.select(1, 2 * HEAD_EV_OUT).copy_(models["heads_vb"]->Forward(trunk, false).flatten().to(torch::kFloat32).cpu());
+		o.select(1, 2 * HEAD_EV_OUT + 1).copy_(models["heads_uerr"]->Forward(trunk, false).flatten().to(torch::kFloat32).cpu());
+	}
+	return out;
+}
+
 torch::Tensor GGL::PPOLearner::InferRhatMax(torch::Tensor obs) {
 	RG_NO_GRAD;
 	obs = ValueTrunk(obs.to(device, true), config.useHalfPrecision);
@@ -464,6 +512,15 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 	for (int h = 0; h < 4; h++)
 		if (models[CTX_HEADS[h]])
 			ctxBefore[h] = models[CTX_HEADS[h]]->CopyParams();
+
+	// CRITIC HEADS: same lr=0 trap; "Heads/Update Magnitude" must read > 0 for every head
+	static const char* HEAD_MODELS[4] = { "heads_ev", "heads_ctl", "heads_vb", "heads_uerr" };
+	torch::Tensor headsBefore[4];
+	for (int h = 0; h < 4; h++)
+		if (models[HEAD_MODELS[h]])
+			headsBefore[h] = models[HEAD_MODELS[h]]->CopyParams();
+	torch::Tensor headsLossAcc; // GPU accumulator, synced once after the learn pass
+	int headsLossN = 0;
 
 	bool trainPolicy = config.policyLR != 0;
 	bool trainCritic = config.criticLR != 0;
@@ -822,6 +879,34 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					}
 				}
 
+				// CRITIC HEADS: measurement-only. Inputs detached (the trunk read and the live critic's value), so the loss trains only these heads.
+				torch::Tensor headsLoss;
+				if (batch.headLabels.defined() && models["heads_ev"]) {
+					torch::Tensor lab = batch.headLabels.slice(0, start, stop).to(device, true, true);
+					torch::Tensor trunkH = fnValueTrunk().detach().to(torch::kFloat32);
+					torch::Tensor tgtH = targetValues.flatten().to(torch::kFloat32);
+					auto fnEvLoss = [&](const torch::Tensor& logits, const torch::Tensor& labs) {
+						torch::Tensor l = torch::binary_cross_entropy_with_logits(logits.select(1, HEAD_EV_OUT - 1), labs.select(1, HEAD_HORIZONS));
+						for (int k = 0; k < HEAD_HORIZONS; k++)
+							l = l + torch::nn::functional::cross_entropy(logits.slice(1, k * HEAD_CLASSES, (k + 1) * HEAD_CLASSES), labs.select(1, k).to(torch::kLong));
+						return l;
+					};
+					torch::Tensor lEv = fnEvLoss(models["heads_ev"]->Forward(trunkH, false).to(torch::kFloat32), lab);
+					torch::Tensor perm = torch::randperm(lab.size(0), torch::TensorOptions().dtype(torch::kLong).device(lab.device()));
+					torch::Tensor lCtl = fnEvLoss(models["heads_ctl"]->Forward(trunkH, false).to(torch::kFloat32), lab.index_select(0, perm)); // shuffled labels
+					torch::Tensor vOldH;
+					{
+						RG_NO_GRAD;
+						vOldH = models["critic"]->Forward(trunkH, false).flatten().to(torch::kFloat32);
+					}
+					torch::Tensor lVb = mseLoss(models["heads_vb"]->Forward(trunkH, false).flatten().to(torch::kFloat32), tgtH);
+					torch::Tensor errTgt = (tgtH - vOldH).pow(2).detach();
+					torch::Tensor lUe = mseLoss(models["heads_uerr"]->Forward(trunkH, false).flatten().to(torch::kFloat32), errTgt);
+					headsLoss = (lEv + lCtl + lVb + lUe) * batchSizeRatio;
+					headsLossAcc = headsLossAcc.defined() ? headsLossAcc + headsLoss.detach() : headsLoss.detach();
+					headsLossN++;
+				}
+
 				// ===================== GEOMETRY: the HJB residual =====================
 				// (1 - gamma) V(s) = r_hat(s) + gamma * || grad_s V(s) ||_Sigma(s)
 				//
@@ -977,6 +1062,8 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					totalLoss = totalLoss.defined() ? totalLoss + geoLoss : geoLoss;
 				if (ctxLoss.defined())
 					totalLoss = totalLoss.defined() ? totalLoss + ctxLoss : ctxLoss;
+				if (headsLoss.defined())
+					totalLoss = totalLoss.defined() ? totalLoss + headsLoss : headsLoss;
 
 				// ARCHIVE replay: convert the field into POLICY. PBRS with a good field is
 				// neutral BY THEOREM, so ascent must be imitated directly. Weights are
@@ -1059,6 +1146,9 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 			for (int h = 0; h < 4; h++)
 				if (models[CTX_HEADS[h]])
 					nn::utils::clip_grad_norm_(models[CTX_HEADS[h]]->parameters(), 0.5f);
+			for (int h = 0; h < 4; h++)
+				if (models[HEAD_MODELS[h]])
+					nn::utils::clip_grad_norm_(models[HEAD_MODELS[h]]->parameters(), 0.5f);
 
 			if (reach) {
 				nn::utils::clip_grad_norm_(reach->phi->parameters(), 0.5f);
@@ -1169,6 +1259,14 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 		report["Policy Update Magnitude"] = policyUpdateMagnitude;
 		report["Critic Update Magnitude"] = criticUpdateMagnitude;
 	{
+		const char* hs[4] = { "ev", "ctl", "vb", "uerr" };
+		for (int h = 0; h < 4; h++)
+			if (headsBefore[h].defined())
+				report[std::string("Heads/Update Magnitude ") + hs[h]] = (headsBefore[h] - models[HEAD_MODELS[h]]->CopyParams()).norm().item<float>();
+		if (headsLossAcc.defined() && headsLossN > 0)
+			report["Heads/Loss"] = headsLossAcc.cpu().item<float>() / headsLossN;
+	}
+	{
 		// Must be > 0 for every head (the lr=0 trap): 0 means the side heads are inert and the paired EV panels read nothing.
 		const char* suf[4] = { "src", "clk", "both", "nul" };
 		for (int h = 0; h < 4; h++)
@@ -1254,6 +1352,11 @@ void GGL::PPOLearner::SetLearningRates(float policyLR, float criticLR) {
 		if (models[n])
 			models[n]->SetOptimLR(criticLR);
 
+	// CRITIC HEADS: same lr=0 trap. Named explicitly; "Heads/Update Magnitude" must read > 0.
+	for (const char* n : { "heads_ev", "heads_ctl", "heads_vb", "heads_uerr" })
+		if (models[n])
+			models[n]->SetOptimLR(criticLR);
+
 	// THEORY r-hat twins: same trap (ctor builds optimizers at lr=0 = exact no-op under
 	// Muon). They regress a REWARD, not a return, so they take criticLR as well.
 	for (const char* n : { "rhat1", "rhat2" })
@@ -1298,6 +1401,8 @@ GGL::ModelSet GGL::PPOLearner::GetPolicyModels() {
 
 		// CRITIC CONTEXT Phase A heads are value-side measurement heads: never cloned into policy versions
 		if (name.rfind("critic_ctx", 0) == 0)
+			continue;
+		if (name.rfind("heads_", 0) == 0) // critic-heads test: value-side measurement heads, never cloned into policy versions
 			continue;
 
 		result.Add(model);

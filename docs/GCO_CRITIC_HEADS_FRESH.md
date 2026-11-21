@@ -51,19 +51,21 @@ Per time-to-end bin (0-2, 2-5, 5-10, > 10 s) and pooled:
 | `Heads/E Touch5 AUC`, `Touch5 Brier` | the touch-within-5-s head (the wall-break view) |
 | `Heads/E Ctrl Skill` | the control head's skill (must be about 0) |
 | `Heads/U D Mean`, `U Err Mean` | mean epistemic proxy and mean predicted error |
-| `Heads/U Corr D Err` | correlation of D with realised error, by bin (aleatoric far bins should NOT track D) |
-| `Heads/U Progress Gap` | next-100M error reduction in high-D bins minus low-D bins (the epistemic test, see 4) |
-| `Heads/Update Magnitude`, `Heads/Loss` | the LR-trap check and health |
+| `Heads/U Corr D Err`, `U Corr Pred Err` | correlation of D (and of the error head's prediction) with the realised squared error, by bin |
+| `Heads/U Decile Ratio D`, `U Decile Ratio Pred` | mean realised error of the live critic in the top decile of D (or of the predicted error) over the bottom decile (1 = the score does not rank error), by bin |
+| `Heads/U Pred Err Mean`, `U Err Mean`, `U D Mean` | the predicted error, the realised error and the mean epistemic proxy, by bin |
+| `Heads/Update Magnitude ev/ctl/vb/uerr`, `Heads/Loss` | the LR-trap check and health |
 
 ## 4. Pre-registered predictions
 
 Read at 1B, 2.5B and 5.0B steps (median over the last 100M, bootstrap CI over iterations). A result counts only if its CI excludes the null.
 - **E has information:** `AUC Score15` > 0.70 and `E Skill` > +0.05 in the 2-10 s bins after the wall breaks; the control's skill within +-0.01 of 0.
 - **E sees success before the reward:** `Touch5 AUC` > 0.70 BEFORE the wall breaks (first 500M), and it rises as the touch ratio rises.
-- **U separates epistemic from aleatoric:** `Progress Gap` > 0 (high-D states lose more error over the next 100M than low-D states) while `U Err` alone shows no such gap
-  in the > 10 s bin. If `U Err` shows the same gap, the correction added nothing.
+- **U separates epistemic from aleatoric:** `U Decile Ratio D` is above `U Decile Ratio Pred` in the > 10 s bin (D ranks the live critic's error better than the raw error head,
+  which is dominated by outcome noise) and `U Corr D Err` > 0.1 there; if the raw error head ranks the far-bin error as well as D, the disagreement correction added nothing.
+  (Implementation note: the "progress over the next 100M" form of this test needs per-state tracking across iterations and was replaced by the same-iteration decile ranking.)
 - **Falsifiers:** an E skill that only appears in the 0-2 s bin (it memorises near-terminal states); a gain that appears and decays across the window; AUC without calibration
-  (ECE > 0.05); `Progress Gap` negative or zero.
+  (ECE > 0.05); a decile ratio of D at or below 1 in the far bins.
 - **Policy guard (the run must not move):** wall-break window inside fresh1-3's spread (580-860M start of the window), ball-touch ratio at 1B within 0.0085-0.011,
   policy entropy within 30% of fresh3's band, and the 5B read inside run 1's band for the gauntlet. A breach is reported as "the heads were not measurement-only".
 
@@ -85,3 +87,12 @@ Read at 1B, 2.5B and 5.0B steps (median over the last 100M, bootstrap CI over it
 
 ## 7. Revert
 `--gco-fresh4` is its own folder; stop the process, delete nothing (quarantine). The env switch off restores the previous binary's behavior exactly.
+
+## 8. Implementation record (2026-11-20)
+
+Built behind `GGL_CRITIC_HEADS=1` (set automatically by `--gco-fresh4`): `PPOLearner.cpp` (four heads on the detached critic-trunk read, losses beside the critic's, update-magnitude
+panels, LR named in `SetLearningRates`, excluded from policy versions), `ExperienceBuffer.h` (`headLabels`), `Learner.cpp` (per-row touch flag at collection, labels from whole-episode rows,
+panels every 10th iteration), `Util/CriticHeadsPanels.h` (the panel math). CPU smoke (`GGL_SMOKE=1`, 4 iterations): all panels print; all four heads' update magnitudes nonzero
+(0.09-0.11); first-iteration log-loss exactly ln 4 (zero-initialised heads). The smoke folders are quarantined as `build/checkpoints_gco_fresh4_SMOKE*_20261120`. The AUC handles ties by average rank
+(a first version gave a spurious 0.70 on constant scores; fixed before the real run).
+Launch: `tools/gco_health/chain_fresh4.sh` (after the ctrl2 arm logs "CTRL2 ALL DONE"); reads: `tools/gco_health/fresh4_read.py`.

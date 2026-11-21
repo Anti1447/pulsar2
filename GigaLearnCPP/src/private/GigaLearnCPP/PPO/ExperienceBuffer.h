@@ -30,6 +30,8 @@ namespace GGL {
 			// CRITIC CONTEXT Phase A: float [rows, CTX_DIMS] per-row context for the measurement-only side heads
 			// (undefined unless GGL_CRITIC_CTX=1; see PPOLearnerConfig.h)
 			criticCtx,
+			// CRITIC HEADS (docs/GCO_CRITIC_HEADS_FRESH.md): float [rows, HEAD_LABEL_DIMS] event labels (undefined unless GGL_CRITIC_HEADS=1)
+			headLabels,
 			// ADVANTAGE FILTERING: float 0/1, 1 = this row ranked in the top advFilterFrac of
 			// the iteration - by signed advantage or by |advantage|, per advFilterMode - and the
 			// POLICY may train on it (value heads ignore this mask). Undefined unless

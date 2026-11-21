@@ -101,6 +101,8 @@ namespace GGL {
 		// CRITIC CONTEXT Phase A (measurement only): Delta of the four side heads, [N, 4] in the order src, clk, both, nul, on CPU.
 		// obs is [N, obsSize] and ctx [N, CTX_DIMS]; no gradient, chunked. Empty tensor when the heads do not exist.
 		torch::Tensor InferCtxDeltas(torch::Tensor obs, torch::Tensor ctx);
+		// CRITIC HEADS: [N, HEAD_OUT_DIMS] CPU floats (ev logits, control logits, V_b, predicted error); undefined if the heads are off
+		torch::Tensor InferHeads(torch::Tensor obs);
 		// THEORY: max of the twin reward models (optimism under ambiguity), clamped by
 		// the caller to the largest reward actually observed (never invent magnitudes).
 		torch::Tensor InferRhatMax(torch::Tensor obs);
