@@ -11,7 +11,7 @@ lastts() { tail -1 "$1" 2>/dev/null | python3 -c "import sys,json;print(int(json
 stop_trainer() { tools/trainerctl stop >/dev/null 2>&1; for i in $(seq 1 100); do alive || return 0; sleep 3; done; return 1; }
 START=4995887104; END=$(( START + 500000000 ))
 say "chain for arm $arm started; waiting for '$WAITP'"
-until grep -q "$WAITP" $ST; do sleep 30; done
+until grep -qE " $WAITP$" $ST; do sleep 30; done
 sleep 20; alive && { say "ABORT $arm: trainer still alive after '$WAITP'"; exit 1; }
 say "starting arm $arm"
 ( cd build && ../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco-fork-$arm >/dev/null 2>&1 )

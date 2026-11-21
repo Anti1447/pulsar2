@@ -283,6 +283,21 @@ static int PlayEvalSegment(
 }
 } // namespace GGL
 
+GGL::H2HResult GGL::RunHeadToHead(PPOLearner* ppo, RLGC::EnvSet* env, ModelSet& opp, float simSecs, bool deterministic) {
+	RG_NO_GRAD;
+	H2HResult r;
+	for (Team mainTeam : { Team::BLUE, Team::ORANGE }) {
+		env->Reset();
+		float total = 0;
+		int64_t f = 0, a = 0;
+		GGL::PlayEvalSegment(ppo, env, opp, mainTeam, simSecs, &total, simSecs, 1 << 30, 0, deterministic, nullptr,
+			[&](const RLGC::GameState&, bool mainScored) { (mainScored ? f : a)++; });
+		RG_LOG(" > H2H as " << (mainTeam == Team::BLUE ? "BLUE" : "ORANGE") << ": for " << f << " against " << a);
+		r.goalsFor += f; r.goalsAgainst += a;
+	}
+	return r;
+}
+
 void GGL::PolicyVersionManager::SortVersions() {
 	auto fnCompareVersions = [](const PolicyVersion& a, const PolicyVersion& b) {
 		return a.timesteps < b.timesteps;

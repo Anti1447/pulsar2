@@ -140,4 +140,9 @@ namespace GGL {
 
 		// TODO: Add deconstructor
 	};
+
+	// OFFLINE HEAD-TO-HEAD (docs/GCO_H2H_EVAL.md): the live main `ppo` vs `opp`, on `env` (its own arenas), `simSecs` of sim time per side,
+	// once as BLUE and once as ORANGE. Returns goals {for, against} summed over both sides. Same game loop as the skill/reference matches.
+	struct H2HResult { int64_t goalsFor = 0, goalsAgainst = 0; };
+	H2HResult RunHeadToHead(struct PPOLearner* ppo, RLGC::EnvSet* env, ModelSet& opp, float simSecs, bool deterministic);
 }

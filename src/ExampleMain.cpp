@@ -1824,6 +1824,7 @@ int main(int argc, char* argv[]) {
 	// overrides the poll interval (seconds; <= 0 pins to the checkpoint loaded at startup).
 	cfg.renderMode = false;
 	if (const char* r = std::getenv("GGL_RENDER"); r && r[0] && std::string(r) != "0")
+	if (const char* h = std::getenv("GGL_H2H_OPP"); h && h[0]) cfg.sendMetrics = false; // offline head-to-head (docs/GCO_H2H_EVAL.md): no W&B run
 		cfg.renderMode = true;
 	if (const char* s = std::getenv("GGL_RENDER_RELOAD_SECS"))
 		cfg.renderReloadSecs = (float)std::atof(s);

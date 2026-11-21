@@ -23,6 +23,8 @@
 #include <private/GigaLearnCPP/NextoOpponent.h>
 #include <private/GigaLearnCPP/GGLBotOpponent.h>
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
+#include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
+#include <RLGymCPP/StateSetters/FuzzedKickoffState.h>
 #include <private/GigaLearnCPP/ExternalPlayMonitor.h>
 #include <private/GigaLearnCPP/ExploiterPool.h>
 #include <private/GigaLearnCPP/ExploiterEval.h>
@@ -1367,6 +1369,42 @@ void GGL::Learner::SetPolicyLRScale(float scale) {
 }
 
 void GGL::Learner::Start() {
+
+	// OFFLINE HEAD-TO-HEAD (docs/GCO_H2H_EVAL.md): GGL_H2H_OPP=<checkpoint dir>[,<dir>...] plays the checkpoint just loaded (this process's folder) against each
+	// listed checkpoint dir on its own arenas, prints one H2H_RESULT line per opponent and exits. Never trains, never saves. GGL_H2H_GAMES (arenas, 128),
+	// GGL_H2H_SECS (sim seconds per side, 900), GGL_H2H_STOCH=1 samples actions instead of argmax.
+	if (const char* h2h = std::getenv("GGL_H2H_OPP"); h2h && h2h[0]) {
+		auto envInt = [](const char* k, int d) { const char* v = std::getenv(k); return (v && v[0]) ? std::atoi(v) : d; };
+		RLGC::EnvSetConfig ec = envSet->config;
+		ec.numArenas = envInt("GGL_H2H_GAMES", 128);
+		if (config.gauntlet.envCreateFn)
+			ec.envCreateFn = config.gauntlet.envCreateFn;
+		RLGC::EnvSet* h2hEnv = new RLGC::EnvSet(ec);
+		for (int i = 0; i < h2hEnv->arenas.size(); i++) {
+			h2hEnv->rewards[i].clear();
+			h2hEnv->stateSetters[i] = { new RLGC::FuzzedKickoffState() };
+			h2hEnv->terminalConditions[i] = { new RLGC::GoalScoreCondition() };
+		}
+		bool det = envInt("GGL_H2H_STOCH", 0) == 0;
+		float secs = (float)envInt("GGL_H2H_SECS", 900);
+		std::string list = h2h;
+		size_t pos = 0;
+		while (pos <= list.size()) {
+			size_t c = list.find(',', pos);
+			std::string dir = list.substr(pos, c == std::string::npos ? std::string::npos : c - pos);
+			pos = (c == std::string::npos) ? list.size() + 1 : c + 1;
+			if (dir.empty()) continue;
+			auto oppModels = ppo->GetPolicyModels().CloneAll();
+			oppModels.Load(dir, false, false);
+			RG_LOG("H2H: " << config.checkpointFolder.string() << " (ts " << totalTimesteps << ") vs " << dir);
+			H2HResult r = RunHeadToHead(ppo, h2hEnv, oppModels, secs, det);
+			std::cout << "H2H_RESULT {\"a\":\"" << config.checkpointFolder.string() << "\",\"a_ts\":" << totalTimesteps << ",\"b\":\"" << dir
+				<< "\",\"for\":" << r.goalsFor << ",\"against\":" << r.goalsAgainst << ",\"arenas\":" << ec.numArenas << ",\"secs\":" << secs
+				<< ",\"det\":" << (det ? 1 : 0) << "}" << std::endl;
+			oppModels.Free();
+		}
+		return;
+	}
 
 	bool render = config.renderMode;
 
