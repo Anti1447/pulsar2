@@ -1338,6 +1338,10 @@ int main(int argc, char* argv[]) {
 			gcoFresh3Arg = true;
 		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2"
 			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron" || arg == "--gco-fork-nexchronkick") {
+		} else if (arg == "--gco-fresh4c") {
+			gcoArg = true; gcoFreshArg = true; gcoFresh3Arg = true; gcoFresh4Arg = true; gcoFresh4cArg = true;
+			setenv("GGL_CRITIC_HEADS", "1", 1);
+			setenv("GGL_HEADS_COUPLE", "0.1", 1);
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoForkArm = arg.substr(std::string("--gco-fork-").size());
