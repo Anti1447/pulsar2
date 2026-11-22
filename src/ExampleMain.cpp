@@ -1292,7 +1292,7 @@ int main(int argc, char* argv[]) {
 	std::string exploiterSnapshotArg, exploiterNameArg, gcoFromArg, exploiterTargetArg;
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
-	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false, gcoFresh2Arg = false, gcoFresh3Arg = false, gcoFresh4Arg = false, gcoFresh4cArg = false;
+	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false, gcoFresh2Arg = false, gcoFresh3Arg = false, gcoFresh4Arg = false, gcoFresh4cArg = false, gcoFresh4c2Arg = false, gcoFresh4k2Arg = false;
 	std::string gcoForkArm; // "ctrl" / "kick" / "opp" (--gco-fork-<arm>)
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
@@ -1339,6 +1339,13 @@ int main(int argc, char* argv[]) {
 			gcoFresh3Arg = true;
 		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2"
 			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron" || arg == "--gco-fork-nexchronkick" || arg == "--gco-fork-nexchron2" || arg == "--gco-fork-kick2") {
+		} else if (arg == "--gco-fresh4c2") { // H-010 replicate: the coupled fork with seed 456 and its own folder
+			gcoArg = true; gcoFreshArg = true; gcoFresh3Arg = true; gcoFresh4Arg = true; gcoFresh4cArg = true; gcoFresh4c2Arg = true;
+			setenv("GGL_CRITIC_HEADS", "1", 1);
+			setenv("GGL_HEADS_COUPLE", "0.1", 1);
+		} else if (arg == "--gco-fresh4k2") { // H-010 replicate control: detached heads (coupling 0), seed 456, own folder
+			gcoArg = true; gcoFreshArg = true; gcoFresh3Arg = true; gcoFresh4Arg = true; gcoFresh4k2Arg = true;
+			setenv("GGL_CRITIC_HEADS", "1", 1);
 		} else if (arg == "--gco-fresh4c") {
 			gcoArg = true; gcoFreshArg = true; gcoFresh3Arg = true; gcoFresh4Arg = true; gcoFresh4cArg = true;
 			setenv("GGL_CRITIC_HEADS", "1", 1);
@@ -2090,7 +2097,7 @@ int main(int argc, char* argv[]) {
 	// exploiters folder is the original exploiters/ (the 5.3 lineage's); main 6.0 has its own.
 	std::filesystem::path mainCheckpointFolder = cfg.checkpointFolder;
 	if (gcoArg) {
-		cfg.checkpointFolder = !gcoForkArm.empty() ? std::filesystem::path("checkpoints_gco_fork_" + gcoForkArm) : gcoFresh4cArg ? std::filesystem::path(GCO_FRESH4C_CHECKPOINT_FOLDER) : gcoFresh4Arg ? std::filesystem::path(GCO_FRESH4_CHECKPOINT_FOLDER) : gcoFresh3Arg ? GCO_FRESH3_CHECKPOINT_FOLDER : gcoFresh2Arg ? GCO_FRESH2_CHECKPOINT_FOLDER : gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
+		cfg.checkpointFolder = !gcoForkArm.empty() ? std::filesystem::path("checkpoints_gco_fork_" + gcoForkArm) : gcoFresh4k2Arg ? std::filesystem::path("checkpoints_gco_fresh4k2") : gcoFresh4c2Arg ? std::filesystem::path("checkpoints_gco_fresh4c2") : gcoFresh4cArg ? std::filesystem::path(GCO_FRESH4C_CHECKPOINT_FOLDER) : gcoFresh4Arg ? std::filesystem::path(GCO_FRESH4_CHECKPOINT_FOLDER) : gcoFresh3Arg ? GCO_FRESH3_CHECKPOINT_FOLDER : gcoFresh2Arg ? GCO_FRESH2_CHECKPOINT_FOLDER : gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
 		mainCheckpointFolder = g_GCOLegacy ? GCO_LEGACY_SOURCE_FOLDER : GCO_SOURCE_FOLDER;
 	}
 	ConfigureExploiterSettings(cfg);
@@ -2175,7 +2182,7 @@ int main(int argc, char* argv[]) {
 			g_GCOFresh3 = gcoFresh3Arg;
 			g_GCOForkKick = (gcoForkArm == "kick" || gcoForkArm == "kickopp" || gcoForkArm == "nexchronkick" || gcoForkArm == "kick2"); // kickopp = arms 2 and 3 combined (docs/GCO_POSTWALL_FORKS.md section 9)
 			g_GCOMode = true;
-			if (!gcoForkArm.empty()) ConfigureGCOFork(cfg, gcoForkArm); else if (gcoFresh3Arg) { ConfigureGCOFresh3(cfg); if (gcoFresh4Arg) cfg.metricsRunName = gcoFresh4cArg ? "gco-fresh4c" : "gco-fresh4"; } else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
+			if (!gcoForkArm.empty()) ConfigureGCOFork(cfg, gcoForkArm); else if (gcoFresh3Arg) { ConfigureGCOFresh3(cfg); if (gcoFresh4Arg) cfg.metricsRunName = gcoFresh4k2Arg ? "gco-fresh4k2" : gcoFresh4c2Arg ? "gco-fresh4c2" : gcoFresh4cArg ? "gco-fresh4c" : "gco-fresh4"; if (gcoFresh4c2Arg || gcoFresh4k2Arg) cfg.randomSeed = 456; } else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
 		} else {
 			if (!SeedGCORun(cfg.checkpointFolder, mainCheckpointFolder, gcoFromArg))
 				return 1;
