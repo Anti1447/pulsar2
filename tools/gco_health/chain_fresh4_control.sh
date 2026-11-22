@@ -1,17 +1,17 @@
 #!/bin/bash
-# Waits for the last external-opponent arm ("FRESH4C ALL DONE"), resumes fresh4 from its own folder, health reads every 100M (continuing), stops at 5.0B.
+# Waits for the last external-opponent arm ("NEXCHRONKICK EVALS DONE"), resumes fresh4 from its own folder, health reads every 100M (continuing), stops at 5.0B.
 # Launch: systemd-run --user --unit=gco-fresh4-resume tools/gco_health/chain_fresh4_resume.sh
 export PATH=/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin:$PATH
 cd /home/nhafe/pulsar2
-WAIT_ST=build/fresh4c_status.log; ST=build/fresh4_status.log; HL=build/fresh4_health.log
+WAIT_ST=build/forks_status.log; ST=build/fresh4_status.log; HL=build/fresh4_health.log
 say() { echo "$(date '+%F %T') $*" >> $ST; }
 alive() { for p in /proc/[0-9]*/exe; do readlink $p 2>/dev/null | grep -q build/GigaLearnBot && return 0; done; return 1; }
 lastts() { tail -1 "$1" 2>/dev/null | python3 -c "import sys,json;print(int(json.loads(sys.stdin.read())['ts']))" 2>/dev/null; }
 stop_trainer() { tools/trainerctl stop >/dev/null 2>&1; for i in $(seq 1 100); do alive || return 0; sleep 3; done; return 1; }
 END=1676651776 # H-010 paired control: fresh4 continuing 500M from the fork point
-say "fresh4 resume chain started; waiting for FRESH4C ALL DONE"
-until grep -qE " FRESH4C ALL DONE$" $WAIT_ST; do sleep 30; done
-sleep 20; alive && { say "ABORT resume: trainer still alive after FRESH4C ALL DONE"; exit 1; }
+say "fresh4 resume chain started; waiting for NEXCHRONKICK EVALS DONE"
+until grep -qE " NEXCHRONKICK EVALS DONE$" $WAIT_ST; do sleep 30; done
+sleep 20; alive && { say "ABORT resume: trainer still alive after NEXCHRONKICK EVALS DONE"; exit 1; }
 say "resuming fresh4"
 ( cd build && ../tools/run_trainer.sh --detach -- ./GigaLearnBot --gco-fresh4 >/dev/null 2>&1 )
 sleep 5

@@ -1069,7 +1069,7 @@ static void ConfigureGCOFork(LearnerConfig& cfg, const std::string& arm) {
 		cfg.trainAgainstOldChance = 0.30f;
 		cfg.externalOpponent.serveFrac = 0.f;
 	}
-	if (arm == "nexchron") {
+	if (arm == "nexchron" || arm == "nexchronkick") { // nexchronkick (H-009): the same opponent mix plus the kick reset mix (g_GCOForkKick)
 		// Nexto + ChronosV2 together (user-directed 2026-11-21, after the single-bot arms): the same 30% total serve share, split by the uniform pick (15% each).
 		// Galactus and Dice stay in the gauntlet as the held-out bots.
 		int served = 0;
@@ -1337,11 +1337,7 @@ int main(int argc, char* argv[]) {
 			gcoFreshArg = true;
 			gcoFresh3Arg = true;
 		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2"
-			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron") {
-		} else if (arg == "--gco-fresh4c") {
-			gcoArg = true; gcoFreshArg = true; gcoFresh3Arg = true; gcoFresh4Arg = true; gcoFresh4cArg = true;
-			setenv("GGL_CRITIC_HEADS", "1", 1);
-			setenv("GGL_HEADS_COUPLE", "0.1", 1);
+			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron" || arg == "--gco-fork-nexchronkick") {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoForkArm = arg.substr(std::string("--gco-fork-").size());
@@ -2172,7 +2168,7 @@ int main(int argc, char* argv[]) {
 			g_GCOFresh = true;
 			g_GCOFresh2 = gcoFresh2Arg;
 			g_GCOFresh3 = gcoFresh3Arg;
-			g_GCOForkKick = (gcoForkArm == "kick" || gcoForkArm == "kickopp"); // kickopp = arms 2 and 3 combined (docs/GCO_POSTWALL_FORKS.md section 9)
+			g_GCOForkKick = (gcoForkArm == "kick" || gcoForkArm == "kickopp" || gcoForkArm == "nexchronkick"); // kickopp = arms 2 and 3 combined (docs/GCO_POSTWALL_FORKS.md section 9)
 			g_GCOMode = true;
 			if (!gcoForkArm.empty()) ConfigureGCOFork(cfg, gcoForkArm); else if (gcoFresh3Arg) { ConfigureGCOFresh3(cfg); if (gcoFresh4Arg) cfg.metricsRunName = gcoFresh4cArg ? "gco-fresh4c" : "gco-fresh4"; } else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
 		} else {
