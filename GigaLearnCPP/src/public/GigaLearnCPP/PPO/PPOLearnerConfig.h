@@ -30,6 +30,11 @@ namespace GGL {
 	constexpr int HEAD_EV_OUT = HEAD_HORIZONS * HEAD_CLASSES + 1;            // 12 class logits + 1 touch-within-5s logit
 	constexpr int HEAD_LABEL_DIMS = HEAD_HORIZONS + 1;                       // class index per horizon, then touch5 (0/1)
 	constexpr int HEAD_OUT_DIMS = HEAD_EV_OUT * 2 + 2;                       // InferHeads columns: ev, ctl, V_b, uerr
+	// Coupling scale for the heads' gradient into the trunk (GGL_HEADS_COUPLE; 0 = detached, measurement only; H-010 tests > 0).
+	inline float CriticHeadsCouple() {
+		static const float c = [] { const char* v = std::getenv("GGL_HEADS_COUPLE"); return v ? (float)std::atof(v) : 0.f; }();
+		return c;
+	}
 	inline bool CriticHeadsEnabled() {
 		static const bool on = [] { const char* v = std::getenv("GGL_CRITIC_HEADS"); return v && std::string(v) == "1"; }();
 		return on;

@@ -96,3 +96,7 @@ panels every 10th iteration), `Util/CriticHeadsPanels.h` (the panel math). CPU s
 (0.09-0.11); first-iteration log-loss exactly ln 4 (zero-initialised heads). The smoke folders are quarantined as `build/checkpoints_gco_fresh4_SMOKE*_20261120`. The AUC handles ties by average rank
 (a first version gave a spurious 0.70 on constant scores; fixed before the real run).
 Launch: `tools/gco_health/chain_fresh4.sh` (after the ctrl2 arm logs "CTRL2 ALL DONE"); reads: `tools/gco_health/fresh4_read.py`.
+
+## 9. Coupled fork H-010 (2026-11-21, user-directed)
+`GGL_HEADS_COUPLE=c` (default 0 = detached, the section-8 behaviour exactly) lets the heads' loss reach the critic trunk and shared head with gradient scaled by c (value unchanged). `--gco-fresh4c` sets c=0.1,
+its own folder `checkpoints_gco_fresh4c`, forked from fresh4's checkpoint 1,176,651,776 (fresh4 paused at 1.18B; resume with `--gco-fresh4`, chain `chain_fresh4_resume.sh` re-armed by hand). Runs +500M via `tools/gco_health/chain_fresh4c.sh`, reads in `build/fresh4c_health.log`. Ledger: H-010. Note the boot log line still says "all detached" (stale wording). The paired control is fresh4 continuing 500M.

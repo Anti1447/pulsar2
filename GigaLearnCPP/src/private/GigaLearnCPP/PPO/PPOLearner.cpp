@@ -883,7 +883,13 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 				torch::Tensor headsLoss;
 				if (batch.headLabels.defined() && models["heads_ev"]) {
 					torch::Tensor lab = batch.headLabels.slice(0, start, stop).to(device, true, true);
-					torch::Tensor trunkH = fnValueTrunk().detach().to(torch::kFloat32);
+					torch::Tensor trunkH;
+					{
+						// headsCouple c (GGL_HEADS_COUPLE, default 0 = exactly detached): value c, gradient scaled by c into the critic trunk and shared head.
+						torch::Tensor tv = fnValueTrunk().to(torch::kFloat32);
+						float c = CriticHeadsCouple();
+						trunkH = c > 0.f ? (tv * c + tv.detach() * (1.f - c)) : tv.detach();
+					}
 					torch::Tensor tgtH = targetValues.flatten().to(torch::kFloat32);
 					auto fnEvLoss = [&](const torch::Tensor& logits, const torch::Tensor& labs) {
 						torch::Tensor l = torch::binary_cross_entropy_with_logits(logits.select(1, HEAD_EV_OUT - 1), labs.select(1, HEAD_HORIZONS));
