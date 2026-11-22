@@ -1063,13 +1063,14 @@ static void ConfigureGCOFresh3(LearnerConfig& cfg) {
 static void ConfigureGCOFork(LearnerConfig& cfg, const std::string& arm) {
 	ConfigureGCOFresh(cfg);
 	cfg.metricsRunName = "gco-fork-" + arm;
+	if (arm == "nexchron2" || arm == "kick2") cfg.randomSeed = 456; // replicate arms (H-011 / H-007): same start, same config as nexchron / kick, a different seed (all other arms use 123)
 	if (arm == "opp" || arm == "kickopp") {
 		// Opponent exposure: old versions from the ring, drawn per iteration. The four gauntlet bots are NOT served (serveFrac stays 0) so the gauntlet stays held out.
 		cfg.trainAgainstOldVersions = true;
 		cfg.trainAgainstOldChance = 0.30f;
 		cfg.externalOpponent.serveFrac = 0.f;
 	}
-	if (arm == "nexchron" || arm == "nexchronkick") { // nexchronkick (H-009): the same opponent mix plus the kick reset mix (g_GCOForkKick)
+	if (arm == "nexchron" || arm == "nexchronkick" || arm == "nexchron2") { // nexchronkick (H-009): the same opponent mix plus the kick reset mix (g_GCOForkKick)
 		// Nexto + ChronosV2 together (user-directed 2026-11-21, after the single-bot arms): the same 30% total serve share, split by the uniform pick (15% each).
 		// Galactus and Dice stay in the gauntlet as the held-out bots.
 		int served = 0;
@@ -1337,7 +1338,7 @@ int main(int argc, char* argv[]) {
 			gcoFreshArg = true;
 			gcoFresh3Arg = true;
 		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2"
-			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron" || arg == "--gco-fork-nexchronkick") {
+			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron" || arg == "--gco-fork-nexchronkick" || arg == "--gco-fork-nexchron2" || arg == "--gco-fork-kick2") {
 		} else if (arg == "--gco-fresh4c") {
 			gcoArg = true; gcoFreshArg = true; gcoFresh3Arg = true; gcoFresh4Arg = true; gcoFresh4cArg = true;
 			setenv("GGL_CRITIC_HEADS", "1", 1);
@@ -2172,7 +2173,7 @@ int main(int argc, char* argv[]) {
 			g_GCOFresh = true;
 			g_GCOFresh2 = gcoFresh2Arg;
 			g_GCOFresh3 = gcoFresh3Arg;
-			g_GCOForkKick = (gcoForkArm == "kick" || gcoForkArm == "kickopp" || gcoForkArm == "nexchronkick"); // kickopp = arms 2 and 3 combined (docs/GCO_POSTWALL_FORKS.md section 9)
+			g_GCOForkKick = (gcoForkArm == "kick" || gcoForkArm == "kickopp" || gcoForkArm == "nexchronkick" || gcoForkArm == "kick2"); // kickopp = arms 2 and 3 combined (docs/GCO_POSTWALL_FORKS.md section 9)
 			g_GCOMode = true;
 			if (!gcoForkArm.empty()) ConfigureGCOFork(cfg, gcoForkArm); else if (gcoFresh3Arg) { ConfigureGCOFresh3(cfg); if (gcoFresh4Arg) cfg.metricsRunName = gcoFresh4cArg ? "gco-fresh4c" : "gco-fresh4"; } else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
 		} else {
@@ -2265,7 +2266,7 @@ int main(int argc, char* argv[]) {
 	if (const char* cd = std::getenv("GGL_CONFIG_DUMP"); cd && cd[0] && std::string(cd) != "0") {
 		std::cout << "CONFIG_DUMP {\"folder\":\"" << cfg.checkpointFolder.string() << "\",\"run\":\"" << cfg.metricsRunName << "\",\"serve_frac\":" << cfg.externalOpponent.serveFrac
 			<< ",\"old_versions\":" << (cfg.trainAgainstOldVersions ? 1 : 0) << ",\"old_chance\":" << cfg.trainAgainstOldChance << ",\"kick_mix\":" << (g_GCOForkKick ? 1 : 0)
-			<< ",\"num_games\":" << cfg.numGames << ",\"bots\":[";
+			<< ",\"seed\":" << cfg.randomSeed << ",\"num_games\":" << cfg.numGames << ",\"bots\":[";
 		bool first = true;
 		for (auto& b : cfg.externalOpponent.bots) {
 			std::string n = std::filesystem::path(b.path).parent_path().filename().string();
