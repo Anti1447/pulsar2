@@ -21,10 +21,11 @@ if ! grep -q "Critic heads ENABLED" $L || ! grep -q 'Checkpoint Save/Load Dir: "
   say "ABORT: fresh4 did not resume from its own checkpoint with the heads on (log $L)"; grep -E "Checkpoint Save/Load Dir|Critic heads|Loading checkpoint|ERROR|Exception" $L | cut -c1-160 >> $ST; exit 1
 fi
 say "fresh4 resumed: $(grep -m1 -E 'Loading checkpoint' $L | cut -c1-120)  log $L"
-next=$(( ( $(lastts build/checkpoints_gco_fresh4/metrics.jsonl) / 100000000 + 1 ) * 100000000 ))
+next=
 while true; do
   ts=$(lastts build/checkpoints_gco_fresh4/metrics.jsonl)
-  if [ -n "$ts" ] && [ "$ts" -ge "$next" ]; then
+  [ -z "$next" ] && [ -n "$ts" ] && next=$(( ( ts / 100000000 + 1 ) * 100000000 ))
+  if [ -n "$ts" ] && [ -n "$next" ] && [ "$ts" -ge "$next" ]; then
     { echo "=== fresh4 health at ${ts} ==="; OMP_NUM_THREADS=2 nice -n 19 python3 tools/gco_health/fresh4_read.py; } >> $HL 2>&1
     next=$(( next + 100000000 ))
   fi
