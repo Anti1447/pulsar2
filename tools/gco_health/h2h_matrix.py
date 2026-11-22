@@ -16,6 +16,7 @@ def done():
     except FileNotFoundError: pass
     return s
 env=dict(os.environ, OMP_NUM_THREADS='4', OPENBLAS_NUM_THREADS='4', MKL_NUM_THREADS='4', GGL_H2H_GAMES=os.environ.get('GGL_H2H_GAMES','128'), GGL_H2H_SECS=os.environ.get('GGL_H2H_SECS','900'))
+FAILED=False
 for spec in sys.argv[1:]:
     A,Bs=spec.split(':'); Bs=Bs.split(',')
     todo=[b for b in Bs if (A,b,0 if env.get('GGL_H2H_STOCH')=='1' else 1) not in done()]
@@ -29,4 +30,6 @@ for spec in sys.argv[1:]:
             n=r['for']+r['against']; s=r['for']/n if n else float('nan'); se=1.5*math.sqrt(s*(1-s)/n) if n else float('nan')
             rec=dict(A=A,B=b,a_ts=r['a_ts'],b_dir=r['b'],goals_for=r['for'],goals_against=r['against'],share=s,se_eff=se,elo=400*math.log10(s/(1-s)) if 0<s<1 else None,det=r['det'],arenas=r['arenas'],secs=r['secs'])
             open(OUT,'a').write(json.dumps(rec)+'\n'); print(json.dumps(rec),flush=True)
-    if p.returncode!=0: print('h2h_eval exit',p.returncode,p.stderr[-300:],flush=True)
+    if p.returncode!=0: print('h2h_eval exit',p.returncode,p.stderr[-300:],flush=True); FAILED=True
+import sys
+sys.exit(1 if FAILED else 0)
