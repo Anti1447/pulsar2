@@ -64,13 +64,25 @@ namespace parity {
 		  s.ctl = [](int t, int) { Ctl c; c.jump = (t < 3) || (t >= 15 && t < 16); return c; }; add(s); }
 		for (int p = -1; p <= 1; p++) for (int r = -1; r <= 1; r++) {
 			if (!p && !r) continue;
-			Scenario s; s.name = "dodge_p" + std::to_string(p) + "_r" + std::to_string(r); s.cars = { baseCar(0, -3500, HALF_PI, 0) }; s.cars[0].boost = 0; s.ball.pos = FarBall(); s.ticks = 300;
+			Scenario s; s.name = "dodge_p" + std::to_string(p) + "_r" + std::to_string(r); s.cars = { baseCar(0, -800, HALF_PI, 0) }; s.cars[0].boost = 0; s.ball.pos = FarBall(); s.ticks = 300;
 			s.ctl = [p, r](int t, int) { Ctl c; c.jump = (t < 3) || (t >= 15 && t < 16); if (t >= 15 && t < 16) { c.pitch = (float)p; c.roll = (float)r; } return c; }; add(s);
 		}
 		{ Scenario s; s.name = "air_pitch_up"; CarInit c; c.pos = { 0, 0, 400 }; c.boost = 0; c.onGround = false; c.hasJumped = true; s.cars = { c }; s.ball.pos = FarBall(); s.ticks = 60;
 		  s.ctl = [](int, int) { Ctl k; k.pitch = 1; return k; }; add(s); }
 		{ Scenario s; s.name = "air_roll_yaw_boost"; CarInit c; c.pos = { 0, -2000, 600 }; c.vel = { 0, 800, 200 }; Face(c, HALF_PI, 0.3f); c.boost = 100; c.onGround = false; c.hasJumped = true; s.cars = { c }; s.ball.pos = FarBall(); s.ticks = 120;
 		  s.ctl = [](int t, int) { Ctl k; k.boost = true; k.roll = 1; k.yaw = (t > 40) ? -1.f : 0.f; k.pitch = (t > 80) ? 1.f : 0.f; return k; }; add(s); }
+
+		// ---- car vs walls, ceiling and corner (arena geometry: analytic SDF on the GPU vs collision meshes on the CPU)
+		for (float sp : { 900.f, 1500.f }) {
+			Scenario s; s.name = "car_side_wall_" + std::to_string((int)sp); CarInit c = baseCar(2500, 0, 0.f, sp); c.boost = 100; s.cars = { c }; s.ball.pos = { -3000, 3000, 93.15f }; s.ticks = 360;
+			s.ctl = [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; }; add(s);
+		}
+		{ Scenario s; s.name = "car_back_wall_ramp"; CarInit c = baseCar(0, -3000, -HALF_PI, 1200); c.boost = 100; s.cars = { c }; s.ball.pos = FarBall(); s.ticks = 300;
+		  s.ctl = [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; }; add(s); }
+		{ Scenario s; s.name = "car_corner_ramp"; CarInit c = baseCar(2500, 3000, 0.7854f, 1400); c.boost = 100; s.cars = { c }; s.ball.pos = { -3000, -3000, 93.15f }; s.ticks = 360;
+		  s.ctl = [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; }; add(s); }
+		{ Scenario s; s.name = "car_ceiling_hit"; CarInit c; c.pos = { 0, 0, 1300 }; c.vel = { 0, 200, 1400 }; Face(c, HALF_PI, 1.2f); c.boost = 100; c.onGround = false; c.hasJumped = true; s.cars = { c }; s.ball.pos = FarBall(); s.ticks = 240;
+		  s.ctl = [](int, int) { Ctl k; k.boost = true; return k; }; add(s); }
 
 		// ---- ball only
 		auto ballOnly = [&](const char* name, Vec3f p, Vec3f v, Vec3f w, int ticks) { Scenario s; s.name = name; CarInit c; c.pos = { -2500, -4500, 17 }; s.cars = { c }; s.ball.pos = p; s.ball.vel = v; s.ball.angVel = w; s.ticks = ticks; add(s); };
