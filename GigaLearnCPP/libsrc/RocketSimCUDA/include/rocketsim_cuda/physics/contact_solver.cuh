@@ -265,7 +265,7 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
 
     // Bilateral impulse exchange (restitution e = 0.0f, friction mu = 2.0f)
     Vec3 J_total(0.0f, 0.0f, 0.0f);
-    if (vn < 0.0f) {
+    if (vn < 0.0f && !acc) { // P1-5: with `acc` (deferred mode) the contact impulse is solved afterwards by solve_car_ball_contact_pass
         // Car rotational term for normal direction
         Vec3 u_c_n = r_c.cross(normal_world);
         Vec3 u_c_n_local = car_basis.transpose() * u_c_n;
@@ -394,6 +394,50 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     car_state.ang_vel_y[car_idx] = car_omega.y;
     car_state.ang_vel_z[car_idx] = car_omega.z;
 
+    return true;
+}
+
+// Pulsar patch P1-5: one Gauss-Seidel pass of the contact (normal + friction) impulse between a car and the ball, on the CURRENT ball velocity
+// (ball_vel / ball_omega are carried by the caller across cars and passes). Same math as the single-car path (restitution 0, mu 2). Bullet
+// iterates its contact solver the same way, so several passes over all cars converge to an order-independent answer.
+__device__ __forceinline__ bool solve_car_ball_contact_pass(
+    uint32_t car_idx, CarStateSoA& car_state, const Vec3& ball_pos, Vec3& ball_vel, Vec3& ball_omega,
+    const MutatorConfig& mut_cfg, const CarConfig& car_cfg)
+{
+    Vec3 car_pos(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
+    Vec3 car_vel(car_state.vel_x[car_idx], car_state.vel_y[car_idx], car_state.vel_z[car_idx]);
+    Vec3 car_omega(car_state.ang_vel_x[car_idx], car_state.ang_vel_y[car_idx], car_state.ang_vel_z[car_idx]);
+    Mat3 car_basis = Mat3::from_quat(Quat(car_state.q_w[car_idx], car_state.q_x[car_idx], car_state.q_y[car_idx], car_state.q_z[car_idx]));
+    Vec3 normal_world, contact_pt_world; float penetration = 0.0f;
+    const float ball_radius = mut_cfg.ball_radius;
+    if (!test_car_ball_collision(car_pos, car_basis, car_cfg.hitbox_pos_offset, car_cfg.get_hitbox_half(), ball_pos, ball_radius, normal_world, contact_pt_world, penetration)) return false;
+    Vec3 r_c = contact_pt_world - car_pos, r_b = normal_world * (-ball_radius);
+    Vec3 v_rel_pt = (ball_vel + ball_omega.cross(r_b)) - (car_vel + car_omega.cross(r_c));
+    float vn = v_rel_pt.dot(normal_world);
+    if (vn >= 0.0f) return true; // already separating
+    const float inv_m_c = 1.0f / mut_cfg.car_mass, inv_m_b = 1.0f / mut_cfg.ball_mass;
+    Vec3 inv_I_c = car_cfg.calculate_inv_inertia(mut_cfg.car_mass);
+    const float inv_I_b = 1.0f / (0.4f * mut_cfg.ball_mass * ball_radius * ball_radius);
+    Vec3 u = car_basis.transpose() * r_c.cross(normal_world);
+    float Kn = inv_m_c + inv_m_b + u.dot(Vec3(u.x * inv_I_c.x, u.y * inv_I_c.y, u.z * inv_I_c.z)) + r_b.cross(normal_world).length_sq() * inv_I_b;
+    float Jn = (Kn > 1e-8f) ? (-vn / Kn) : 0.0f;
+    Vec3 J = normal_world * Jn;
+    Vec3 v_t = v_rel_pt - normal_world * vn; float vt = v_t.length();
+    if (vt > 1e-5f) {
+        Vec3 t = v_t * (1.0f / vt);
+        Vec3 ut = car_basis.transpose() * r_c.cross(t);
+        float Kt = inv_m_c + inv_m_b + ut.dot(Vec3(ut.x * inv_I_c.x, ut.y * inv_I_c.y, ut.z * inv_I_c.z)) + r_b.cross(t).length_sq() * inv_I_b;
+        float Jt = fminf((Kt > 1e-8f) ? (vt / Kt) : 0.0f, 2.0f * Jn);
+        J = J + t * (-Jt);
+    }
+    ball_vel = ball_vel + J * inv_m_b; ball_omega = ball_omega + r_b.cross(J) * inv_I_b;
+    car_vel = car_vel - J * inv_m_c;
+    Vec3 tau_local = car_basis.transpose() * r_c.cross(J * (-1.0f));
+    car_omega = car_omega + car_basis * Vec3(tau_local.x * inv_I_c.x, tau_local.y * inv_I_c.y, tau_local.z * inv_I_c.z);
+    float cs = car_vel.length(); if (cs > CAR_MAX_SPEED) car_vel = car_vel * (CAR_MAX_SPEED / cs);
+    float cw = car_omega.length(); if (cw > CAR_MAX_ANG_SPEED) car_omega = car_omega * (CAR_MAX_ANG_SPEED / cw);
+    car_state.vel_x[car_idx] = car_vel.x; car_state.vel_y[car_idx] = car_vel.y; car_state.vel_z[car_idx] = car_vel.z;
+    car_state.ang_vel_x[car_idx] = car_omega.x; car_state.ang_vel_y[car_idx] = car_omega.y; car_state.ang_vel_z[car_idx] = car_omega.z;
     return true;
 }
 

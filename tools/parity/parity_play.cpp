@@ -169,7 +169,7 @@ struct GpuEngine : Engine {
 #endif
 
 // ---------------------------------------------------------------- main
-struct Ep { int firstMask = 0; int steps = 0, goal = -1, firstTouchTeam = -1, kickoff = 0, touchB = 0, touchO = 0, aerial = 0; double speedSum = 0, boostSpent = 0, carSteps = 0; int sinceTouch = 0; };
+struct Ep { int firstMask = 0, firstTouchStep = -1; int steps = 0, goal = -1, firstTouchTeam = -1, kickoff = 0, touchB = 0, touchO = 0, aerial = 0; double speedSum = 0, boostSpent = 0, carSteps = 0; int sinceTouch = 0; };
 
 int main(int argc, char** argv) {
 	std::map<std::string, std::string> args;
@@ -222,6 +222,7 @@ int main(int argc, char** argv) {
 #endif
 	torch::Device dev(torch::kCUDA, 0);
 	GGL::GGLBotOpponent botB(GGL::GGLBotKind::PULSAR2, args["--blue"], dev), botO(GGL::GGLBotKind::PULSAR2, args["--orange"], dev);
+	if (args.count("--temp")) { botB.temperature = botO.temperature = std::stof(args["--temp"]); } // 0 / absent: argmax (the pre-registered setting); 1: sampled like training
 	DefaultAction parser;
 	std::unique_ptr<Engine> eng;
 	if (arm == "cpu") eng.reset(new CpuEngine(blue, orange, K));
@@ -233,7 +234,7 @@ int main(int argc, char** argv) {
 	const int P = blue + orange;
 	std::vector<GameState> gs(K); std::vector<std::vector<Action>> act(K, std::vector<Action>(P)); std::vector<Ep> cur(K); std::vector<int> epIdx(K, -1);
 	std::vector<std::vector<float>> prevBoost(K, std::vector<float>(P, 0)); std::vector<Ep> done; done.reserve(episodes);
-	int nextEp = 0;
+	int nextEp = 0; int dbgCount = 0;
 	std::vector<bool> maskB(K * P), maskO(K * P); std::vector<uint8_t> prevTerm(K, 0); std::vector<int> outB(K * P, 0), outO(K * P, 0);
 	std::vector<int> needRefresh;
 	auto load = [&](int a) {
@@ -276,7 +277,12 @@ int main(int argc, char** argv) {
 				e.speedSum += p.vel.Length(); e.carSteps++; e.boostSpent += std::max(prevBoost[a][i] - p.boost, 0.f); prevBoost[a][i] = p.boost;
 				if (p.ballTouchedStep) { anyTouch = true; stepMask |= (p.team == Team::BLUE ? 1 : 2); if (firstTeam < 0) firstTeam = p.team == Team::BLUE ? 0 : 1; (p.team == Team::BLUE ? e.touchB : e.touchO)++; if (gs[a].ball.pos.z > 300 && !p.isOnGround) e.aerial++; }
 			}
-			if (anyTouch) { e.sinceTouch = 0; if (e.firstTouchTeam < 0) { e.firstTouchTeam = firstTeam; e.firstMask = stepMask; } } else e.sinceTouch++;
+			if (anyTouch && e.firstMask == 0 && cur[a].kickoff && getenv("PARITY_DEBUG_TOUCH") && dbgCount < 6) {
+				dbgCount++; std::cerr << "\n[dbg] arena " << a << " ep " << epIdx[a] << " step " << e.steps << " ball (" << gs[a].ball.pos.x << "," << gs[a].ball.pos.y << "," << gs[a].ball.pos.z << ")";
+				for (int i = 0; i < P; i++) { const Player& p = gs[a].players[i]; std::cerr << " | p" << i << " touched=" << p.ballTouchedStep << " hitValid=" << p.ballHitInfo.isValid << " hitTick=" << (long long)p.ballHitInfo.tickCountWhenHit << " pos(" << p.pos.x << "," << p.pos.y << "," << p.pos.z << ") v=" << p.vel.Length(); }
+				std::cerr << "\n";
+			}
+			if (anyTouch) { e.sinceTouch = 0; if (e.firstTouchTeam < 0) { e.firstTouchTeam = firstTeam; e.firstMask = stepMask; e.firstTouchStep = e.steps; } } else e.sinceTouch++;
 			bool goal = eng->Goal(a); int team = -1;
 			if (goal) team = gs[a].ball.pos.y > 0 ? 0 : 1; // blue scores at +y
 			if (goal || e.sinceTouch >= NO_TOUCH_STEPS || e.steps >= MAX_STEPS) { e.goal = goal ? team : -1; done.push_back(e); load(a); }
@@ -285,8 +291,8 @@ int main(int argc, char** argv) {
 		if (totalSteps % 20000 < K) std::cerr << "\r" << done.size() << "/" << episodes << " episodes, " << totalSteps << " steps, " << (int)(totalSteps / std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count()) << " steps/s   " << std::flush;
 	}
 	std::ofstream out(args["--out"]);
-	out << "arm,mode,steps,goal,firstTouchTeam,firstMask,kickoff,touchB,touchO,aerial,speedSum,boostSpent,carSteps\n";
-	for (const Ep& e : done) out << arm << "," << mode << "," << e.steps << "," << e.goal << "," << e.firstTouchTeam << "," << e.firstMask << "," << e.kickoff << "," << e.touchB << "," << e.touchO << "," << e.aerial << "," << e.speedSum << "," << e.boostSpent << "," << e.carSteps << "\n";
+	out << "arm,mode,steps,goal,firstTouchTeam,firstMask,firstTouchStep,kickoff,touchB,touchO,aerial,speedSum,boostSpent,carSteps\n";
+	for (const Ep& e : done) out << arm << "," << mode << "," << e.steps << "," << e.goal << "," << e.firstTouchTeam << "," << e.firstMask << "," << e.firstTouchStep << "," << e.kickoff << "," << e.touchB << "," << e.touchO << "," << e.aerial << "," << e.speedSum << "," << e.boostSpent << "," << e.carSteps << "\n";
 	std::cerr << "\ndone " << done.size() << " episodes, " << totalSteps << " steps\n";
 	return 0;
 }

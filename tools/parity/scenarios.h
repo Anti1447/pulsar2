@@ -80,6 +80,15 @@ namespace parity {
 		  s.cars = { b, o }; s.ball.pos = { 0, 0, 93.15f }; s.ticks = 420;
 		  s.ctl = [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; }; add(s); }
 
+		{ Scenario s; s.name = "kickoff_race_mixed"; CarInit b = baseCar(-2048, -2560, 0.8961f, 0); b.team = 0; CarInit o = baseCar(0, 4608, -HALF_PI, 0); o.team = 1;
+		  s.cars = { b, o }; s.ball.pos = { 0, 0, 93.15f }; s.ticks = 420;
+		  s.ctl = [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; }; add(s); }
+		// ---- a ball squeezed between two cars at different speeds (blue 1500 uu/s, orange 500 uu/s, arriving together): no summing of the two pushes
+		{ Scenario s; s.name = "squeeze_unequal"; CarInit b = baseCar(0, -1700, HALF_PI, 1500); b.team = 0; b.boost = 0; CarInit o = baseCar(0, 600, -HALF_PI, 500); o.team = 1; o.boost = 0;
+		  s.cars = { b, o }; s.ball.pos = { 0, 0, 93.15f }; s.ticks = 240; add(s); }
+		{ Scenario s; s.name = "squeeze_equal"; CarInit b = baseCar(0, -1000, HALF_PI, 1000); b.team = 0; b.boost = 0; CarInit o = baseCar(0, 1000, -HALF_PI, 1000); o.team = 1; o.boost = 0;
+		  s.cars = { b, o }; s.ball.pos = { 0, 0, 93.15f }; s.ticks = 240; add(s); }
+
 		// ---- car vs walls, ceiling and corner (arena geometry: analytic SDF on the GPU vs collision meshes on the CPU)
 		for (float sp : { 900.f, 1500.f }) {
 			Scenario s; s.name = "car_side_wall_" + std::to_string((int)sp); CarInit c = baseCar(2500, 0, 0.f, sp); c.boost = 100; s.cars = { c }; s.ball.pos = { -3000, 3000, 93.15f }; s.ticks = 360;
