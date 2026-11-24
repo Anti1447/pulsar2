@@ -337,7 +337,8 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 			else
 				externalOpps.push_back(std::make_shared<GGLBotOpponent>(
 					spec.kind == ExternalBotKind::GALACTUS_V2 ? GGLBotKind::GALACTUS_V2
-					: spec.kind == ExternalBotKind::DICE ? GGLBotKind::DICE : GGLBotKind::CHRONOS_V2, spec.path, device));
+					: spec.kind == ExternalBotKind::DICE ? GGLBotKind::DICE
+					: spec.kind == ExternalBotKind::PULSAR2 ? GGLBotKind::PULSAR2 : GGLBotKind::CHRONOS_V2, spec.path, device));
 		}
 		if (config.externalOpponent.botTickSkip > 0 && config.externalOpponent.botTickSkip != config.tickSkip) {
 			for (auto& opp : externalOpps)

@@ -136,6 +136,15 @@ GGL::GGLBotOpponent::GGLBotOpponent(GGLBotKind kind, const std::filesystem::path
 		sharedHeadCfg.layerSizes = { 1024, 1024 };
 		policyCfg.layerSizes = { 1024, 1024, 1024, 1024 };
 		sharedHeadCfg.activationType = policyCfg.activationType = ModelActivationType::LEAKY_RELU;
+	} else if (kind == GGLBotKind::PULSAR2) {
+		// Our packaged 6.x bots: shared head {1152,1152}, policy {1024 x4}, LayerNorm + GELU + residual blocks, our own obs and masks (see Act).
+		name = "Pulsar2";
+		obsSize = 278;
+		sharedHeadCfg.layerSizes = { 1152, 1152 };
+		policyCfg.layerSizes = { 1024, 1024, 1024, 1024 };
+		sharedHeadCfg.activationType = policyCfg.activationType = ModelActivationType::GELU;
+		sharedHeadCfg.addResiduals = policyCfg.addResiduals = true;
+		pulsarActions = std::make_unique<DefaultAction>();
 	} else if (kind == GGLBotKind::DICE) {
 		name = "Dice";
 		obsSize = 167; // ball 9 + prevAction 8 + 34 pads + self 29 + 1 teammate + 2 opponents (29 each)
@@ -394,6 +403,10 @@ void GGL::GGLBotOpponent::Act(const std::vector<GameState>& states,
 	if (numRows == 0)
 		return;
 
+	if (kind == GGLBotKind::PULSAR2 && (int)pulsarObs.size() < numArenas) {
+		for (int a = (int)pulsarObs.size(); a < numArenas; a++)
+			pulsarObs.push_back(std::make_unique<AdvancedObsPadded>(3 /*max players per team, as the trainer*/, /*shuffleSlots=*/false, /*ballPredSlices=*/8));
+	}
 	if (kind == GGLBotKind::GALACTUS_V2 && (int)predictors.size() < numArenas) {
 		predictors.resize(numArenas);
 		predictorArenas.resize(numArenas, nullptr);
@@ -426,6 +439,16 @@ void GGL::GGLBotOpponent::Act(const std::vector<GameState>& states,
 				continue;
 			const Player& player = gs.players[i];
 			float* obs = obsBuf.data() + (size_t)row * obsSize;
+			if (kind == GGLBotKind::PULSAR2) {
+				FList o = pulsarObs[a]->BuildObs(player, gs);
+				if ((int)o.size() != obsSize)
+					RG_ERR_CLOSE("GGLBotOpponent(Pulsar2): obs is " << o.size() << " floats, the net expects " << obsSize);
+				std::copy(o.begin(), o.end(), obs);
+				std::vector<uint8_t> m = pulsarActions->GetActionMask(player, gs);
+				std::copy(m.begin(), m.end(), maskBuf.data() + (size_t)row * numActions);
+				row++;
+				continue;
+			}
 			if (kind == GGLBotKind::GALACTUS_V2) {
 				BuildGalactusObs(obs, player, gs, *pred);
 			} else if (kind == GGLBotKind::DICE) {

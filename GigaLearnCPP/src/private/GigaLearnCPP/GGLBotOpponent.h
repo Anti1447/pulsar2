@@ -4,6 +4,8 @@
 
 #include <RLGymCPP/BasicTypes/Action.h>
 #include <RLGymCPP/Gamestates/BallPredictor.h>
+#include <RLGymCPP/ObsBuilders/AdvancedObsPadded.h>
+#include <RLGymCPP/ActionParsers/DefaultAction.h>
 
 namespace GGL {
 
@@ -11,6 +13,7 @@ namespace GGL {
 		GALACTUS_V2,  // SoldierDoge/GalactusV2, checkpoint 201.35B
 		CHRONOS_V2,   // KingJake3113/Chronos
 		DICE,         // V1XT1/Dice-BotPackV5: stock AdvancedObsPadded(2), 167 floats; 1v1 and 2v2 only
+		PULSAR2,      // OUR OWN packaged bot (rlbot-run/releases/vX/checkpoint), 6.x architecture: AdvancedObsPadded(3) + 8 ball-pred slices = 278 floats, our DefaultAction and masks, residual GELU nets
 	};
 
 	// EXTERNAL TRAINING OPPONENTS from the RLBot v5 botpack (2026-11-01, user-directed: stronger
@@ -51,6 +54,10 @@ namespace GGL {
 		std::vector<int> actionMap;   // Their row -> our DefaultAction index
 		std::vector<int> mirrorMap;   // Their row -> their row with steer/yaw/roll negated
 		int mirrorPadIndex[RLGC::CommonValues::BOOST_LOCATIONS_AMOUNT] = {}; // Chronos: x-mirrored pad
+
+		// PULSAR2: one obs builder per arena (each owns a ball predictor tied to that arena, and arenas are built in parallel) and our own action parser for the masks
+		std::vector<std::unique_ptr<RLGC::AdvancedObsPadded>> pulsarObs;
+		std::unique_ptr<RLGC::DefaultAction> pulsarActions;
 
 		// GalactusV2: one ball predictor per arena index (made on first serve)
 		std::vector<std::unique_ptr<RLGC::BallPredictor>> predictors;

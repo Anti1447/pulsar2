@@ -1121,6 +1121,19 @@ static void ConfigurePulsar3(LearnerConfig& cfg) {
 	// 2026-11-23: latency 4 (their action lands 3 ticks = 25 ms earlier than trained), only on served iterations.
 	cfg.externalOpponent.botTickSkip = 8;
 	cfg.externalOpponent.botActionDelay = 4;
+	// Opponent swap (user-directed 2026-11-23): Dice stays loaded for the gauntlet but no longer serves training iterations; our own best packaged bot, Pulsar2 v1.0.28
+	// (best gauntlet win, 51%; checkpoint bestgauntlet_w510_44566197613, 6.x architecture trained at 8 ticks / latency 7), serves in its place. The 0.20 serve share is split
+	// among the serving bots by a uniform pick, so Nexto, GalactusV2, ChronosV2 and Pulsar2 get 5% each. It also joins the gauntlet (every loaded bot does).
+	for (auto& b : cfg.externalOpponent.bots)
+		if (b.kind == ExternalBotKind::DICE)
+			b.trainServe = false;
+	{
+		const char* pulsar2Folder = "../rlbot-run/releases/v1.0.28/checkpoint";
+		if (std::filesystem::exists(std::filesystem::path(pulsar2Folder) / "POLICY.lt"))
+			cfg.externalOpponent.bots.push_back({ ExternalBotKind::PULSAR2, pulsar2Folder, true });
+		else
+			RG_LOG("WARNING: Pulsar2 v1.0.28 checkpoint not found at " << pulsar2Folder << ", Pulsar3 trains without it");
+	}
 	cfg.checkpointFolder = "checkpoints_pulsar3";
 	cfg.metricsRunName = "pulsar3";
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
@@ -2415,7 +2428,7 @@ int main(int argc, char* argv[]) {
 		bool first = true;
 		for (auto& b : cfg.externalOpponent.bots) {
 			std::string n = std::filesystem::path(b.path).parent_path().filename().string();
-			if (b.kind == ExternalBotKind::NEXTO) n = "nexto"; else if (b.kind == ExternalBotKind::GALACTUS_V2) n = "galactus"; else if (b.kind == ExternalBotKind::CHRONOS_V2) n = "chronos"; else if (b.kind == ExternalBotKind::DICE) n = "dice";
+			if (b.kind == ExternalBotKind::NEXTO) n = "nexto"; else if (b.kind == ExternalBotKind::GALACTUS_V2) n = "galactus"; else if (b.kind == ExternalBotKind::CHRONOS_V2) n = "chronos"; else if (b.kind == ExternalBotKind::DICE) n = "dice"; else if (b.kind == ExternalBotKind::PULSAR2) n = "pulsar2";
 			std::cout << (first ? "" : ",") << "{\"name\":\"" << n << "\",\"serve\":" << (b.trainServe ? 1 : 0) << "}"; first = false;
 		}
 		std::cout << "]}" << std::endl;

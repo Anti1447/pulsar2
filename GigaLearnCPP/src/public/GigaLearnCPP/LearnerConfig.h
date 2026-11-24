@@ -59,6 +59,7 @@ namespace GGL {
 		GALACTUS_V2,  // path = folder with SHARED_HEAD.lt + POLICY.lt
 		CHRONOS_V2,   // path = folder with SHARED_HEAD.lt + POLICY.lt
 		DICE,         // path = folder with SHARED_HEAD.lt + POLICY.lt (V1XT1/Dice-BotPackV5; 1v1 and 2v2 arenas only)
+		PULSAR2,      // path = a packaged Pulsar2 release's checkpoint folder (SHARED_HEAD.lt + POLICY.lt), 6.x architecture and obs (278)
 	};
 	struct ExternalBotSpec {
 		ExternalBotKind kind;
