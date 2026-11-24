@@ -1,0 +1,15 @@
+# GPU port test suite (docs/GPU_ENV_PLAN.md, "Unit and parity test suite"). One executable per layer; ctest labels:
+#   unit = no oracle, parity = GPU vs CPU oracle, gpu = needs a CUDA device, slow = gate / nightly runs.
+set(GPU_TESTS_COMMON ${CMAKE_CURRENT_SOURCE_DIR}/gpu_test_main.cpp)
+function(pulsar_gpu_test name)
+    add_executable(${name} ${name}.cu ${GPU_TESTS_COMMON})
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/.. )
+    target_link_libraries(${name} PRIVATE rocketsim_cuda_core)
+    set_target_properties(${name} PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES LABELS "${ARGN}")
+endfunction()
+
+pulsar_gpu_test(test_l6_team_layout unit;gpu)
+pulsar_gpu_test(test_l6_reset_isolation unit;gpu)
+pulsar_gpu_test(test_l1_bump_demo_events unit;gpu)

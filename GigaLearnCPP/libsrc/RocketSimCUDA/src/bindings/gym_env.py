@@ -1,0 +1,605 @@
+"""
+Vectorized RL Environment (RocketSimBatchedEnv) for RocketSim-CUDA.
+Exposes massive parallel RL rollouts (4,096 to 65,536 environments) in GPU VRAM
+with zero-copy PyTorch / DLPack tensors and zero host-device transfers.
+"""
+
+from typing import Optional, Tuple, Union, Dict, Any
+import os
+import sys
+
+# Ensure build directory is in sys.path to find compiled rocketsim_cuda extension
+_build_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "build"))
+if _build_dir not in sys.path:
+    sys.path.insert(0, _build_dir)
+
+import rocketsim_cuda
+
+# Try importing torch and configure CUDA shims if torch was compiled without CUDA
+try:
+    import torch
+    _TORCH_AVAILABLE = True
+except ImportError:
+    torch = None
+    _TORCH_AVAILABLE = False
+
+if _TORCH_AVAILABLE and hasattr(torch, "cuda"):
+    if not torch.cuda.is_available():
+        # Transparent fallback to native CUDA hardware functions when PyTorch lacks CUDA binary
+        def _get_allocated(device=None):
+            free_b, total_b = rocketsim_cuda.get_vram_info()
+            return total_b - free_b
+
+        torch.cuda.memory_allocated = _get_allocated
+        torch.cuda.Event = rocketsim_cuda.GpuEvent
+
+
+class _DataPtr(int):
+    def __call__(self):
+        return int(self)
+
+
+if hasattr(rocketsim_cuda, "GpuTensorView"):
+    try:
+        rocketsim_cuda.GpuTensorView.data_ptr = property(lambda self: _DataPtr(self.get_data_ptr()))
+    except Exception:
+        pass
+
+
+class RocketSimBatchedEnv:
+    """
+    Massive vectorized reinforcement learning environment running entirely on GPU.
+
+    Invariants:
+    - Zero host-device transfers during step() and reset() (0 cudaMemcpy HostToDevice / DeviceToHost).
+    - Actions ingested directly from GPU VRAM pointers into simulation kernel.
+    - Zero dynamic allocations inside simulation loop.
+    - Observations, rewards, terminations returned as zero-copy GPU tensors.
+    """
+
+    def __init__(
+        self,
+        num_envs: int,
+        cars_per_env: int = 1,
+        team_size: int = 1,
+        tick_skip: int = 1,
+        use_torch: bool = True,
+    ):
+        """
+        Initialize RocketSimBatchedEnv.
+
+        Args:
+            num_envs: Concurrency scale (4,096 to 65,536 parallel arenas).
+            cars_per_env: Number of cars per environment (e.g. 1 for 1v0, 2 for 1v1).
+            team_size: Team size per match.
+            tick_skip: Number of 120Hz physical sub-steps per environment step.
+            use_torch: If True and PyTorch CUDA is available, wrap views in torch.Tensor via DLPack.
+        """
+        self.num_envs = int(num_envs)
+        self.cars_per_env = int(cars_per_env)
+        self.team_size = int(team_size)
+        self.tick_skip = int(tick_skip)
+        self.total_cars = self.num_envs * self.cars_per_env
+        self.use_torch = bool(use_torch)
+
+        # Allocate monolithic GPU memory arena in VRAM
+        self.sim = rocketsim_cuda.SimContext(
+            num_envs=self.num_envs,
+            cars_per_env=self.cars_per_env
+        )
+
+        # Cached zero-copy device tensor views
+        self._car_obs_view = self.sim.get_car_observations()
+        self._ball_obs_view = self.sim.get_ball_observations()
+        self._rewards_view = self.sim.get_rewards()
+        self._terminated_view = self.sim.get_terminated()
+        self._truncated_view = self.sim.get_truncated()
+        self._is_goal_view = self.sim.get_is_goal()
+        self._scoring_team_view = self.sim.get_scoring_team()
+        self._is_oob_view = self.sim.get_is_out_of_bounds()
+        self._tick_count_view = self.sim.get_tick_count()
+        self._pad_active_view = self.sim.get_pad_is_active()
+        self._pad_cd_view = self.sim.get_pad_cooldown()
+        self._ball_hit_is_valid_view = self.sim.get_ball_hit_is_valid()
+        self._is_supersonic_view = getattr(self.sim, "get_is_supersonic", lambda: None)()
+        self._is_demoed_view = getattr(self.sim, "get_is_demoed", lambda: None)()
+        self._demo_respawn_timer_view = getattr(self.sim, "get_demo_respawn_timer", lambda: None)()
+        self._ball_touched_view = getattr(self.sim, "get_ball_touched", lambda: None)()
+        self._has_flipped_view = getattr(self.sim, "get_has_flipped", getattr(self.sim, "get_has_flip", lambda: None))()
+        self._boost_view = getattr(self.sim, "get_boost", lambda: None)()
+        self._on_ground_view = getattr(self.sim, "get_is_on_ground", getattr(self.sim, "get_on_ground", lambda: None))()
+
+        # Determine if PyTorch CUDA DLPack is natively available
+        self._has_cuda_torch = (
+            self.use_torch
+            and _TORCH_AVAILABLE
+            and hasattr(torch, "cuda")
+            and torch.cuda.is_available()
+        )
+
+    def _wrap(self, view: Any) -> Any:
+        """Wrap GpuTensorView as PyTorch CUDA tensor via DLPack if PyTorch CUDA is active, else return view."""
+        if self._has_cuda_torch:
+            try:
+                return torch.from_dlpack(view)
+            except Exception:
+                return view
+        return view
+
+    def get_car_observations(self) -> Any:
+        """Zero-copy view of car state: shape [num_envs, cars_per_env, 14] in GPU VRAM."""
+        return self._wrap(self._car_obs_view)
+
+    def get_ball_observations(self) -> Any:
+        """Zero-copy view of ball state: shape [num_envs, 13] in GPU VRAM."""
+        return self._wrap(self._ball_obs_view)
+
+    def get_rewards(self) -> Any:
+        """Zero-copy view of rewards: shape [num_envs, cars_per_env] in GPU VRAM."""
+        return self._wrap(self._rewards_view)
+
+    def get_terminated(self) -> Any:
+        """Zero-copy view of termination flags: shape [num_envs] in GPU VRAM."""
+        return self._wrap(self._terminated_view)
+
+    def get_truncated(self) -> Any:
+        """Zero-copy view of truncation flags: shape [num_envs] in GPU VRAM."""
+        return self._wrap(self._truncated_view)
+
+    def get_is_goal(self) -> Any:
+        """Zero-copy view of goal flags: shape [num_envs] in GPU VRAM."""
+        return self._wrap(self._is_goal_view)
+
+    def get_scoring_team(self) -> Any:
+        """Zero-copy view of scoring teams: shape [num_envs] in GPU VRAM."""
+        return self._wrap(self._scoring_team_view)
+
+    def get_is_out_of_bounds(self) -> Any:
+        """Zero-copy view of out-of-bounds flags: shape [num_envs] in GPU VRAM."""
+        return self._wrap(self._is_oob_view)
+
+    def get_tick_count(self) -> Any:
+        """Zero-copy view of episode tick counts: shape [num_envs] in GPU VRAM."""
+        return self._wrap(self._tick_count_view)
+
+    def get_pad_is_active(self) -> Any:
+        """Zero-copy view of boost pad active flags: shape [num_envs, 34] in GPU VRAM."""
+        return self._wrap(self._pad_active_view)
+
+    def get_pad_cooldown(self) -> Any:
+        """Zero-copy view of boost pad cooldown timers: shape [num_envs, 34] in GPU VRAM."""
+        return self._wrap(self._pad_cd_view)
+
+    def get_ball_hit_is_valid(self) -> Any:
+        """Zero-copy view of ball hit flags: shape [num_envs, cars_per_env] in GPU VRAM."""
+        return self._wrap(self._ball_hit_is_valid_view)
+
+    def get_ball_touched(self) -> Any:
+        """Zero-copy view of ball touched flags: shape [num_envs, cars_per_env] in GPU VRAM."""
+        if self._ball_touched_view is None and hasattr(self.sim, "get_ball_touched"):
+            self._ball_touched_view = self.sim.get_ball_touched()
+        return self._wrap(self._ball_touched_view)
+
+    def get_is_supersonic(self) -> Any:
+        """Zero-copy view of supersonic flags: shape [num_envs, cars_per_env] in GPU VRAM."""
+        if self._is_supersonic_view is None and hasattr(self.sim, "get_is_supersonic"):
+            self._is_supersonic_view = self.sim.get_is_supersonic()
+        return self._wrap(self._is_supersonic_view)
+
+    def get_is_demoed(self) -> Any:
+        """Zero-copy view of demoed flags: shape [num_envs, cars_per_env] in GPU VRAM."""
+        if self._is_demoed_view is None and hasattr(self.sim, "get_is_demoed"):
+            self._is_demoed_view = self.sim.get_is_demoed()
+        return self._wrap(self._is_demoed_view)
+
+    def get_demo_respawn_timer(self) -> Any:
+        """Zero-copy view of demo respawn timers: shape [num_envs, cars_per_env] in GPU VRAM."""
+        if self._demo_respawn_timer_view is None and hasattr(self.sim, "get_demo_respawn_timer"):
+            self._demo_respawn_timer_view = self.sim.get_demo_respawn_timer()
+        return self._wrap(self._demo_respawn_timer_view)
+
+    def get_has_flipped(self) -> Any:
+        """Zero-copy view of has flipped flags: shape [num_envs, cars_per_env] in GPU VRAM."""
+        if self._has_flipped_view is None:
+            if hasattr(self.sim, "get_has_flipped"):
+                self._has_flipped_view = self.sim.get_has_flipped()
+            elif hasattr(self.sim, "get_has_flip"):
+                self._has_flipped_view = self.sim.get_has_flip()
+        return self._wrap(self._has_flipped_view)
+
+    def get_has_flip(self) -> Any:
+        """Zero-copy view of has flip / has flipped flags: shape [num_envs, cars_per_env] in GPU VRAM."""
+        return self.get_has_flipped()
+
+    def get_boost(self) -> Any:
+        """Zero-copy view of car boost amounts: shape [num_envs, cars_per_env] in GPU VRAM."""
+        if self._boost_view is None and hasattr(self.sim, "get_boost"):
+            self._boost_view = self.sim.get_boost()
+        return self._wrap(self._boost_view)
+
+    def get_is_on_ground(self) -> Any:
+        """Zero-copy view of is on ground flags: shape [num_envs, cars_per_env] in GPU VRAM."""
+        if self._on_ground_view is None:
+            if hasattr(self.sim, "get_is_on_ground"):
+                self._on_ground_view = self.sim.get_is_on_ground()
+            elif hasattr(self.sim, "get_on_ground"):
+                self._on_ground_view = self.sim.get_on_ground()
+        return self._wrap(self._on_ground_view)
+
+    def get_on_ground(self) -> Any:
+        """Alias for get_is_on_ground: shape [num_envs, cars_per_env] in GPU VRAM."""
+        return self.get_is_on_ground()
+
+    def is_ball_probably_going_in(self, max_time: float = 2.0, extra_margin: float = 0.0) -> Tuple[Any, Any]:
+        """Extrapolate ball trajectory analytically to predict if it will enter a net within max_time."""
+        is_going_in, goal_team = self.sim.is_ball_probably_going_in(max_time, extra_margin)
+        return self._wrap(is_going_in), self._wrap(goal_team)
+
+    def get_step_touches(self) -> Any:
+        return self._wrap(self.sim.get_step_touches())
+
+    def get_step_shots(self) -> Any:
+        return self._wrap(self.sim.get_step_shots())
+
+    def get_step_saves(self) -> Any:
+        return self._wrap(self.sim.get_step_saves())
+
+    def get_step_goals(self) -> Any:
+        return self._wrap(self.sim.get_step_goals())
+
+    def get_step_assists(self) -> Any:
+        return self._wrap(self.sim.get_step_assists())
+
+    def get_total_touches(self) -> Any:
+        return self._wrap(self.sim.get_total_touches())
+
+    def get_total_shots(self) -> Any:
+        return self._wrap(self.sim.get_total_shots())
+
+    def get_total_saves(self) -> Any:
+        return self._wrap(self.sim.get_total_saves())
+
+    def get_total_goals(self) -> Any:
+        return self._wrap(self.sim.get_total_goals())
+
+    def get_total_assists(self) -> Any:
+        return self._wrap(self.sim.get_total_assists())
+
+    def get_ball_shot(self) -> Any:
+        return self._wrap(self.sim.get_ball_shot())
+
+    def get_ball_shot_goal_team(self) -> Any:
+        return self._wrap(self.sim.get_ball_shot_goal_team())
+
+    def get_game_events(self) -> Dict[str, Any]:
+        return {
+            "step_touches": self.get_step_touches(),
+            "step_shots": self.get_step_shots(),
+            "step_saves": self.get_step_saves(),
+            "step_goals": self.get_step_goals(),
+            "step_assists": self.get_step_assists(),
+            "total_touches": self.get_total_touches(),
+            "total_shots": self.get_total_shots(),
+            "total_saves": self.get_total_saves(),
+            "total_goals": self.get_total_goals(),
+            "total_assists": self.get_total_assists(),
+        }
+
+    def reset_game_events(self, env_idx: int = -1):
+        self.sim.reset_game_events(env_idx)
+
+    @property
+    def observations(self) -> Dict[str, Any]:
+        """Dictionary exposing car and ball zero-copy tensors in GPU VRAM."""
+        return {
+            "cars": self.get_car_observations(),
+            "ball": self.get_ball_observations(),
+        }
+
+    def get_info(self) -> Dict[str, Any]:
+        """Dictionary of supplemental state tensors in GPU VRAM."""
+        return {
+            "ball": self.get_ball_observations(),
+            "is_goal": self.get_is_goal(),
+            "scoring_team": self.get_scoring_team(),
+            "is_out_of_bounds": self.get_is_out_of_bounds(),
+            "tick_count": self.get_tick_count(),
+            "pad_is_active": self.get_pad_is_active(),
+            "pad_cooldown": self.get_pad_cooldown(),
+            "ball_hit_is_valid": self.get_ball_hit_is_valid(),
+            "ball_touched": self.get_ball_touched(),
+            "is_supersonic": self.get_is_supersonic(),
+            "is_demoed": self.get_is_demoed(),
+            "demo_respawn_timer": self.get_demo_respawn_timer(),
+            "has_flip": self.get_has_flip(),
+            "has_flipped": self.get_has_flipped(),
+            "boost": self.get_boost(),
+            "on_ground": self.get_on_ground(),
+            "step_touches": self.get_step_touches(),
+            "step_shots": self.get_step_shots(),
+            "step_saves": self.get_step_saves(),
+            "step_goals": self.get_step_goals(),
+            "step_assists": self.get_step_assists(),
+            "total_touches": self.get_total_touches(),
+            "total_shots": self.get_total_shots(),
+            "total_saves": self.get_total_saves(),
+            "total_goals": self.get_total_goals(),
+            "total_assists": self.get_total_assists(),
+        }
+
+    def step(
+        self,
+        actions: Optional[Any] = None
+    ) -> Tuple[Any, Any, Any, Any, Dict[str, Any]]:
+        """
+        Execute sub-stepping simulation at 120Hz directly on GPU.
+
+        Args:
+            actions: GPU tensor of shape [total_cars, 8] on cuda:0 (throttle, steer, pitch, yaw, roll, jump, boost, handbrake).
+                     Can be a PyTorch CUDA tensor or GpuTensorView.
+
+        Returns:
+            Tuple of (obs, rewards, terminated, truncated, info) as pure GPU tensors.
+        """
+        for _ in range(self.tick_skip):
+            if actions is not None:
+                self.sim.step_actions(actions)
+            else:
+                self.sim.step(0)
+
+        obs = self.get_car_observations()
+        rewards = self.get_rewards()
+        terminated = self.get_terminated()
+        truncated = self.get_truncated()
+        info = self.get_info()
+
+        return obs, rewards, terminated, truncated, info
+
+    def reset(
+        self,
+        env_ids: Optional[Any] = None,
+        return_info: bool = False
+    ) -> Union[Any, Tuple[Any, Dict[str, Any]]]:
+        """
+        Selectively reset environments on GPU without CPU barriers.
+
+        Args:
+            env_ids: If None, reset all environments.
+                     If specified (tensor of indices or mask), selective GPU reset kernel is dispatched.
+            return_info: If True, return (obs, info) tuple.
+
+        Returns:
+            obs or (obs, info)
+        """
+        if env_ids is None:
+            self.sim.reset_to_default()
+        else:
+            self.sim.reset_batch(env_ids)
+
+        obs = self.get_car_observations()
+        if return_info:
+            return obs, self.get_info()
+        return obs
+
+    def reset_masked(self, mask: Any) -> Any:
+        """
+        Selectively reset environments via a GPU boolean/uint8 mask.
+        """
+        self.sim.reset_masked(mask)
+        return self.get_car_observations()
+
+    def set_ball_state(self, state: Any, env_start: int = 0, indices: Optional[Any] = None):
+        """
+        Set ball state on GPU directly in VRAM without host copies.
+
+        Args:
+            state: GPU tensor (torch.Tensor or GpuTensorView) or list with shape [N, D] (D in {3, 6, 9, 13}).
+            env_start: starting environment index.
+            indices: optional environment index tensor or list.
+        """
+        self.sim.set_ball_state(state, env_start, indices)
+
+    def set_car_state(self, state: Any, car_start: int = 0, indices: Optional[Any] = None):
+        """
+        Set car state on GPU directly in VRAM without host copies.
+
+        Args:
+            state: GPU tensor with shape [total_cars, D] or [num_envs, cars_per_env, D] (D in {6, 9, 13, 14}).
+            car_start: starting car index.
+            indices: optional car index tensor or list.
+        """
+        self.sim.set_car_state(state, car_start, indices)
+
+    def set_pad_state(
+        self,
+        pad_is_active: Optional[Any] = None,
+        pad_cooldown: Optional[Any] = None,
+        env_start: int = 0,
+        indices: Optional[Any] = None,
+    ):
+        """
+        Set boost pad states on GPU directly in VRAM without host copies.
+
+        Args:
+            pad_is_active: optional uint8 tensor of shape [num_envs, 34].
+            pad_cooldown: optional float32 tensor of shape [num_envs, 34].
+            env_start: starting environment index.
+            indices: optional environment index tensor or list.
+        """
+        self.sim.set_pad_state(pad_is_active, pad_cooldown, env_start, indices)
+
+    def predict_ball_trajectory(
+        self,
+        num_ticks: int = 120,
+        initial_ball_state: Optional[Any] = None,
+        out_tensor: Optional[Any] = None,
+    ) -> Any:
+        """
+        Predict future ball trajectory for N ticks on GPU on-demand.
+
+        Args:
+            num_ticks: number of future simulation ticks to predict (default: 120).
+            initial_ball_state: optional starting ball state tensor [num_envs, D].
+            out_tensor: optional output GPU tensor [num_envs, num_ticks, 6] in VRAM.
+
+        Returns:
+            GPU tensor of shape [num_envs, num_ticks, 6] on cuda:0 (pos.xyz, vel.xyz).
+        """
+        out = self.sim.predict_ball_trajectory(num_ticks, initial_ball_state, out_tensor)
+        return self._wrap(out)
+
+    def close(self):
+        """Release simulator resources."""
+        self._car_obs_view = None
+        self._ball_obs_view = None
+        self._rewards_view = None
+        self._terminated_view = None
+        self._truncated_view = None
+        self._is_goal_view = None
+        self._scoring_team_view = None
+        self._is_oob_view = None
+        self._tick_count_view = None
+        self._pad_active_view = None
+        self._pad_cd_view = None
+        self._ball_hit_is_valid_view = None
+        self._is_supersonic_view = None
+        self._is_demoed_view = None
+        self._demo_respawn_timer_view = None
+        self._ball_touched_view = None
+        self._has_flipped_view = None
+        self._boost_view = None
+        self._on_ground_view = None
+        self.sim = None
+
+
+class BallPredTracker:
+    """
+    On-demand GPU Ball Trajectory Predictor for RocketSim-CUDA.
+    Executes dedicated analytical SDF collision physics on GPU without host roundtrips.
+    """
+
+    def __init__(
+        self,
+        sim_or_env: Any = None,
+        num_pred_ticks: int = 120,
+        env: Any = None,
+        num_ticks: Optional[int] = None
+    ):
+        target = env if env is not None else sim_or_env
+        if target is None:
+            raise ValueError("Must provide a SimContext or RocketSimBatchedEnv to BallPredTracker")
+        if hasattr(target, "sim"):
+            self.sim = target.sim
+            self.env = target
+        else:
+            self.sim = target
+            self.env = None
+        self.num_pred_ticks = int(num_ticks if num_ticks is not None else num_pred_ticks)
+        self._pred_tensor = None
+
+    def update(self, initial_ball_state: Optional[Any] = None) -> Any:
+        if self._pred_tensor is None:
+            out = self.sim.predict_ball_trajectory(self.num_pred_ticks, initial_ball_state)
+            if self.env is not None and hasattr(self.env, "_wrap"):
+                self._pred_tensor = self.env._wrap(out)
+            else:
+                self._pred_tensor = out
+        else:
+            self.sim.predict_ball_trajectory(self.num_pred_ticks, initial_ball_state, self._pred_tensor)
+        return self._pred_tensor
+
+    def predict(self, initial_ball_state: Optional[Any] = None, num_ticks: Optional[int] = None) -> Any:
+        """Alias for update, optionally allowing overriding num_ticks."""
+        if num_ticks is not None and num_ticks != self.num_pred_ticks:
+            out = self.sim.predict_ball_trajectory(int(num_ticks), initial_ball_state)
+            if self.env is not None and hasattr(self.env, "_wrap"):
+                return self.env._wrap(out)
+            return out
+        return self.update(initial_ball_state)
+
+    def get_trajectory(self) -> Any:
+        if self._pred_tensor is None:
+            return self.update()
+        return self._pred_tensor
+
+    def get_ball_state_for_time(self, pred_time: float, env_idx: int = 0) -> Any:
+        """
+        Get predicted ball state at future time delta (in seconds).
+        Matches C++ BallPredTracker::GetBallStateForTime.
+        """
+        traj = self.get_trajectory()
+        tick = int(round(pred_time / (1.0 / 120.0)))
+        tick = max(0, min(tick, self.num_pred_ticks - 1))
+        return traj[env_idx, tick]
+
+
+class GameEventTracker:
+    """
+    Tracks saves, shots, assists, goals, and touches directly on GPU.
+    Compatible with RocketSim CPU GameEventTracker.
+    """
+    def __init__(self, sim_or_env: Any = None, env: Any = None, config: Optional[Any] = None):
+        target = env if env is not None else sim_or_env
+        if target is None:
+            raise ValueError("Must provide a SimContext or RocketSimBatchedEnv to GameEventTracker")
+        if hasattr(target, "sim"):
+            self.sim = target.sim
+            self.env = target
+        else:
+            self.sim = target
+            self.env = None
+
+        if config is not None:
+            self.config = config
+            self.sim.set_game_event_tracker_config(config)
+        else:
+            self.config = self.sim.get_game_event_tracker_config()
+
+        self._shot_callback = None
+        self._goal_callback = None
+        self._save_callback = None
+
+    def set_shot_callback(self, callback_fn):
+        self._shot_callback = callback_fn
+
+    def set_goal_callback(self, callback_fn):
+        self._goal_callback = callback_fn
+
+    def set_save_callback(self, callback_fn):
+        self._save_callback = callback_fn
+
+    def update(self, delta_time: float = 1.0 / 120.0, delta_ticks: int = 1):
+        self.sim.update_game_events(delta_time, delta_ticks)
+
+    def reset_persistent_info(self, env_idx: int = -1):
+        self.sim.reset_game_events(env_idx)
+
+    def get_step_events(self) -> Dict[str, Any]:
+        wrap = self.env._wrap if self.env is not None and hasattr(self.env, "_wrap") else lambda x: x
+        return {
+            "touches": wrap(self.sim.get_step_touches()),
+            "shots": wrap(self.sim.get_step_shots()),
+            "saves": wrap(self.sim.get_step_saves()),
+            "goals": wrap(self.sim.get_step_goals()),
+            "assists": wrap(self.sim.get_step_assists()),
+        }
+
+    def get_totals(self) -> Dict[str, Any]:
+        wrap = self.env._wrap if self.env is not None and hasattr(self.env, "_wrap") else lambda x: x
+        return {
+            "touches": wrap(self.sim.get_total_touches()),
+            "shots": wrap(self.sim.get_total_shots()),
+            "saves": wrap(self.sim.get_total_saves()),
+            "goals": wrap(self.sim.get_total_goals()),
+            "assists": wrap(self.sim.get_total_assists()),
+        }
+
+
+# Expose in rocketsim_cuda module per orchestrator requirement
+RocketSimEnv = RocketSimBatchedEnv
+rocketsim_cuda.RocketSimBatchedEnv = RocketSimBatchedEnv
+rocketsim_cuda.RocketSimEnv = RocketSimEnv
+rocketsim_cuda.BallPredTracker = BallPredTracker
+rocketsim_cuda.GameEventTracker = GameEventTracker
+rocketsim_cuda.gym_env = sys.modules[__name__]
+

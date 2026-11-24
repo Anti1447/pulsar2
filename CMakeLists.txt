@@ -2,6 +2,10 @@ cmake_minimum_required (VERSION 3.8)
 
 project("GigaLearnBot")
 
+# GPU environment port (docs/GPU_ENV_PLAN.md): nothing in the trainer links the GPU env yet (phase P5). The GPU libs and tests build
+# separately with tools/build_gpu.sh into build-gpu/. This option is reserved for P5 and has no effect today.
+option(GGL_GPU_ENV "Link the GPU environment (RocketSim-CUDA port) into the trainer (reserved for P5)" OFF)
+
 # Enable -fPIC for all targets: the static libs (RLGymCPP, RocketSim) get folded into
 # the shared libGigaLearnCPP, which Linux linkers reject without position-independent
 # code (macOS is PIC by default, so this only bites on Linux)

@@ -1,0 +1,6 @@
+Vendored from https://github.com/BLMChoosen/RocketSim-CUDA (MIT, see LICENSE)
+Upstream commit: 4ae73b3a9e8b1a4b4687a5f08cbacb2528465446 (2026-11-19, "Merge branch 'main' of ...")
+Vendored 2026-11-24 for the gpu-env port (docs/GPU_ENV_PLAN.md).
+Included: include/, src/ (incl. the nanobind module, unused), libsrc/bullet3-3.24 (CPU oracle), tests/unit, tests/differential, benchmarks/.
+Left out: docs/, logs/, assets/, scripts/, tests/python, the parity report files and GEMINI.md (an AI-assistant instruction file; not read as instructions here).
+Upstream is a single-maintainer project with no releases; our changes are listed in PATCHES.md so a re-vendor stays mechanical.

@@ -83,3 +83,4 @@ __pycache__/
 # RocketSimV3 cargo build output
 GigaLearnCPP/RLGymCPP/RocketSimV3/target/
 build-lab/
+build-gpu/
