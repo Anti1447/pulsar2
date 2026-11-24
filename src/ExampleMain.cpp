@@ -229,6 +229,8 @@ std::vector<WeightedReward> BuildRewardsPulsar3(float gamma, float stepScale) {
 		{ new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.2f * stepScale },
 		{ new TeammateSpacingPenalty(1000.f, 1500.f), 2.f * stepScale },
 		{ new RolvWavedashReward(), 5.0f },
+		// 2026-11-24 (user-directed): the simple WavedashReward (CommonRewards.h: 1.0 on the landing step after a flip began airborne) at 10. Bare, NOT zero-sum.
+		{ new WavedashReward(), 10.f },
 		{ new ZeroSumReward(new GoalSpeedReward(), TEAM_SPIRIT), 75.f },
 		{ new GoalReward(), 150 }
 	};
