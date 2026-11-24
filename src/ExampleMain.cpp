@@ -1134,6 +1134,14 @@ static void ConfigurePulsar3(LearnerConfig& cfg) {
 		else
 			RG_LOG("WARNING: Pulsar2 v1.0.28 checkpoint not found at " << pulsar2Folder << ", Pulsar3 trains without it");
 	}
+	// Batch halved (user-directed 2026-11-23, at ~315M steps): 400k -> 200k steps per iteration (8 minibatches of 25k per epoch). Updates per step double, and each arena's
+	// slice is ~195 steps (~6.5 s) so more trajectories end in a critic bootstrap. Iteration-denominated cadences are scaled to keep their STEP spacing: the gauntlet runs
+	// every 100 iterations (still every 20M steps). Not applied under GGL_SMOKE, which sets its own tiny batch.
+	if (const char* sm = std::getenv("GGL_SMOKE"); !(sm && sm[0] && std::string(sm) != "0")) {
+		cfg.ppo.tsPerItr = 200'000;
+		cfg.ppo.batchSize = 200'000;
+		cfg.gauntlet.everyIterations = 100;
+	}
 	cfg.checkpointFolder = "checkpoints_pulsar3";
 	cfg.metricsRunName = "pulsar3";
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
