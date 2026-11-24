@@ -58,6 +58,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
 # Add all headers and code files
 file(GLOB_RECURSE FILES_SRC CONFIGURE_DEPENDS "src/*.cpp" "src/*.h" "src/*.hpp" "libsrc/*.cpp" "libsrc/*.h" "libsrc/*.hpp")
+# The vendored GPU engine (libsrc/RocketSimCUDA) builds in its own project (tools/build_gpu.sh); it must never be globbed into the trainer library.
+list(FILTER FILES_SRC EXCLUDE REGEX "/libsrc/RocketSimCUDA/")
 
 add_library(GigaLearnCPP SHARED ${FILES_SRC})
 target_compile_definitions(GigaLearnCPP PRIVATE -DWITHIN_GGL)
