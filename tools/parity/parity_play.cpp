@@ -169,7 +169,7 @@ struct GpuEngine : Engine {
 #endif
 
 // ---------------------------------------------------------------- main
-struct Ep { int steps = 0, goal = -1, firstTouchTeam = -1, kickoff = 0, touchB = 0, touchO = 0, aerial = 0; double speedSum = 0, boostSpent = 0, carSteps = 0; int sinceTouch = 0; };
+struct Ep { int firstMask = 0; int steps = 0, goal = -1, firstTouchTeam = -1, kickoff = 0, touchB = 0, touchO = 0, aerial = 0; double speedSum = 0, boostSpent = 0, carSteps = 0; int sinceTouch = 0; };
 
 int main(int argc, char** argv) {
 	std::map<std::string, std::string> args;
@@ -270,13 +270,13 @@ int main(int argc, char** argv) {
 		for (int a = 0; a < K; a++) {
 			if (epIdx[a] < 0) continue;
 			eng->Refresh(a, gs[a], act[a]); Ep& e = cur[a]; e.steps++; totalSteps++;
-			bool anyTouch = false; int firstTeam = -1;
+			bool anyTouch = false; int firstTeam = -1, stepMask = 0;
 			for (int i = 0; i < P; i++) {
 				const Player& p = gs[a].players[i];
 				e.speedSum += p.vel.Length(); e.carSteps++; e.boostSpent += std::max(prevBoost[a][i] - p.boost, 0.f); prevBoost[a][i] = p.boost;
-				if (p.ballTouchedStep) { anyTouch = true; if (firstTeam < 0) firstTeam = p.team == Team::BLUE ? 0 : 1; (p.team == Team::BLUE ? e.touchB : e.touchO)++; if (gs[a].ball.pos.z > 300 && !p.isOnGround) e.aerial++; }
+				if (p.ballTouchedStep) { anyTouch = true; stepMask |= (p.team == Team::BLUE ? 1 : 2); if (firstTeam < 0) firstTeam = p.team == Team::BLUE ? 0 : 1; (p.team == Team::BLUE ? e.touchB : e.touchO)++; if (gs[a].ball.pos.z > 300 && !p.isOnGround) e.aerial++; }
 			}
-			if (anyTouch) { e.sinceTouch = 0; if (e.firstTouchTeam < 0) e.firstTouchTeam = firstTeam; } else e.sinceTouch++;
+			if (anyTouch) { e.sinceTouch = 0; if (e.firstTouchTeam < 0) { e.firstTouchTeam = firstTeam; e.firstMask = stepMask; } } else e.sinceTouch++;
 			bool goal = eng->Goal(a); int team = -1;
 			if (goal) team = gs[a].ball.pos.y > 0 ? 0 : 1; // blue scores at +y
 			if (goal || e.sinceTouch >= NO_TOUCH_STEPS || e.steps >= MAX_STEPS) { e.goal = goal ? team : -1; done.push_back(e); load(a); }
@@ -285,8 +285,8 @@ int main(int argc, char** argv) {
 		if (totalSteps % 20000 < K) std::cerr << "\r" << done.size() << "/" << episodes << " episodes, " << totalSteps << " steps, " << (int)(totalSteps / std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count()) << " steps/s   " << std::flush;
 	}
 	std::ofstream out(args["--out"]);
-	out << "arm,mode,steps,goal,firstTouchTeam,kickoff,touchB,touchO,aerial,speedSum,boostSpent,carSteps\n";
-	for (const Ep& e : done) out << arm << "," << mode << "," << e.steps << "," << e.goal << "," << e.firstTouchTeam << "," << e.kickoff << "," << e.touchB << "," << e.touchO << "," << e.aerial << "," << e.speedSum << "," << e.boostSpent << "," << e.carSteps << "\n";
+	out << "arm,mode,steps,goal,firstTouchTeam,firstMask,kickoff,touchB,touchO,aerial,speedSum,boostSpent,carSteps\n";
+	for (const Ep& e : done) out << arm << "," << mode << "," << e.steps << "," << e.goal << "," << e.firstTouchTeam << "," << e.firstMask << "," << e.kickoff << "," << e.touchB << "," << e.touchO << "," << e.aerial << "," << e.speedSum << "," << e.boostSpent << "," << e.carSteps << "\n";
 	std::cerr << "\ndone " << done.size() << " episodes, " << totalSteps << " steps\n";
 	return 0;
 }

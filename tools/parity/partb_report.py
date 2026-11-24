@@ -7,17 +7,21 @@ import csv, math, os, random, sys
 def load(p):
     return [{k: float(v) for k, v in r.items() if k not in ("arm", "mode")} for r in csv.DictReader(open(p))]
 
-FLOORS = {"M1": 0.01, "M2": 0.01, "M3": 0.01, "M4": 1.0, "M5": 0.01, "M6": 1.0, "M7": 0.01}
-NAMES = {"M1": "goals / 1k steps", "M2": "blue first-touch share (kickoffs)", "M3": "blue touch share", "M4": "mean episode steps", "M5": "aerial touch ratio", "M6": "mean car speed (uu/s)", "M7": "boost spent / car-second"}
+FLOORS = {"M1": 0.01, "M2": 0.01, "M2b": 0.01, "M3": 0.01, "M4": 1.0, "M5": 0.01, "M6": 1.0, "M7": 0.01}
+NAMES = {"M1": "goals / 1k steps", "M2": "blue-only first-touch share (kickoffs)", "M2b": "contested first-touch fraction (info, not scored)", "M3": "blue touch share", "M4": "mean episode steps", "M5": "aerial touch ratio", "M6": "mean car speed (uu/s)", "M7": "boost spent / car-second"}
 
 def metrics(R):
     st = sum(r["steps"] for r in R) or 1
-    ko = [r for r in R if r["kickoff"] == 1 and r["firstTouchTeam"] >= 0]
+    # M2 (corrected before the rerun): a kickoff counts for blue only if blue touched alone on the first touch step; steps where both teams
+    # touched are CONTESTED and reported separately (M2b, informational). The first version resolved ties in slot order, which favoured blue.
+    ko = [r for r in R if r["kickoff"] == 1 and r["firstMask"] in (1, 2)]
+    kc = [r for r in R if r["kickoff"] == 1 and r["firstMask"] > 0]
     tb = sum(r["touchB"] for r in R); to = sum(r["touchO"] for r in R); tt = (tb + to) or 1
     cs = sum(r["carSteps"] for r in R) or 1
     return {
         "M1": 1000.0 * sum(1 for r in R if r["goal"] >= 0) / st,
-        "M2": (sum(1 for r in ko if r["firstTouchTeam"] == 0) / len(ko)) if ko else float("nan"),
+        "M2": (sum(1 for r in ko if r["firstMask"] == 1) / len(ko)) if ko else float("nan"),
+        "M2b": (sum(1 for r in kc if r["firstMask"] == 3) / len(kc)) if kc else float("nan"),
         "M3": tb / tt,
         "M4": st / len(R),
         "M5": sum(r["aerial"] for r in R) / tt,
@@ -52,6 +56,8 @@ def main():
             Rc, Rg = load(pc), load(pg); mc, mg = metrics(Rc), metrics(Rg); ci = boot(Rg, Rc)
             inside = 0; worst = 0; rows = []
             for k in FLOORS:
+                if k == 'M2b':
+                    rows.append(f"| {k} {NAMES[k]} | {mc[k]:.4g} | {mg[k]:.4g} | {rel(mg[k], mc[k], k):+.3f} | | info |"); continue
                 r = rel(mg[k], mc[k], k) if not (math.isnan(mc[k]) or math.isnan(mg[k])) else float("nan")
                 lo, hi = ci[k]
                 ok = (abs(r) <= 0.15) or (lo >= -0.15 and hi <= 0.15)
