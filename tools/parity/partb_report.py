@@ -47,7 +47,7 @@ def boot(Rg, Rc, nb=300, seed=1):
 
 def main():
     d = sys.argv[1]; outp = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("--") else None
-    ref = "cpu"
+    ref = "cpu"; score_m2 = '--score-m2' in sys.argv
     if "--ref" in sys.argv: ref = sys.argv[sys.argv.index("--ref") + 1]
     L = ["# G1 Part B: policy-level parity (GPU vs CPU " + ref + ")\n"]
     allpass = True
@@ -58,15 +58,15 @@ def main():
             Rc, Rg = load(pc), load(pg); mc, mg = metrics(Rc), metrics(Rg); ci = boot(Rg, Rc)
             inside = 0; worst = 0; rows = []
             for k in FLOORS:
-                if k in ('M2', 'M2b', 'M2c', 'M4k'):
+                if (k in ('M2', 'M2b', 'M2c', 'M4k')) and not (score_m2 and k == 'M2'):
                     rows.append(f"| {k} {NAMES[k]} | {mc[k]:.4g} | {mg[k]:.4g} | {rel(mg[k], mc[k], k):+.3f} | | info |"); continue
                 r = rel(mg[k], mc[k], k) if not (math.isnan(mc[k]) or math.isnan(mg[k])) else float("nan")
                 lo, hi = ci[k]
                 ok = (abs(r) <= 0.15) or (lo >= -0.15 and hi <= 0.15)
                 inside += ok; worst = max(worst, abs(r) if not math.isnan(r) else 9)
                 rows.append(f"| {k} {NAMES[k]} | {mc[k]:.4g} | {mg[k]:.4g} | {r:+.3f} | [{lo:+.3f}, {hi:+.3f}] | {'ok' if ok else 'OUT'} |")
-            cell = inside >= 5 and worst <= 0.30; allpass &= cell
-            L.append(f"## {mode} {matchup}: {'PASS' if cell else 'FAIL'} ({inside}/6 scored inside, worst |rel| {worst:.3f}; {len(Rc)} vs {len(Rg)} episodes)\n")
+            cell = (inside >= 6 if score_m2 else inside >= 5) and worst <= 0.30; allpass &= cell
+            L.append(f"## {mode} {matchup}: {'PASS' if cell else 'FAIL'} ({inside}/{7 if score_m2 else 6} scored inside, worst |rel| {worst:.3f}; {len(Rc)} vs {len(Rg)} episodes)\n")
             L.append("| metric | cpu | gpu | rel diff | 95% CI | |"); L.append("|---|---|---|---|---|---|"); L += rows; L.append("")
     L.insert(1, f"**G1 Part B overall: {'PASS' if allpass else 'FAIL'}**\n")
     txt = "\n".join(L)
