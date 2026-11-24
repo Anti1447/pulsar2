@@ -13,3 +13,9 @@ endfunction()
 pulsar_gpu_test(test_l6_team_layout unit;gpu)
 pulsar_gpu_test(test_l6_reset_isolation unit;gpu)
 pulsar_gpu_test(test_l1_bump_demo_events unit;gpu)
+
+# Hand-run diagnostics (not ctest): the GPU twin of tools/engine_probe.
+add_executable(gpu_engine_probe gpu_engine_probe.cu)
+target_include_directories(gpu_engine_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(gpu_engine_probe PRIVATE rocketsim_cuda_core)
+set_target_properties(gpu_engine_probe PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
