@@ -72,6 +72,14 @@ namespace parity {
 		{ Scenario s; s.name = "air_roll_yaw_boost"; CarInit c; c.pos = { 0, -2000, 600 }; c.vel = { 0, 800, 200 }; Face(c, HALF_PI, 0.3f); c.boost = 100; c.onGround = false; c.hasJumped = true; s.cars = { c }; s.ball.pos = FarBall(); s.ticks = 120;
 		  s.ctl = [](int t, int) { Ctl k; k.boost = true; k.roll = 1; k.yaw = (t > 40) ? -1.f : 0.f; k.pitch = (t > 80) ? 1.f : 0.f; return k; }; add(s); }
 
+		// ---- symmetric kickoff race: both cars floor it from the standard diagonal 1v1 spawns; who touches first, and when?
+		{ Scenario s; s.name = "kickoff_race_diag"; CarInit b = baseCar(-2048, -2560, 0.8961f, 0); b.team = 0; b.boost = 33.33333f; CarInit o = baseCar(2048, 2560, -2.2455f, 0); o.team = 1; o.boost = 33.33333f;
+		  s.cars = { b, o }; s.ball.pos = { 0, 0, 93.15f }; s.ticks = 420;
+		  s.ctl = [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; }; add(s); }
+		{ Scenario s; s.name = "kickoff_race_straight"; CarInit b = baseCar(0, -4608, HALF_PI, 0); b.team = 0; CarInit o = baseCar(0, 4608, -HALF_PI, 0); o.team = 1;
+		  s.cars = { b, o }; s.ball.pos = { 0, 0, 93.15f }; s.ticks = 420;
+		  s.ctl = [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; }; add(s); }
+
 		// ---- car vs walls, ceiling and corner (arena geometry: analytic SDF on the GPU vs collision meshes on the CPU)
 		for (float sp : { 900.f, 1500.f }) {
 			Scenario s; s.name = "car_side_wall_" + std::to_string((int)sp); CarInit c = baseCar(2500, 0, 0.f, sp); c.boost = 100; s.cars = { c }; s.ball.pos = { -3000, 3000, 93.15f }; s.ticks = 360;

@@ -172,6 +172,10 @@ __device__ __forceinline__ bool test_car_ball_collision(
  * @brief Resolves analytical Car-Ball collision with bilateral impulse exchange,
  * RocketSim extra hit impulse curve, velocity limits, and hit tracking state updates.
  */
+// Pulsar patch P1-4 helpers
+struct BallSnapshot { Vec3 pos, vel, omega; };
+struct BallDeltas { Vec3 dpos = Vec3(0.0f, 0.0f, 0.0f), dvel = Vec3(0.0f, 0.0f, 0.0f), domega = Vec3(0.0f, 0.0f, 0.0f); };
+
 __device__ __forceinline__ bool resolve_car_ball_collision(
     uint32_t env_idx,
     uint32_t car_idx,
@@ -180,7 +184,9 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     ArenaStateSoA& arena_state,
     float dt,
     const MutatorConfig& mut_cfg,
-    const CarConfig& car_cfg)
+    const CarConfig& car_cfg,
+    const BallSnapshot* snap = nullptr,
+    BallDeltas* acc = nullptr)
 {
     // Load car pose & velocities
     Vec3 car_pos(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
@@ -193,6 +199,10 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     Vec3 ball_pos(ball_state.pos_x[env_idx], ball_state.pos_y[env_idx], ball_state.pos_z[env_idx]);
     Vec3 ball_vel(ball_state.vel_x[env_idx], ball_state.vel_y[env_idx], ball_state.vel_z[env_idx]);
     Vec3 ball_omega(ball_state.ang_vel_x[env_idx], ball_state.ang_vel_y[env_idx], ball_state.ang_vel_z[env_idx]);
+    // Pulsar patch P1-4: simultaneous resolution. With a snapshot, every car in the arena resolves against the SAME pre-step ball
+    // (and the car-side update uses it too); the ball's deltas are accumulated and applied once by the caller.
+    if (snap) { ball_pos = snap->pos; ball_vel = snap->vel; ball_omega = snap->omega; }
+    const Vec3 ball_pos0 = ball_pos, ball_vel0 = ball_vel, ball_omega0 = ball_omega;
 
     Vec3 normal_world;
     Vec3 contact_pt_world;
@@ -351,6 +361,13 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     car_state.ball_hit_extra_hit_force_z[car_idx] = added_vel.z;
     car_state.ball_hit_tick_count[car_idx] = current_tick;
 
+    if (acc) { // accumulate instead of writing: the caller applies the sum (symmetric between slots)
+        acc->dpos = acc->dpos + (ball_pos - ball_pos0); acc->dvel = acc->dvel + (ball_vel - ball_vel0); acc->domega = acc->domega + (ball_omega - ball_omega0);
+        car_state.pos_x[car_idx] = car_pos.x; car_state.pos_y[car_idx] = car_pos.y; car_state.pos_z[car_idx] = car_pos.z;
+        car_state.vel_x[car_idx] = car_vel.x; car_state.vel_y[car_idx] = car_vel.y; car_state.vel_z[car_idx] = car_vel.z;
+        car_state.ang_vel_x[car_idx] = car_omega.x; car_state.ang_vel_y[car_idx] = car_omega.y; car_state.ang_vel_z[car_idx] = car_omega.z;
+        return true;
+    }
     // Write back updated ball state
     ball_state.pos_x[env_idx] = ball_pos.x;
     ball_state.pos_y[env_idx] = ball_pos.y;

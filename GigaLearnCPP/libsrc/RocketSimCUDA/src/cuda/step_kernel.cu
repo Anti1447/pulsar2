@@ -447,17 +447,33 @@ __global__ void StepSimulationKernel(
     }
 
     // Resolve Car-Ball Collisions (R4, R5, R6)
+    // Pulsar patch P1-4: simultaneous. Upstream resolved cars one after another against the ball the previous car had already pushed,
+    // so in a 50/50 the LAST slot always won (symmetric kickoff race: ball ended 1400 uu toward blue's side on the GPU, centred on the CPU).
+    // Now every car resolves against the pre-step ball and the ball's deltas are summed.
+    BallSnapshot snap{ Vec3(ball_state.pos_x[env_idx], ball_state.pos_y[env_idx], ball_state.pos_z[env_idx]),
+                       Vec3(ball_state.vel_x[env_idx], ball_state.vel_y[env_idx], ball_state.vel_z[env_idx]),
+                       Vec3(ball_state.ang_vel_x[env_idx], ball_state.ang_vel_y[env_idx], ball_state.ang_vel_z[env_idx]) };
+    BallDeltas acc; bool any_hit = false;
     for (uint32_t c = 0; c < cars_per_env; ++c) {
         uint32_t car_idx = env_idx * cars_per_env + c;
         if (car_state.is_demoed && car_state.is_demoed[car_idx]) continue;
         uint8_t ht = car_state.hitbox_type ? car_state.hitbox_type[car_idx] : 0;
         const CarConfig& car_cfg = get_car_config(ht);
-        bool hit = resolve_car_ball_collision(env_idx, car_idx, ball_state, car_state, arena_state, dt, mut_cfg, car_cfg);
+        bool hit = resolve_car_ball_collision(env_idx, car_idx, ball_state, car_state, arena_state, dt, mut_cfg, car_cfg, &snap, &acc);
         if (hit) {
+            any_hit = true;
             if (car_state.ball_touched) {
                 car_state.ball_touched[car_idx] = 1;
             }
         }
+    }
+    if (any_hit) {
+        Vec3 p = snap.pos + acc.dpos, v = snap.vel + acc.dvel, w = snap.omega + acc.domega;
+        float b_speed = v.length(); if (b_speed > mut_cfg.ball_max_speed) v = v * (mut_cfg.ball_max_speed / b_speed);
+        float b_ang = w.length(); if (b_ang > BALL_MAX_ANG_SPEED) w = w * (BALL_MAX_ANG_SPEED / b_ang);
+        ball_state.pos_x[env_idx] = p.x; ball_state.pos_y[env_idx] = p.y; ball_state.pos_z[env_idx] = p.z;
+        ball_state.vel_x[env_idx] = v.x; ball_state.vel_y[env_idx] = v.y; ball_state.vel_z[env_idx] = v.z;
+        ball_state.ang_vel_x[env_idx] = w.x; ball_state.ang_vel_y[env_idx] = w.y; ball_state.ang_vel_z[env_idx] = w.z;
     }
 
     // Step Arena Termination & Rewards

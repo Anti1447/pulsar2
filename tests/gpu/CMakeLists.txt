@@ -34,3 +34,4 @@ set_target_properties(test_l2_arena_batch PROPERTIES CUDA_ARCHITECTURES "${CMAKE
 add_test(NAME test_l2_arena_batch COMMAND test_l2_arena_batch)
 set_tests_properties(test_l2_arena_batch PROPERTIES LABELS "unit;gpu")
 pulsar_gpu_test(test_l1_goal_mouth unit;gpu;parity)
+pulsar_gpu_test(test_l1_contested_ball unit;gpu;parity)
