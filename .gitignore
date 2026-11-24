@@ -87,3 +87,6 @@ build-gpu/
 build-parity-v2/
 build-parity-v3/
 parity_traces/
+build-play/
+parity_ckpt/
+build-play-v2/
