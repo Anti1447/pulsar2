@@ -84,3 +84,6 @@ __pycache__/
 GigaLearnCPP/RLGymCPP/RocketSimV3/target/
 build-lab/
 build-gpu/
+build-parity-v2/
+build-parity-v3/
+parity_traces/

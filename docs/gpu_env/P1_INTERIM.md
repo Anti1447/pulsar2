@@ -1,4 +1,4 @@
-# P1 interim finding (2026-11-24): the GPU engine is v2-lineage physics, not v3
+# P1 interim finding (2026-11-24): the GPU engine matches v2 and CURRENT v3 on hits (this file first said otherwise; corrected below)
 
 Measured with tests/gpu/gpu_engine_probe.cu (same scenarios as tools/engine_probe) against docs/engine_compare/FINDINGS.md:
 
@@ -17,3 +17,6 @@ Reading
 
 Consequence for G1 as pre-registered (vs v3): Part A #10 and the policy-level metrics are expected to fail by construction. Decision needed: which engine is the reference. See the addendum in G1_PREREG.md.
 Not done: the CPU adapter, Part A scenario harness, and the Part B policy runner. They were held back because the outcome depends on this decision.
+
+## CORRECTION (same day)
+The v3 column above and the conclusions drawn from it came from the 2026-11-06 FINDINGS table, which predates commit 1984b60 (rocketsim 0.3.5, "fixes the lost car-ball hit impulse"). Re-running the current `build/EngineProbe` (v3): peak ball speed 1497 / 1847 / 1942, rebound at a parked car 95 / 166 / 500, ticks within 160 uu 0, rolling 1230 / 969 / 715. Current v3 therefore matches v2 AND the GPU on hits, and equals the GPU on the 500 uu/s rebound. The only discrepancy confirmed first-hand is the ball rolling decay (GPU 996 vs 716/715 at 3 s). The statement that G1 against v3 "fails by construction" was unfounded and is withdrawn.

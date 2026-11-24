@@ -19,3 +19,8 @@ add_executable(gpu_engine_probe gpu_engine_probe.cu)
 target_include_directories(gpu_engine_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(gpu_engine_probe PRIVATE rocketsim_cuda_core)
 set_target_properties(gpu_engine_probe PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
+
+add_executable(gpu_parity_replay gpu_parity_replay.cu)
+target_include_directories(gpu_parity_replay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(gpu_parity_replay PRIVATE rocketsim_cuda_core)
+set_target_properties(gpu_parity_replay PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
