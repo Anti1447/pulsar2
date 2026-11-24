@@ -412,8 +412,11 @@ __device__ __forceinline__ void resolve_ball_arena_collision(
     Vec3 normal(0.0f, 0.0f, 1.0f);
     arena_sdf_and_normal(pos, dist, normal);
 
-    if (dist < radius) {
-        float penetration = radius - dist;
+    // Pulsar patch P1-2: Bullet's contact is speculative (a contact within the breaking threshold already constrains the approach
+    // velocity), so the ball bounces on the tick it WOULD penetrate, not one tick later. Upstream waited for actual penetration.
+    const bool will_hit = (dist + normal.dot(vel) * dt) < radius;
+    if (dist < radius || will_hit) {
+        float penetration = fmaxf(radius - dist, 0.0f);
         pos = pos + normal * penetration;
 
         float vn = normal.dot(vel);

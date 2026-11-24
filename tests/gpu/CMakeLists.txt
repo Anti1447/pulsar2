@@ -13,6 +13,7 @@ endfunction()
 pulsar_gpu_test(test_l6_team_layout unit;gpu)
 pulsar_gpu_test(test_l6_reset_isolation unit;gpu)
 pulsar_gpu_test(test_l1_bump_demo_events unit;gpu)
+pulsar_gpu_test(test_l1_ball_ground unit;gpu;parity)
 
 # Hand-run diagnostics (not ctest): the GPU twin of tools/engine_probe.
 add_executable(gpu_engine_probe gpu_engine_probe.cu)

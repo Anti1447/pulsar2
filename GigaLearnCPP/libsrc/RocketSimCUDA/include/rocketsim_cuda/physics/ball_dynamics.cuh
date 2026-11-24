@@ -47,6 +47,14 @@ __device__ __forceinline__ void step_ball_state(
     if (b_speed > mut_cfg.ball_max_speed) {
         vel = vel * (mut_cfg.ball_max_speed / b_speed);
     }
+
+    // Pulsar patch P1-1: RocketSim's Ball::_FinishPhysicsTick caps the ball's angular speed (BALL_MAX_ANG_SPEED = 6 rad/s) every tick.
+    // Upstream only capped it in the car-ball contact path, so a rolling ball could spin up to its rolling speed and stop losing speed
+    // to ground friction (996 vs 716 uu/s after 3 s of rolling at 1500).
+    float w_speed_sq = ang_vel.length_sq();
+    if (w_speed_sq > BALL_MAX_ANG_SPEED * BALL_MAX_ANG_SPEED) {
+        ang_vel = ang_vel * (BALL_MAX_ANG_SPEED / sqrtf(w_speed_sq));
+    }
 }
 
 } // namespace rocketsim_cuda
