@@ -1,4 +1,5 @@
 #include "PPOLearner.h"
+#include <map>
 
 #include <torch/nn/utils/convert_parameters.h>
 #include <torch/nn/utils/clip_grad.h>
@@ -496,6 +497,17 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 		if (!phaseTimers || v.empty()) return;
 		v.back()->b.record(c10::cuda::getCurrentCUDAStream(device.index()));
 	};
+	// COMPONENT TIMERS inside the minibatch forward+loss (2026-11-23, measurement only, same no-sync scheme): consecutive marks, the interval from one mark to the next is
+	// charged to the first mark's label. Panels "Learn Phase/Seg <label> ms". Labels in order: prep (device copies, advantage filter), policy (forward, PPO loss), critic (value-side
+	// body + critic head), goal_critic, vdag (twin expectile heads), ctx_heads, geo (HJB residual, an input-gradient), reach (InfoNCE heads), tail (KL/clip stats, archive loss).
+	struct SegMark { const char* label; at::cuda::CUDAEvent ev{ cudaEventDefault }; };
+	std::vector<std::unique_ptr<SegMark>> segMarks;
+	auto segMark = [&](const char* label) {
+		if (!phaseTimers) return;
+		segMarks.push_back(std::make_unique<SegMark>());
+		segMarks.back()->label = label;
+		segMarks.back()->ev.record(c10::cuda::getCurrentCUDAStream(device.index()));
+	};
 
 
 	MutAvgTracker
@@ -636,6 +648,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 
 			auto fnRunMinibatch = [&](int64_t start, int64_t stop) {
 				evStart(evFwd);
+				segMark("prep");
 
 				float batchSizeRatio = (stop - start) / (float)curBatchSize;
 
@@ -657,6 +670,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					advKeep = keepCpu.to(device, true, true);
 				}
 
+				segMark("policy");
 				torch::Tensor probs, logProbs, entropy, ratio, clipped, policyLoss, ppoLoss;
 				if (trainPolicy) {
 
@@ -771,6 +785,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					return valueTrunkVR;
 				};
 
+				segMark("critic");
 				torch::Tensor criticLoss;
 				if (trainCritic) {
 					auto vals = models["critic"]->Forward(fnValueTrunk(), false).flatten();
@@ -786,6 +801,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 				// version before it this gradient DOES reach shared perception - the tradeoff is
 				// argued in PPOLearnerConfig::criticTrunk. With no critic trunk configured,
 				// InferGoalCritic's raw-obs path keeps the old isolation.
+				segMark("goal_critic");
 				torch::Tensor goalCriticLoss;
 				if (batchGoalTargetValues.defined() && models["goal_critic"]) {
 					auto goalTargets = batchGoalTargetValues.slice(0, start, stop).to(device, true, true);
@@ -823,6 +839,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					avgRhatLoss += rhatLoss.detach().cpu().item<float>();
 				}
 
+				segMark("vdag");
 				torch::Tensor vdagLoss;
 				dbgVdagRows = batch.vdagTargets.defined() ? (float)batch.vdagTargets.numel() : -1.f;
 				dbgRhatRows = batch.rhatTargets.defined() ? (float)batch.rhatTargets.numel() : -1.f;
@@ -876,6 +893,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 
 				// CRITIC CONTEXT Phase A: measurement-only side heads. Every input is DETACHED (the trunk read, the live critic's value),
 				// so no gradient reaches critic_trunk, shared_head or the policy; the loss trains only these heads' own weights.
+				segMark("ctx_heads");
 				torch::Tensor ctxLoss;
 				if (batch.criticCtx.defined() && models["critic_ctx_both"]) {
 					torch::Tensor ctxB = batch.criticCtx.slice(0, start, stop).to(device, true, true);
@@ -941,6 +959,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 				//
 				// r_hat and Sigma are fit on the RESERVOIR (stationary targets, see config); the
 				// residual is solved on the CURRENT states, which is where the field is read.
+				segMark("geo");
 				torch::Tensor geoLoss;
 				if (models["geo_v"] && geoResFill > 1024) {
 					// HJB residual ONLY - the world-facing fits (Sigma, r_hat) train once per
@@ -973,6 +992,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 				}
 
 				// Reachability aux losses (InfoNCE on a subsample; gradient flows into the shared head)
+				segMark("reach");
 				torch::Tensor reachLoss, carStateLoss;
 				if (reach && batch.carHerGoals.defined()) {
 					int64_t mbRows = stop - start;
@@ -1053,6 +1073,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 				}
 
 				if (trainPolicy) {
+					segMark("tail");
 					// Compute KL divergence & clip fraction using SB3 method for reporting;
 					{
 						RG_NO_GRAD;
@@ -1123,6 +1144,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					}
 				}
 
+				segMark("end");
 				evStop(evFwd);
 				evStart(evBwd);
 				if (totalLoss.defined())
@@ -1218,6 +1240,14 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 			report["Learn Phase/Clip ms"] = sumMs(evClip);
 			report["Learn Phase/Optimizer ms"] = sumMs(evOpt);
 			report["Learn Phase/Minibatches"] = (float)evFwd.size();
+			{
+				std::map<std::string, float> seg;
+				for (size_t i = 0; i + 1 < segMarks.size(); i++)
+					if (std::string(segMarks[i]->label) != "end")
+						seg[segMarks[i]->label] += segMarks[i]->ev.elapsed_time(segMarks[i + 1]->ev);
+				for (auto& kv : seg)
+					report["Learn Phase/Seg " + kv.first + " ms"] = kv.second;
+			}
 		} catch (const std::exception& e) {
 			RG_LOG("Learn phase timers unavailable: " << e.what());
 		}
