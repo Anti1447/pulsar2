@@ -66,6 +66,7 @@ struct Engine {
 	virtual void Step() = 0;
 	virtual void Refresh(int a, GameState& gs, const std::vector<Action>& act) = 0; // fills gs from the engine after Step / Init
 	virtual bool Goal(int a) = 0;
+	virtual void Flush() {} // make states set by Init visible to Refresh (the GPU mirrors are only valid after a download)
 	virtual void BeforeAct(int a, GameState& gs, GGL::GGLBotOpponent& botB, GGL::GGLBotOpponent& botO) {}
 };
 
@@ -120,14 +121,14 @@ struct GpuEngine : Engine {
 			lastHit[a][i] = ~0ULL;
 		}
 		pulsar_gpu::BallData b; std::copy(s.ball, s.ball + 3, b.pos); std::copy(s.ball + 3, s.ball + 6, b.vel); std::copy(s.ball + 6, s.ball + 9, b.angVel);
-		batch.SetState(a, cars, b);
+		batch.SetState(a, cars, b); dirty = true;
 	}
 	void Controls(int a, const std::vector<Action>& act) override {
 		std::vector<pulsar_gpu::ControlData> c(act.size());
 		for (size_t i = 0; i < act.size(); i++) { c[i].throttle = act[i].throttle; c[i].steer = act[i].steer; c[i].pitch = act[i].pitch; c[i].yaw = act[i].yaw; c[i].roll = act[i].roll; c[i].jump = act[i].jump == 1; c[i].boost = act[i].boost == 1; c[i].handbrake = act[i].handbrake == 1; }
 		batch.SetControls(a, c);
 	}
-	void Step() override { batch.Step(TICK_SKIP); batch.Sync(); }
+	void Step() override { batch.Step(TICK_SKIP); batch.Sync(); dirty = false; }
 	static RotMat Rot(const float* q) { float w = q[0], x = q[1], y = q[2], z = q[3];
 		return RotMat(Vec(1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)), Vec(2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x)), Vec(2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y))); }
 	void Refresh(int a, GameState& gs, const std::vector<Action>& act) override {
@@ -157,6 +158,8 @@ struct GpuEngine : Engine {
 		gs.goalScored = batch.GoalScored(a);
 	}
 	bool Goal(int a) override { return batch.GoalScored(a); }
+	bool dirty = false;
+	void Flush() override { if (dirty) { batch.Sync(); dirty = false; } }
 	void BeforeAct(int a, GameState& gs, GGL::GGLBotOpponent& bb, GGL::GGLBotOpponent& bo) override {
 		std::vector<PhysState> slices(8); const float* p = batch.BallPredSlices(a);
 		for (int k = 0; k < 8; k++) { slices[k].pos = Vec(p[k * 6], p[k * 6 + 1], p[k * 6 + 2]); slices[k].vel = Vec(p[k * 6 + 3], p[k * 6 + 4], p[k * 6 + 5]); }
@@ -180,6 +183,43 @@ int main(int argc, char** argv) {
 	{ std::ifstream in(sf, std::ios::binary); if (in) { starts.resize(episodes); in.read((char*)starts.data(), sizeof(Start) * episodes); if (!in) { starts.clear(); } } }
 	if (starts.empty()) { starts = SampleStarts(blue, orange, episodes); std::ofstream out(sf, std::ios::binary); out.write((const char*)starts.data(), sizeof(Start) * starts.size()); std::cout << "wrote " << starts.size() << " starts to " << sf << "\n"; }
 
+#if defined(PARITY_OBSDIFF) && defined(GGL_GPU_ENV)
+	// Observation parity: identical starts on both engines, the SAME AdvancedObsPadded(3, false, 8); features 0..229 must agree to float precision (they depend
+	// on state fields and pad ordering only), 230..277 are the ball prediction (physics of each engine).
+	{
+		CpuEngine cpu(blue, orange, 1); GpuEngine gpu(blue, orange, 1);
+		AdvancedObsPadded obsC(3, false, 8), obsG(3, false, 8);
+		const int P = blue + orange, NF = 278; std::vector<double> maxd(NF, 0.0); std::vector<int> bad(NF, 0); int rows = 0;
+		for (int e = 0; e < episodes; e++) {
+			cpu.Init(0, starts[e]); gpu.Init(0, starts[e]); gpu.Flush();
+			GameState gc, gg; std::vector<Action> zero(P);
+			cpu.Refresh(0, gc, zero); gpu.Refresh(0, gg, zero);
+			std::vector<PhysState> slices(8); const float* pp = gpu.batch.BallPredSlices(0);
+			for (int k = 0; k < 8; k++) { slices[k].pos = Vec(pp[k * 6], pp[k * 6 + 1], pp[k * 6 + 2]); slices[k].vel = Vec(pp[k * 6 + 3], pp[k * 6 + 4], pp[k * 6 + 5]); }
+			obsG.SetExternalBallPred(slices);
+			for (int i = 0; i < P; i++) {
+				FList a = obsC.BuildObs(gc.players[i], gc), b = obsG.BuildObs(gg.players[i], gg); rows++;
+				for (int f = 0; f < NF && f < (int)a.size() && f < (int)b.size(); f++) { double d = fabs((double)a[f] - b[f]); maxd[f] = std::max(maxd[f], d); if (d > 1e-3) bad[f]++; }
+			}
+		}
+		std::cout << "obsdiff rows=" << rows << "\nfeatures 0..229 (state/pads/flags): worst features:\n";
+		std::vector<int> idx(230); for (int i = 0; i < 230; i++) idx[i] = i; std::sort(idx.begin(), idx.end(), [&](int x, int y) { return maxd[x] > maxd[y]; });
+		for (int k = 0; k < 12; k++) std::cout << "  f" << idx[k] << " max|d|=" << maxd[idx[k]] << " rows>1e-3: " << bad[idx[k]] << "\n";
+		double pm = 0; int pb = 0; for (int f = 230; f < NF; f++) { pm = std::max(pm, maxd[f]); pb += bad[f]; }
+		{ // error by slice: a flat profile means an alignment problem, growth with horizon means physics divergence
+			std::vector<double> sum(8, 0.0), mx(8, 0.0); std::vector<long> cnt(8, 0);
+			for (int e2 = 0; e2 < std::min(episodes, 400); e2++) {
+				cpu.Init(0, starts[e2]); gpu.Init(0, starts[e2]); gpu.Flush(); GameState gc2, gg2; std::vector<Action> z2(P); cpu.Refresh(0, gc2, z2); gpu.Refresh(0, gg2, z2);
+				std::vector<PhysState> sl(8); const float* q = gpu.batch.BallPredSlices(0); for (int k = 0; k < 8; k++) { sl[k].pos = Vec(q[k * 6], q[k * 6 + 1], q[k * 6 + 2]); sl[k].vel = Vec(q[k * 6 + 3], q[k * 6 + 4], q[k * 6 + 5]); }
+				obsG.SetExternalBallPred(sl); FList a = obsC.BuildObs(gc2.players[0], gc2), b = obsG.BuildObs(gg2.players[0], gg2);
+				for (int k = 0; k < 8; k++) for (int f = 0; f < 6; f++) { double d = fabs((double)a[230 + k * 6 + f] - b[230 + k * 6 + f]); sum[k] += d; cnt[k]++; mx[k] = std::max(mx[k], d); }
+			}
+			std::cout << "ball prediction error by slice (0.25 s each): mean|d| / max|d|\n"; for (int k = 0; k < 8; k++) std::cout << "  slice " << k + 1 << ": " << sum[k] / cnt[k] << " / " << mx[k] << "\n";
+		}
+		std::cout << "features 230..277 (ball prediction): max|d|=" << pm << " feature-rows>1e-3: " << pb << "\n";
+		return 0;
+	}
+#endif
 	torch::Device dev(torch::kCUDA, 0);
 	GGL::GGLBotOpponent botB(GGL::GGLBotKind::PULSAR2, args["--blue"], dev), botO(GGL::GGLBotKind::PULSAR2, args["--orange"], dev);
 	DefaultAction parser;
@@ -195,16 +235,27 @@ int main(int argc, char** argv) {
 	std::vector<std::vector<float>> prevBoost(K, std::vector<float>(P, 0)); std::vector<Ep> done; done.reserve(episodes);
 	int nextEp = 0;
 	std::vector<bool> maskB(K * P), maskO(K * P); std::vector<uint8_t> prevTerm(K, 0); std::vector<int> outB(K * P, 0), outO(K * P, 0);
+	std::vector<int> needRefresh;
 	auto load = [&](int a) {
 		if (nextEp >= episodes) { epIdx[a] = -1; return; }
 		epIdx[a] = nextEp++; cur[a] = Ep(); cur[a].kickoff = starts[epIdx[a]].kickoff;
 		eng->Init(a, starts[epIdx[a]]);
 		for (auto& x : act[a]) x = Action{};
-		eng->Refresh(a, gs[a], act[a]);
-		for (int i = 0; i < P; i++) prevBoost[a][i] = gs[a].players[i].boost;
+		needRefresh.push_back(a);
+	};
+	// Newly loaded arenas must be read AFTER the engine has made their state visible (GPU: a download), never before.
+	auto flushAndRefresh = [&]() {
+		if (needRefresh.empty()) return;
+		eng->Flush();
+		for (int a : needRefresh) { eng->Refresh(a, gs[a], act[a]); for (int i = 0; i < P; i++) prevBoost[a][i] = gs[a].players[i].boost; }
+		needRefresh.clear();
 	};
 	for (int a = 0; a < K; a++) load(a);
-	for (int a = 0; a < K; a++) for (int i = 0; i < P; i++) { bool isBlue = gs[a].players.empty() ? true : gs[a].players[i].team == Team::BLUE; maskB[a * P + i] = isBlue; maskO[a * P + i] = !isBlue; }
+	flushAndRefresh();
+	for (int a = 0; a < K; a++) for (int i = 0; i < P; i++) {
+		bool isBlue = TeamOfSlot(blue, orange, i) == 0; maskB[a * P + i] = isBlue; maskO[a * P + i] = !isBlue;
+		if ((gs[a].players[i].team == Team::BLUE) != isBlue) { std::cerr << "FATAL: arena " << a << " slot " << i << " has the wrong team after init\n"; return 3; }
+	}
 	auto t0 = std::chrono::steady_clock::now(); long long totalSteps = 0;
 	while (true) {
 		int active = 0; for (int a = 0; a < K; a++) active += epIdx[a] >= 0; if (!active) break;
@@ -230,6 +281,7 @@ int main(int argc, char** argv) {
 			if (goal) team = gs[a].ball.pos.y > 0 ? 0 : 1; // blue scores at +y
 			if (goal || e.sinceTouch >= NO_TOUCH_STEPS || e.steps >= MAX_STEPS) { e.goal = goal ? team : -1; done.push_back(e); load(a); }
 		}
+		flushAndRefresh();
 		if (totalSteps % 20000 < K) std::cerr << "\r" << done.size() << "/" << episodes << " episodes, " << totalSteps << " steps, " << (int)(totalSteps / std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count()) << " steps/s   " << std::flush;
 	}
 	std::ofstream out(args["--out"]);
