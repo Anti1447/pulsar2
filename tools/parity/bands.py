@@ -52,6 +52,19 @@ def checks(name, G, C):
         dg, dc = hdisp(G, 135), hdisp(C, 135)  # 1 s after the second input at tick 15
         chk("hdisp@1s after input (rel or 20uu)", min(rel(dg, dc), abs(dg - dc) / 20.0 * 0.08), 0.08)
         chk("landing orient deg", fwd(G, C, len(C) - 1), 5)
+    elif name.startswith("ball_goal_"):
+        # An episode ends when the ball crosses the goal line (y > 5124.25 + 91.25), so only the approach and the crossing matter, not the net.
+        def cross(R): return next((i for i, r in enumerate(R) if r["bpy"] > 5215.5), None)
+        cg, cc = cross(G), cross(C)
+        chk("scored in both (0 = same outcome)", 0.0 if (cg is None) == (cc is None) else 1.0, 0.5)
+        if cg is not None and cc is not None:
+            chk("goal-line crossing tick diff", abs(cg - cc), 1.5)
+            chk("crossing ball speed rel", rel(bspeed(G[cg]), bspeed(C[cc]), 50), 0.03)
+        else:  # rim hit: compare 60 ticks after the CPU's closest approach to the goal line
+            t = max(range(len(C)), key=lambda i: C[i]["bpy"]) + 60
+            chk("ball pos 0.5 s after rim contact", dist([at(G, t)["bpx"], at(G, t)["bpy"], at(G, t)["bpz"]], [at(C, t)["bpx"], at(C, t)["bpy"], at(C, t)["bpz"]]), 40)
+    elif name == "ball_back_wall":
+        pass  # clips the crossbar and rides the net; superseded by the ball_goal_* scenarios
     elif name.startswith("ball_") and "parked" not in name:
         chk("ball pos@2s", dist([at(G, 240)["bpx"], at(G, 240)["bpy"], at(G, 240)["bpz"]], [at(C, 240)["bpx"], at(C, 240)["bpy"], at(C, 240)["bpz"]]), 30)
         chk("ball speed@2s rel", rel(bspeed(at(G, 240)), bspeed(at(C, 240)), 50), 0.03)

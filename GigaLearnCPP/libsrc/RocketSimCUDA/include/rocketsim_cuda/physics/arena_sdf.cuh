@@ -121,6 +121,32 @@ __device__ __forceinline__ void arena_sdf_and_normal(
         }
     }
 
+    // 2b. Pulsar patch P1-3: THE GOAL MOUTH. Upstream's back wall (y = 5120) was solid everywhere in front of the goal, so a ball
+    // rolling or flying straight at the net bounced off an invisible plane ~91 uu (one ball radius) short of the goal line and no goal
+    // could be scored in open play. The wall has a hole where |x| < 892.8 and z < 642.7; there the nearest solid is the rim of the
+    // opening (posts and crossbar), at distance sqrt(dy^2 + e^2) with e the distance to the nearest rim edge. The floor continues
+    // into the cavity, so only the floor competes with the rim here.
+    if (y_abs < SDF_ARENA_EXTENT_Y && x_abs < SDF_GOAL_HALF_WIDTH && z < SDF_GOAL_HEIGHT) {
+        float dy = y_abs - SDF_ARENA_EXTENT_Y;               // negative: in front of the goal line
+        float e_post = SDF_GOAL_HALF_WIDTH - x_abs;           // to the nearer post (horizontal)
+        float e_bar  = SDF_GOAL_HEIGHT - z;                   // to the crossbar (vertical)
+        bool nearPost = e_post <= e_bar;
+        float e = nearPost ? e_post : e_bar;
+        float r = sqrtf(dy * dy + e * e);
+        if (r < z) {
+            out_dist = r;
+            float inv = (r > 1e-6f) ? (1.0f / r) : 1.0f;
+            // direction from the rim point to p, into the arena
+            if (nearPost) out_normal = Vec3(-sx * e * inv, sy * dy * inv, 0.0f); // away from the post, toward the centre and back into the field
+            else          out_normal = Vec3(0.0f, sy * dy * inv, -e * inv);      // down and back from the crossbar
+            return;
+        }
+        // the floor is closer: flat floor, normal up (the floor fillet of the real arena stops at the opening)
+        out_dist = z;
+        out_normal = Vec3(0.0f, 0.0f, 1.0f);
+        return;
+    }
+
     // 3. 2D Wall Distance and Normal in First Quadrant
     float nx_quad = 0.0f;
     float ny_quad = 0.0f;

@@ -81,6 +81,10 @@ namespace parity {
 		ballOnly("ball_back_wall", { 0, 4500, 500 }, { 0, 2000, 300 }, { 0, 0, 0 }, 240);
 		ballOnly("ball_ceiling", { 0, 0, 1500 }, { 300, 200, 1500 }, { 0, 0, 0 }, 300);
 		ballOnly("ball_corner", { 3000, 4000, 600 }, { 1500, 1500, 0 }, { 0, 0, 0 }, 300);
+		ballOnly("ball_goal_center", { 0, 4300, 250 }, { 0, 1800, 0 }, { 0, 0, 0 }, 300);
+		ballOnly("ball_goal_post", { 950, 4300, 250 }, { 0, 1800, 0 }, { 0, 0, 0 }, 300);
+		ballOnly("ball_goal_crossbar", { 0, 4300, 560 }, { 0, 1800, 120 }, { 0, 0, 0 }, 300);
+		ballOnly("ball_goal_diagonal", { -600, 3800, 200 }, { 700, 1700, 0 }, { 0, 0, 0 }, 300);
 		ballOnly("ball_angled_floor", { 0, 0, 300 }, { 900, 600, -900 }, { 2, -3, 1 }, 360);
 
 		// ---- car hits ball (engine_probe scenario 4 plus off-center and height variants)

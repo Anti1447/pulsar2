@@ -25,3 +25,12 @@ add_executable(gpu_parity_replay gpu_parity_replay.cu)
 target_include_directories(gpu_parity_replay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(gpu_parity_replay PRIVATE rocketsim_cuda_core)
 set_target_properties(gpu_parity_replay PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
+
+# L2 adapter tests link the adapter library
+add_executable(test_l2_arena_batch test_l2_arena_batch.cu ${GPU_TESTS_COMMON})
+target_include_directories(test_l2_arena_batch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(test_l2_arena_batch PRIVATE pulsar_gpu_adapter)
+set_target_properties(test_l2_arena_batch PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
+add_test(NAME test_l2_arena_batch COMMAND test_l2_arena_batch)
+set_tests_properties(test_l2_arena_batch PROPERTIES LABELS "unit;gpu")
+pulsar_gpu_test(test_l1_goal_mouth unit;gpu;parity)
