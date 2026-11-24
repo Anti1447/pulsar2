@@ -147,25 +147,35 @@ namespace RLGC {
 				return false;
 			};
 
-			// The air-player: placed into the mode's setup.
-			auto fnSetAir = [&](Car* car) {
+			// The two air-players (one per team) get mirrored slots around the ball, so neither starts closer by construction and
+			// they never coincide. Until 2026-11-17 both were sampled at the same spot and the second (orange) was lifted 350 uu
+			// on overlap: flip-reset put that car inside the ball in 37% of resets (orange first touch 741 vs 251), carry let blue
+			// start closer in 67% and score 60% (docs/GCO_RESET_MIX.md P2). Now:
+			//   flip-reset  below the ball on OPPOSITE sides of its vertical axis (shared random bearing, slot 1 = +180 deg),
+			//               horizontal offset 180..280 each, so the cars are >= 360 apart and both see the ball wheels-first.
+			//   carry       behind and below the ball on OPPOSITE lateral (x) sides, 180..260 each, so >= 360 apart.
+			// Each slot's distribution is identical; the bearing / side sign is random, so the slots are colour-fair.
+			const float airBearing = RandFloat(0, 2 * M_PI);
+			const float carrySide = RandInt(0, 2) ? 1.f : -1.f;
+			auto fnSetAir = [&](Car* car, int slot) {
 				CarState cs = {};
 				Vec carPos = {};
+				const float slotSign = slot == 0 ? 1.f : -1.f;
 
 				if (flipReset) {
-					// Directly below the ball so "down" (the wheels) points at it; a small
-					// horizontal jitter keeps LookAt well-defined.
+					// Below the ball so "down" (the wheels) points at it.
 					float drop = RandFloat(300, 520);
-					carPos = bs.pos + Vec(RandFloat(-200, 200), RandFloat(-200, 200), -drop);
+					float h = RandFloat(180, 280);
+					carPos = bs.pos + Vec(cosf(airBearing) * h * slotSign, sinf(airBearing) * h * slotSign, -drop);
 				} else {
-					// Behind (goal-side of the ball's travel) and just below it.
+					// Behind (goal-side of the ball's travel), just below it, to one side.
 					carPos = bs.pos - Vec(0, attackSign * RandFloat(250, 500), RandFloat(60, 200));
+					carPos.x += carrySide * slotSign * RandFloat(180, 260);
 				}
 				carPos.x = RS_CLAMP(carPos.x, -clampX, clampX);
 				carPos.y = RS_CLAMP(carPos.y, -clampY, clampY);
+				carPos = ClampToCorners(carPos);
 				carPos.z = RS_MAX(300.f, carPos.z); // clearly airborne
-				if (fnOverlaps(carPos))
-					carPos.z += CAR_SEPARATION;
 				placed.push_back(carPos);
 				cs.pos = carPos;
 
@@ -220,12 +230,13 @@ namespace RLGC {
 					float dist = RandFloat(supportMinDist, supportMaxDist);
 					carPos = ballShadow + Vec(cosf(theta) * dist, sinf(theta) * dist, 0);
 					carPos.z = 17;
-					if (fabsf(carPos.x) > clampX || fabsf(carPos.y) > clampY) continue;
+					if (fabsf(carPos.x) > clampX || fabsf(carPos.y) > clampY || !InsideCorners(carPos)) continue;
 					ok = !fnOverlaps(carPos);
 				}
 				if (!ok) {
 					carPos.x = RS_CLAMP(carPos.x, -clampX, clampX);
 					carPos.y = RS_CLAMP(carPos.y, -clampY, clampY);
+					carPos = ClampToCorners(carPos);
 					carPos.z = 17;
 				}
 				placed.push_back(carPos);
@@ -259,7 +270,7 @@ namespace RLGC {
 
 			for (int t = 0; t < 2; t++)
 				if (!teamCars[t].empty())
-					fnSetAir(teamCars[t][airIdx[t]]);
+					fnSetAir(teamCars[t][airIdx[t]], t);
 			for (int t = 0; t < 2; t++)
 				for (int i = 0; i < (int)teamCars[t].size(); i++)
 					if (i != airIdx[t])

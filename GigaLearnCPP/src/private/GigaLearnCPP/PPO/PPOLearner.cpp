@@ -7,6 +7,8 @@
 #include <public/GigaLearnCPP/Util/AvgTracker.h>
 #include <RLGymCPP/CommonValues.h>
 #include "../Util/Plasticity.h"
+#include <ATen/cuda/CUDAEvent.h>
+#include <c10/cuda/CUDAStream.h>
 
 using namespace torch;
 
@@ -479,6 +481,22 @@ torch::Tensor ComputeEntropy(torch::Tensor probs, torch::Tensor actionMasks, boo
 void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool isFirstIteration) {
 	auto mseLoss = torch::nn::MSELoss();
 
+	// LEARN-PASS PHASE TIMERS (2026-11-23, measurement only; docs/GCO_IMITATION_CHRONOS.md aside, see the speed discussion in the session record): CUDA events on the current
+	// stream around the minibatch forward+loss, the backward, the clip block and StepOptims. No synchronisation is added (the elapsed times are read once, after the
+	// learn pass's own final .item() sync), so the timers do not change the schedule of the kernels. Panels: "Learn Phase/*" in ms per learn pass.
+	struct PhaseEv { at::cuda::CUDAEvent a{ cudaEventDefault }, b{ cudaEventDefault }; };
+	std::vector<std::unique_ptr<PhaseEv>> evFwd, evBwd, evClip, evOpt;
+	const bool phaseTimers = device.is_cuda();
+	auto evStart = [&](std::vector<std::unique_ptr<PhaseEv>>& v) {
+		if (!phaseTimers) return;
+		v.push_back(std::make_unique<PhaseEv>());
+		v.back()->a.record(c10::cuda::getCurrentCUDAStream(device.index()));
+	};
+	auto evStop = [&](std::vector<std::unique_ptr<PhaseEv>>& v) {
+		if (!phaseTimers || v.empty()) return;
+		v.back()->b.record(c10::cuda::getCurrentCUDAStream(device.index()));
+	};
+
 
 	MutAvgTracker
 		avgEntropy,
@@ -617,6 +635,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 				batchKeptRows = RS_MAX(batchAdvFilter.sum().item<float>(), 1.f);
 
 			auto fnRunMinibatch = [&](int64_t start, int64_t stop) {
+				evStart(evFwd);
 
 				float batchSizeRatio = (stop - start) / (float)curBatchSize;
 
@@ -1104,8 +1123,11 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					}
 				}
 
+				evStop(evFwd);
+				evStart(evBwd);
 				if (totalLoss.defined())
 					totalLoss.backward();
+				evStop(evBwd);
 			};
 
 			
@@ -1121,6 +1143,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 			}
 
 
+			evStart(evClip);
 			if (trainPolicy)
 				nn::utils::clip_grad_norm_(models["policy"]->parameters(), 0.5f);
 			if (trainCritic)
@@ -1164,7 +1187,10 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					nn::utils::clip_grad_norm_(reach->psiCarState->parameters(), 0.5f);
 			}
 
+			evStop(evClip);
+			evStart(evOpt);
 			models.StepOptims();
+			evStop(evOpt);
 		}
 	}
 
@@ -1182,6 +1208,20 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 	float criticUpdateMagnitude = (criticBefore - criticAfter).norm().item<float>();
 	float vdagUpdateMagnitude = vdagBefore.defined()
 		? (vdagBefore - models["vdag1"]->CopyParams()).norm().item<float>() : 0.f;
+
+	if (phaseTimers) {
+		// The .item() calls above synchronised the device, so every event has completed.
+		auto sumMs = [&](std::vector<std::unique_ptr<PhaseEv>>& v) { float t = 0; for (auto& e : v) t += e->a.elapsed_time(e->b); return t; };
+		try {
+			report["Learn Phase/Fwd+Loss ms"] = sumMs(evFwd);
+			report["Learn Phase/Backward ms"] = sumMs(evBwd);
+			report["Learn Phase/Clip ms"] = sumMs(evClip);
+			report["Learn Phase/Optimizer ms"] = sumMs(evOpt);
+			report["Learn Phase/Minibatches"] = (float)evFwd.size();
+		} catch (const std::exception& e) {
+			RG_LOG("Learn phase timers unavailable: " << e.what());
+		}
+	}
 
 	if (reach) {
 		float carAcc = avgReachCarAcc.Get();

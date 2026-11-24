@@ -70,6 +70,12 @@ using namespace RLGC; // RLGymCPP
 // keeps the ~15s half-life (225 steps). If you change tickSkip, re-derive:
 // half-life_s = ln2 / (-ln gamma) / (120/tickSkip).
 static constexpr float TRAIN_GAMMA = 0.9969f;
+// Pulsar3 (--pulsar3, 2026-11-23): tickSkip 4 / actionDelay 0 (30 Hz) fresh lineage. The potentials' gamma is a runtime value so it can follow the learner's gaeGamma.
+static bool g_Pulsar3 = false;
+static float g_TrainGamma = TRAIN_GAMMA;      // what MakeEnv threads into BuildRewards; == cfg.ppo.gaeGamma by construction
+static float g_RewardStepScale = 1.f;         // per-step reward terms (BuildRewards stepScale)
+static constexpr float PULSAR3_GAMMA = 0.99846f;       // 15 s half-life at 30 Hz: 0.5^(1/450)
+static constexpr float PULSAR3_GOAL_GAMMA = 0.9997f;   // ~77 s half-life at 30 Hz: 0.5^(1/2310)
 
 // ---- 4.0: one net for 1v1/2v2/3v3 (team-play program) ------------------------------------
 // The 4.0 lineage trains a SINGLE policy across team sizes via a padded obs
@@ -194,7 +200,38 @@ static float TEAM_SPIRIT = 0.3f;
 // (2026-11-05) replaces it: same detector, but only paid when the credited shooter was also the LAST car
 // to touch the ball (GameEventTracker verified-shot event). OpposedSaveReward additionally closes the
 // matching self-save farm with a last-touch guard.
-std::vector<WeightedReward> BuildRewards(float gamma) {
+// === PULSAR3 REWARD STACK (user-directed 2026-11-23, supersedes the first Pulsar3 paste; docs/ledger/H-020.md) ===
+// A leaner stack than main 6.1's BuildRewards: flat DemoReward 37.5 only (no OffensiveDemo), no VerifiedShot, ConsecutiveAirTouch, WallJumpToBall, Dribble, CatchBall,
+// UnifiedAirDribble, FlipReset family or flat WavedashReward; KickoffRace 60 ON; AerialTouch 120 / AirIntercept 75 at the scaffold weights; RolvWavedash 5; GoalSpeed 75; Goal
+// exactly +-150 zero-sum (GoalReward(), no -0.85 concede discount). Classes are the repo's current ones (e.g. BallProximityPotential is the spacing-aware version).
+// stepScale (0.5 at tickSkip 4) multiplies the per-step terms so their cost per second matches tickSkip 8.
+std::vector<WeightedReward> BuildRewardsPulsar3(float gamma, float stepScale) {
+	return {
+		{ new BallToGoalPotentialReward(gamma), 75.f },
+		{ new ZeroSumReward(new TouchAccelReward(), TEAM_SPIRIT), 10.f },
+		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 37.5f },
+		{ new ZeroSumReward(new BallProximityPotentialReward(gamma), TEAM_SPIRIT), 4.f },
+		{ new ZeroSumReward(new GuardedPickupBoostReward(), TEAM_SPIRIT), 6.f },
+		{ new ZeroSumReward(new AerialTouchReward(), TEAM_SPIRIT), 120.f },
+		{ new ZeroSumReward(new AirInterceptPotentialReward(gamma), TEAM_SPIRIT), 75.f },
+		{ new ZeroSumReward(new OpposedSaveReward(), TEAM_SPIRIT), 25.f },
+		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 75.f },
+		{ new TimeCostReward(), 0.01f * stepScale },
+		{ new ZeroSumReward(new TeamPressureReward(), TEAM_SPIRIT), 0.15f * stepScale },
+		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 60.f },
+		{ new KickoffOutcomeReward(), 30.f },
+		{ new OffsidePenalty(), 0.1f * stepScale },
+		{ new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.2f * stepScale },
+		{ new TeammateSpacingPenalty(1000.f, 1500.f), 2.f * stepScale },
+		{ new RolvWavedashReward(), 5.0f },
+		{ new ZeroSumReward(new GoalSpeedReward(), TEAM_SPIRIT), 75.f },
+		{ new GoalReward(), 150 }
+	};
+}
+
+// stepScale (Pulsar3, 2026-11-23): multiplies the PER-STEP terms (TimeCost, TeamPressure, Offside, TooFar, TeammateSpacing) so their per-SECOND cost stays that of the
+// tickSkip-8 run when the step rate changes (tickSkip 4 => 2x the steps per second => stepScale 0.5). PBRS potentials and one-shot event rewards are unaffected.
+std::vector<WeightedReward> BuildRewards(float gamma, float stepScale = 1.f) {
 	return {
 		// ---- Proven core: bit-identical economics to the 1132-Elo run -------------
 		// Ball->goal potential (Nexto state_quality). Antisymmetric between teams, so ALREADY
@@ -308,7 +345,7 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// ESCALATE-1 (2026-07-16, user-directed): small time cost - urgency vs the
 		// measured stall/hover pathology. 0.01 -> ~4.5 per 30s episode (15Hz steps
 		// at tickSkip 8), 3% of a goal.
-		{ new TimeCostReward(), 0.01f },
+		{ new TimeCostReward(), 0.01f * stepScale },
 
 		// TEAM PRESSURE (2026-07-19, user-directed; RLGym-PPO-guide item): someone
 		// must be on the ball. -0.15/step (~ -2.25/s; a 5s collective lapse costs
@@ -322,7 +359,7 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// Zero-sum: charged relative to the opponent's own pressure state; mutual
 		// passivity cancels (accepted - TimeCost still taxes it). Watch
 		// Rewards/TeamPressureReward and the next aerial-census conversion read.
-		{ new ZeroSumReward(new TeamPressureReward(), TEAM_SPIRIT), 0.15f },
+		{ new ZeroSumReward(new TeamPressureReward(), TEAM_SPIRIT), 0.15f * stepScale },
 
 		// KICKOFF RACE (2026-07-20, user-directed: net losses come from conceded
 		// kickoff goals). Zero-sum, time-decayed first-touch reward, GATED on the
@@ -385,13 +422,13 @@ std::vector<WeightedReward> BuildRewards(float gamma) {
 		// -- Positioning penalties. Offside and TooFar apply in 1v1 too (no teammate => offside is never "covered", so the full penalty applies; TooFar has a 1v1 threshold). Only TeammateSpacing is team-only.
 		// Uncommented OffsidePenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.2f weight.
 		// 2026-11-09: Weight decreased 0.2 -> 0.1 (user-directed).
-		{ new OffsidePenalty(), 0.1f },                        // v3 Gold 0.3. raw range [-6,0] so worst case -1.8/step.
+		{ new OffsidePenalty(), 0.1f * stepScale },                        // v3 Gold 0.3. raw range [-6,0] so worst case -1.8/step.
 		// Uncommented TooFarFromTheBallPenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 0.2f weight.
-		{ new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.2f },  // v3 Gold 0.3 (thresholds 1v1/2v2/3v3, ramp half-width).
+		{ new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.2f * stepScale },  // v3 Gold 0.3 (thresholds 1v1/2v2/3v3, ramp half-width).
 		// Uncommented TeammateSpacingPenalty on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 1.f weight in preparation for Phase B. 
 		// The 1v1 case is inert by construction (returns 0).
 		// 2026-11-07: Weight increased 1 -> 2 (user-directed) to increase the bot's spacing from teammates.
-		{ new TeammateSpacingPenalty(1000.f, 1500.f), 2.f },     // v3 Gold 3.0 (thresholds 2v2/3v3). Team only: returns 0 in 1v1.
+		{ new TeammateSpacingPenalty(1000.f, 1500.f), 2.f * stepScale },     // v3 Gold 3.0 (thresholds 2v2/3v3). Team only: returns 0 in 1v1.
 		// -- Scoring / touch
 		// Uncommented GoalSpeedReward on 2026-11-05 after 1.75B steps of Phase A, bot can hit the ball consistently now. Added at 50.f weight. (1/3 of a goal)
 		// 2026-11-13: Weight increased 50 -> 75 (+50%, user-directed).
@@ -651,7 +688,7 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 			{ new NoTouchTimeoutPenalty(20), GCO_TIMEOUT_PENALTY },
 		};
 	} else {
-		result.rewards = BuildRewards(TRAIN_GAMMA);
+		result.rewards = g_Pulsar3 ? BuildRewardsPulsar3(g_TrainGamma, g_RewardStepScale) : BuildRewards(g_TrainGamma, g_RewardStepScale);
 	}
 	if (g_GCOFresh) {
 		// FRESH-START GCO reset mix (user-directed 2026-11-18): the live mix's five 20% slices with air drill and air play cut to 10% each and the
@@ -729,8 +766,12 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 		// Revert: new AirPlayState(900, 0.5f, 1500, 3000, 0.0f) at 0.15 restores the old mix exactly.
 		// 2026-11-12 (user-directed): AirPlayState 0.20 -> 0.30, carved from RandomState 0.25 -> 0.15 (the user gave no donor; Random is the broad catch-all and keeps 0.15).
 		// Of ALL resets now: wall 9%, flip-reset-ready ~10.5%, air-carry ~10.5%. Revert: 0.20 / Random 0.25.
-		{ new AirPlayState(), 0.30f },
-		{ new KickoffState(), 0.10f },
+		// 2026-11-17 (user-approved, docs/GCO_RESET_MIX.md P1): AirPlayState 0.30 -> 0.20, KickoffState 0.10 -> 0.20. The kickoff phase is 7-9x
+		// under-represented in training rows vs match time (1.1/0.43/0.35% vs 9.2/3.2/2.3% in 1v1/2v2/3v3) and the 1v1 gauntlet reads 0/96
+		// first touches. Of ALL resets now: wall 6%, flip-reset-ready 7%, air-carry 7%. Shared by main and --gco.
+		// Revert: AirPlay 0.30, Kickoff 0.10.
+		{ new AirPlayState(), 0.20f },
+		{ new KickoffState(), 0.20f },
 		// Sole source of chaotic/defensive/air-recovery states (bounds widened to corners/goal lines)
 		// 2026-11-13 (user-directed): DemoLaneState removed from the mix (header/test kept); its 0.10 went to RandomState 0.10 -> 0.20. BallNearCar stays 0.20.
 		{ new RandomState(true, true, false), 0.20f },
@@ -998,6 +1039,8 @@ static void ConfigureGCO(LearnerConfig& cfg) {
 	cfg.ppo.geoEnabled = false;
 	cfg.gapSensor.enabled = false;
 
+	// 2026-11-17: a gaeLambda 0.99 test was reverted to the 0.95 default (-3.5 pts goals-for share vs bots; docs/GCO_LAMBDA_TEST.md section 12).
+
 	cfg.metricsRunName = g_GCOLegacy ? "gco-goalcritic" : "gco-6.1";
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
@@ -1059,6 +1102,31 @@ static void ConfigureGCOFresh3(LearnerConfig& cfg) {
 		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
 }
 
+// === PULSAR3 (user-directed 2026-11-23; docs/PULSAR3.md, ledger H-020) ===
+// The main 6.1 lineage (278-dim ball-prediction obs, RocketSim 0.3.5, composition critic, reach heads, goal critic, phased play, Nexto/Galactus/Chronos/Dice serving)
+// re-timed to tickSkip 4 / actionDelay 0 (30 Hz, zero actuation latency) as a FRESH lineage in its own folder. One edit set: (1) gamma 0.9969 -> 0.99846 and the goal critic
+// 0.9994 -> 0.9997, both keeping their half-lives in SECONDS (15 s, ~77 s); the reward potentials' gamma is g_TrainGamma, set to the same value; (2) the per-step reward terms
+// halved (g_RewardStepScale 0.5, BuildRewards) so their cost per second is unchanged; (3) the value side deeper (critic trunk, critic head and goal-critic head
+// {1280 x 4}, as the ts2critdeep arm; the V-dagger twins mirror the critic); (4) the external bots wrapped to decide at their own 8-tick / 7-delay rate (DecimatedOpponent).
+// GAE lambda stays 0.95 (user-directed: one fewer change from 6.1; its span in seconds halves). Everything else (rewards, reset mix, phases, optimizer, batch) is main's.
+static void ConfigurePulsar3(LearnerConfig& cfg) {
+	cfg.tickSkip = 4;
+	cfg.actionDelay = 0;
+	cfg.ppo.gaeGamma = PULSAR3_GAMMA;
+	cfg.ppo.goalCritic.gamma = PULSAR3_GOAL_GAMMA;
+	cfg.ppo.criticTrunk.layerSizes = { 1280, 1280, 1280, 1280 };
+	cfg.ppo.critic.layerSizes = { 1280, 1280, 1280, 1280 };
+	cfg.ppo.goalCritic.model.layerSizes = { 1280, 1280, 1280, 1280 };
+	// The bots were trained at 8 ticks / 7-tick latency; DecimatedOpponent needs (botActionDelay - actionDelay) % tickSkip == 0, and 7 is not a multiple of 4. User-directed
+	// 2026-11-23: latency 4 (their action lands 3 ticks = 25 ms earlier than trained), only on served iterations.
+	cfg.externalOpponent.botTickSkip = 8;
+	cfg.externalOpponent.botActionDelay = 4;
+	cfg.checkpointFolder = "checkpoints_pulsar3";
+	cfg.metricsRunName = "pulsar3";
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
+		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
+}
+
 // === GCO FORK ARMS (docs/GCO_POSTWALL_FORKS.md): ConfigureGCOFresh plus the one lever of the arm ===
 static void ConfigureGCOFork(LearnerConfig& cfg, const std::string& arm) {
 	ConfigureGCOFresh(cfg);
@@ -1070,7 +1138,60 @@ static void ConfigureGCOFork(LearnerConfig& cfg, const std::string& arm) {
 		cfg.trainAgainstOldChance = 0.30f;
 		cfg.externalOpponent.serveFrac = 0.f;
 	}
-	if (arm == "nexchron" || arm == "nexchronkick" || arm == "nexchron2") { // nexchronkick (H-009): the same opponent mix plus the kick reset mix (g_GCOForkKick)
+	if (arm.rfind("ts2", 0) == 0) { // ts2, ts2deep, ts2critdeep, ts2wide: the architecture-comparison family (H-014..H-017)
+		// BATCH 800k ROWS, ONE EPOCH (user-directed 2026-11-23, ledger H-019; first tried at 1.6M for ~3 minutes, then changed to 800k; supersedes the 400k / 2-epoch settings of the first ts2 runs, whose folders are quarantined as
+		// *_OLD_B400K_E2_20261123). Rationale: sparse learning signal and 4x as many (smaller) steps per second of play, so each pass should see more data. Consequence to read
+		// against: one optimizer step per iteration (the gradient is accumulated over all minibatches), so 1 step per 800k rows against 1 per 200k before = 4x fewer nudges per row
+		// at the SAME learning rate; the learning rate is deliberately not retuned (one lever). miniBatchSize stays 25k (divides 800k: 32 accumulated minibatches), so the
+		// learn-pass memory peak is unchanged. GGL_TS2_LEGACY=1 restores 400k / 2 epochs to resume the quarantined runs.
+		if (!(std::getenv("GGL_TS2_LEGACY") && std::getenv("GGL_TS2_LEGACY")[0] == '1')) {
+			cfg.ppo.tsPerItr = 800'000;
+			cfg.ppo.batchSize = 800'000;
+			cfg.ppo.epochs = 1;
+			// miniBatchSize stays 25k: a 6.25k trial (2026-11-23) gave a faster collection but a slower learn pass and no clear overall gain; reverted (docs/GCO_SPEED.md).
+		}
+		// TICKSKIP-2 FRESH RUN (user-directed 2026-11-22, docs/GCO_TS2.md): decisions at 60 Hz (tickSkip 2, actionDelay 1), a fresh network. Every step-denominated
+		// horizon is multiplied by 4 so the horizons in SECONDS are unchanged: gamma 0.9969 (322 steps) -> 0.99922 (1288 steps), the goal critic 0.9994 (1667 steps) ->
+		// 0.99985 (6667 steps), and GAE lambda 0.95 (20 steps) -> 0.9875 (80 steps; the lambda scaling goes beyond the two gammas the user named: it is the same compensation
+		// and keeps the bias/variance balance in seconds). Time-based parts (the 20 s no-touch timeout, gauntlet game length, skill tracker) already derive from tickSkip.
+		cfg.tickSkip = 2;
+		cfg.actionDelay = 1;
+		cfg.ppo.gaeGamma = 0.99922f;
+		cfg.ppo.gaeLambda = 0.9875f;
+		cfg.ppo.goalCritic.gamma = 0.99985f;
+		// The four external bots were trained at one decision per 8 ticks with a 7-tick latency: each is wrapped (DecimatedOpponent) so it still decides at that rate.
+		cfg.externalOpponent.botTickSkip = 8;
+		cfg.externalOpponent.botActionDelay = 7;
+	}
+	if (arm == "ts2deep") {
+		// H-015 (user-directed 2026-11-23, revised from a 1.5x-width plan the same day): the ts2 run with every network DEEPER, widths unchanged, nothing else changed
+		// (fresh network, same seed, mix, opponents, horizons). The residual machinery (Models.cpp, addResiduals is already on) turns every PAIR of layers after the
+		// stem into a residual block, and {W,W} gets no block, so ts2's shared trunk {1152,1152} and critic bodies {1280,1280} are plain and its policy {1024 x4} is stem + 1 block + 1 plain.
+		// Here: shared trunk 2 -> 4 layers (stem + 1 block + plain), policy 4 -> 6 (stem + 2 blocks + plain), critic trunk 2 -> 4, critic and goal-critic heads 2 -> 4
+		// (stem + 1 block + plain). So the deeper stacks are residual where ts2's were plain; that is part of the lever (plain deep stacks measured worse, ExampleMain 5.0 notes).
+		// Policy path 6.08M -> ~10.8M params. The policy learning rate and miniBatchSize are deliberately NOT retuned: one lever.
+		cfg.ppo.sharedHead.layerSizes = { 1152, 1152, 1152, 1152 };
+		cfg.ppo.policy.layerSizes = { 1024, 1024, 1024, 1024, 1024, 1024 };
+		cfg.ppo.criticTrunk.layerSizes = { 1280, 1280, 1280, 1280 };
+		cfg.ppo.critic.layerSizes = { 1280, 1280, 1280, 1280 };
+		cfg.ppo.goalCritic.model.layerSizes = { 1280, 1280, 1280, 1280 };
+	}
+	if (arm == "ts2critdeep") {
+		// H-016 (user-directed 2026-11-23): the VALUE side only is deeper (critic trunk, critic head and goal-critic head 2 -> 4 layers, 1280 wide); the shared trunk and the
+		// policy keep ts2's shapes, so the deployed bot is exactly ts2's size. Same residual-block caveat as ts2deep for the value stacks.
+		cfg.ppo.criticTrunk.layerSizes = { 1280, 1280, 1280, 1280 };
+		cfg.ppo.critic.layerSizes = { 1280, 1280, 1280, 1280 };
+		cfg.ppo.goalCritic.model.layerSizes = { 1280, 1280, 1280, 1280 };
+	}
+	if (arm == "ts2wide") {
+		// H-017 (user-directed 2026-11-23): every network 1.5x wider, depth unchanged: shared trunk 1152 -> 1728, policy 4 x 1024 -> 4 x 1536, critic trunk / critic / goal-critic 1280 -> 1920.
+		cfg.ppo.sharedHead.layerSizes = { 1728, 1728 };
+		cfg.ppo.policy.layerSizes = { 1536, 1536, 1536, 1536 };
+		cfg.ppo.criticTrunk.layerSizes = { 1920, 1920 };
+		cfg.ppo.critic.layerSizes = { 1920, 1920 };
+		cfg.ppo.goalCritic.model.layerSizes = { 1920, 1920 };
+	}
+	if (arm == "nexchron" || arm == "nexchronkick" || arm == "nexchron2" || arm.rfind("ts2", 0) == 0) { // nexchronkick (H-009): the same opponent mix plus the kick reset mix (g_GCOForkKick)
 		// Nexto + ChronosV2 together (user-directed 2026-11-21, after the single-bot arms): the same 30% total serve share, split by the uniform pick (15% each).
 		// Galactus and Dice stay in the gauntlet as the held-out bots.
 		int served = 0;
@@ -1293,6 +1414,7 @@ int main(int argc, char* argv[]) {
 	int64_t exploiterStepsArg = 0;
 	bool exploiterAuto = false, newExploiter = false, finishExploiter = false, discardExploiter = false;
 	bool runTogether = false, slotGiven = false, gcoArg = false, noExploiterPool = false, gcoLegacyArg = false, gcoFreshArg = false, gcoFresh2Arg = false, gcoFresh3Arg = false, gcoFresh4Arg = false, gcoFresh4cArg = false, gcoFresh4c2Arg = false, gcoFresh4k2Arg = false;
+	bool pulsar3Arg = false; // --pulsar3: the tickSkip-4 / actionDelay-0 fresh main lineage (ConfigurePulsar3)
 	std::string gcoForkArm; // "ctrl" / "kick" / "opp" (--gco-fork-<arm>)
 	int exploiterSlot = 0;
 	for (int i = 1; i < argc; i++) {
@@ -1333,12 +1455,6 @@ int main(int argc, char* argv[]) {
 			gcoFresh3Arg = true; // the same configuration as fresh3 (mix, twins off), then the heads on and its own folder / run name
 			gcoFresh4Arg = true;
 			setenv("GGL_CRITIC_HEADS", "1", 1); // before the first CriticHeadsEnabled() call (the models are built later)
-		} else if (arg == "--gco-fresh3") {
-			gcoArg = true;
-			gcoFreshArg = true;
-			gcoFresh3Arg = true;
-		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2"
-			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron" || arg == "--gco-fork-nexchronkick" || arg == "--gco-fork-nexchron2" || arg == "--gco-fork-kick2") {
 		} else if (arg == "--gco-fresh4c2") { // H-010 replicate: the coupled fork with seed 456 and its own folder
 			gcoArg = true; gcoFreshArg = true; gcoFresh3Arg = true; gcoFresh4Arg = true; gcoFresh4cArg = true; gcoFresh4c2Arg = true;
 			setenv("GGL_CRITIC_HEADS", "1", 1);
@@ -1350,6 +1466,12 @@ int main(int argc, char* argv[]) {
 			gcoArg = true; gcoFreshArg = true; gcoFresh3Arg = true; gcoFresh4Arg = true; gcoFresh4cArg = true;
 			setenv("GGL_CRITIC_HEADS", "1", 1);
 			setenv("GGL_HEADS_COUPLE", "0.1", 1);
+		} else if (arg == "--gco-fresh3") {
+			gcoArg = true;
+			gcoFreshArg = true;
+			gcoFresh3Arg = true;
+		} else if (arg == "--gco-fork-ctrl" || arg == "--gco-fork-kick" || arg == "--gco-fork-opp" || arg == "--gco-fork-kickopp" || arg == "--gco-fork-ctrl2"
+			|| arg == "--gco-fork-nexto" || arg == "--gco-fork-galactus" || arg == "--gco-fork-chronos" || arg == "--gco-fork-dice" || arg == "--gco-fork-nexchron" || arg == "--gco-fork-nexchronkick" || arg == "--gco-fork-nexchron2" || arg == "--gco-fork-ts2" || arg == "--gco-fork-ts2deep" || arg == "--gco-fork-ts2critdeep" || arg == "--gco-fork-ts2wide" || arg == "--gco-fork-kick2") {
 			gcoArg = true;
 			gcoFreshArg = true;
 			gcoForkArm = arg.substr(std::string("--gco-fork-").size());
@@ -1361,11 +1483,13 @@ int main(int argc, char* argv[]) {
 			gcoArg = true;
 		} else if (arg == "--no-exploiter-pool") {
 			noExploiterPool = true;
+		} else if (arg == "--pulsar3") {
+			pulsar3Arg = true;
 		} else {
 			std::cout << "Unknown argument \"" << arg << "\". Options: --exploiter-auto, --slot <N>, --new-exploiter, "
 				<< "--exploiter <checkpoint folder>, --exploiter-name <name>, --exploiter-steps <N>, --exploiter-target <bot>, "
 				<< "--finish-exploiter [name], --discard-exploiter [name], --together, --alone, "
-				<< "--gco, --gco-fresh, --gco-5.3, --gco-from <checkpoint folder>, --no-exploiter-pool\n";
+				<< "--gco, --gco-fresh, --gco-5.3, --gco-from <checkpoint folder>, --no-exploiter-pool, --pulsar3\n";
 			return 1;
 		}
 	}
@@ -1374,6 +1498,17 @@ int main(int argc, char* argv[]) {
 	// Main 6.0 and its exploiters use the ball-prediction obs; the GCO lineage (and exploiters targeting it) keep 5.3's
 	g_GCOLegacy = gcoLegacyArg;
 	g_BallPredObs = !gcoLegacyArg;
+	if (pulsar3Arg) {
+		if (gcoArg || exploiterRunArg) {
+			std::cout << "[CONFIG] --pulsar3 is its own lineage and can't be combined with --gco* or exploiter options. Not starting.\n";
+			return 1;
+		}
+		// Before any env is built: the reward potentials read these in MakeEnv, and they must equal cfg.ppo.gaeGamma (ConfigurePulsar3) or PBRS stops telescoping.
+		g_Pulsar3 = true;
+		g_TrainGamma = PULSAR3_GAMMA;
+		g_RewardStepScale = 0.5f;
+		noExploiterPool = true; // the 6.1 exploiter pool was trained at 15 Hz: wrong rate for this lineage's arenas
+	}
 
 	// Initialize RocketSim with collision meshes (run from the repo/build dir;
 	// provision them with tools/get_collision_meshes.sh if missing)
@@ -1428,7 +1563,9 @@ int main(int argc, char* argv[]) {
 	cfg.randomSeed = 123;
 
 	// 200k, the proven-good-era value (the recent uncommitted 100k edit was NOT in the good run).
-	int tsPerItr = 200'000;
+	// 2026-11-17 (user-directed): 200k -> 400k rows per iteration (noisier sparse-goal advantages under GCO). batchSize follows it.
+	// miniBatchSize stays 25k (divides 400k, 16 passes), so the learn-pass peak is unchanged. Revert: 200'000.
+	int tsPerItr = 400'000;
 	cfg.ppo.tsPerItr = tsPerItr;
 	cfg.ppo.batchSize = tsPerItr;
 	// 100k (was 200k): at 512-wide the learn pass holds autograd for policy+critic+goal-critic
@@ -1866,7 +2003,6 @@ int main(int argc, char* argv[]) {
 	// overrides the poll interval (seconds; <= 0 pins to the checkpoint loaded at startup).
 	cfg.renderMode = false;
 	if (const char* r = std::getenv("GGL_RENDER"); r && r[0] && std::string(r) != "0")
-	if (const char* h = std::getenv("GGL_H2H_OPP"); h && h[0]) cfg.sendMetrics = false; // offline head-to-head (docs/GCO_H2H_EVAL.md): no W&B run
 		cfg.renderMode = true;
 	if (const char* s = std::getenv("GGL_RENDER_RELOAD_SECS"))
 		cfg.renderReloadSecs = (float)std::atof(s);
@@ -2051,9 +2187,9 @@ int main(int argc, char* argv[]) {
 				: std::filesystem::path(bot.path) / "POLICY.lt";
 			if (std::filesystem::exists(file))
 				cfg.externalOpponent.bots.push_back({ bot.kind, bot.path,
-					// 2026-11-15 (user-directed): Nexto no longer serves training (its panels and the gauntlet stay). The serve
-					// share is split over the other three (6.67% each at serveFrac 0.20). Revert: always true.
-					bot.kind != ExternalBotKind::NEXTO });
+					// 2026-11-15: Nexto stopped serving training. 2026-11-17 (user-directed): it serves again ("still useful"),
+					// so the serve share is split four ways (5% each at serveFrac 0.20). Revert: `bot.kind != ExternalBotKind::NEXTO`.
+					true });
 			else
 				RG_LOG("WARNING: external opponent " << file << " not found, playing without it");
 		}
@@ -2100,6 +2236,8 @@ int main(int argc, char* argv[]) {
 		cfg.checkpointFolder = !gcoForkArm.empty() ? std::filesystem::path("checkpoints_gco_fork_" + gcoForkArm) : gcoFresh4k2Arg ? std::filesystem::path("checkpoints_gco_fresh4k2") : gcoFresh4c2Arg ? std::filesystem::path("checkpoints_gco_fresh4c2") : gcoFresh4cArg ? std::filesystem::path(GCO_FRESH4C_CHECKPOINT_FOLDER) : gcoFresh4Arg ? std::filesystem::path(GCO_FRESH4_CHECKPOINT_FOLDER) : gcoFresh3Arg ? GCO_FRESH3_CHECKPOINT_FOLDER : gcoFresh2Arg ? GCO_FRESH2_CHECKPOINT_FOLDER : gcoFreshArg ? GCO_FRESH_CHECKPOINT_FOLDER : (g_GCOLegacy ? GCO_LEGACY_CHECKPOINT_FOLDER : GCO_CHECKPOINT_FOLDER);
 		mainCheckpointFolder = g_GCOLegacy ? GCO_LEGACY_SOURCE_FOLDER : GCO_SOURCE_FOLDER;
 	}
+	if (pulsar3Arg)
+		ConfigurePulsar3(cfg);
 	ConfigureExploiterSettings(cfg);
 	std::filesystem::path exploitersRoot = cfg.exploiterPool.exploitersFolder;
 	int numSlots = (int)cfg.exploiter.slotRoles.size();
@@ -2180,7 +2318,7 @@ int main(int argc, char* argv[]) {
 			g_GCOFresh = true;
 			g_GCOFresh2 = gcoFresh2Arg;
 			g_GCOFresh3 = gcoFresh3Arg;
-			g_GCOForkKick = (gcoForkArm == "kick" || gcoForkArm == "kickopp" || gcoForkArm == "nexchronkick" || gcoForkArm == "kick2"); // kickopp = arms 2 and 3 combined (docs/GCO_POSTWALL_FORKS.md section 9)
+			g_GCOForkKick = (gcoForkArm == "kick" || gcoForkArm == "kickopp" || gcoForkArm == "nexchronkick" || gcoForkArm == "kick2" || (gcoForkArm.rfind("ts2", 0) == 0 && std::filesystem::exists(cfg.checkpointFolder / "KICK_MIX"))); // kickopp = arms 2 and 3 combined (docs/GCO_POSTWALL_FORKS.md section 9)
 			g_GCOMode = true;
 			if (!gcoForkArm.empty()) ConfigureGCOFork(cfg, gcoForkArm); else if (gcoFresh3Arg) { ConfigureGCOFresh3(cfg); if (gcoFresh4Arg) cfg.metricsRunName = gcoFresh4k2Arg ? "gco-fresh4k2" : gcoFresh4c2Arg ? "gco-fresh4c2" : gcoFresh4cArg ? "gco-fresh4c" : "gco-fresh4"; if (gcoFresh4c2Arg || gcoFresh4k2Arg) cfg.randomSeed = 456; } else if (gcoFresh2Arg) ConfigureGCOFresh2(cfg); else ConfigureGCOFresh(cfg);
 		} else {

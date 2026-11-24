@@ -79,7 +79,7 @@ namespace RLGC {
 					carPos = bs.pos + dir * dist;
 					carPos.z = 17;
 
-					if (fabsf(carPos.x) > clampX || fabsf(carPos.y) > clampY)
+					if (fabsf(carPos.x) > clampX || fabsf(carPos.y) > clampY || !InsideCorners(carPos))
 						continue;
 
 					bool overlaps = false;
@@ -104,6 +104,7 @@ namespace RLGC {
 						carPos = bs.pos + (off / offLen) * ringMin;
 					carPos.x = RS_CLAMP(carPos.x, -clampX, clampX);
 					carPos.y = RS_CLAMP(carPos.y, -clampY, clampY);
+					carPos = ClampToCorners(carPos);
 					carPos.z = 17;
 				}
 

@@ -73,6 +73,12 @@ namespace GGL {
 		// older panels assume); > 0 = sample from softmax(logits / T) for some extra noise (1 = the net's own distribution).
 		// The gauntlet always plays them at argmax.
 		float sampleTemperature = 0.f;
+		// The bots' TRAINED decision rate (ticks per decision) and action latency (ticks). 0 = off: the bots act on every env step (right when the
+		// learner's own tickSkip equals theirs, 8). When the learner steps finer (the tickSkip-2 run), each bot is wrapped in a DecimatedOpponent so it
+		// decides once per botTickSkip ticks and its action lands botActionDelay ticks in, exactly as in its training. Needs botTickSkip % tickSkip == 0
+		// and (botActionDelay - actionDelay) % tickSkip == 0.
+		int botTickSkip = 0;
+		int botActionDelay = 7;
 	};
 
 	// GAUNTLET (docs/Pre_Run_Checklist.md item 8; GauntletEval.h): every everyIterations iterations, fixed-seed 1v1 kickoff

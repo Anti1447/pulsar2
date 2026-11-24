@@ -73,6 +73,12 @@ namespace GGL {
 		int MaxTeamSize() const override { return kind == GGLBotKind::DICE ? 2 : (1 << 20); }
 		void BuildMask(uint8_t* out, const RLGC::Player& player);
 
+		// Set by tools that compare teachers (TeacherDisagree.h): when true, Act also leaves the bot's action PROBABILITIES (masked softmax at temperature 1) for the rows it just served in
+		// probRows (numRows x 90, laid out in OUR action table; a mirrored Chronos car is mapped back like its action) and the served players' global indices in probRowPlayer.
+		bool recordProbs = false;
+		std::vector<float> probRows;
+		std::vector<int> probRowPlayer;
+
 		// Their net's argmax for each row of obs/masks (numRows x obsSize / x actions.size())
 		std::vector<int> Pick(const std::vector<float>& obs, const std::vector<uint8_t>& masks, int numRows);
 		// Their action row -> our DefaultAction row (x-mirrored first for a mirrored Chronos car)

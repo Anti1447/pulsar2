@@ -48,6 +48,15 @@ add_executable(LivePathParity EXCLUDE_FROM_ALL tools/live_parity/live_parity.cpp
 set_target_properties(LivePathParity PROPERTIES CXX_STANDARD 20)
 target_link_libraries(LivePathParity GigaLearnCPP)
 
+# Reset-mix diagnostics for the GCO run (tools/reset_diag, docs/GCO_RESET_MIX.md): per-setter outcomes and state coverage
+# from CPU self-play. EXCLUDE_FROM_ALL like LivePathParity; run `cmake --build build --target ResetDiag`.
+add_executable(ResetDiag EXCLUDE_FROM_ALL tools/reset_diag/reset_diag.cpp)
+set_target_properties(ResetDiag PROPERTIES CXX_STANDARD 20)
+target_include_directories(ResetDiag PRIVATE "${PROJECT_SOURCE_DIR}/GigaLearnCPP/src/private")
+find_package(Torch REQUIRED)
+target_include_directories(ResetDiag PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(ResetDiag GigaLearnCPP ${TORCH_LIBRARIES})
+
 # Let the VIEWER host an RLBot bot as the opponent inside its own arena (see
 # src/VizRLBotServer.h). OFF by default for the same reason GGL_BUILD_TESTS is: the
 # training box's `cmake --build build` must stay byte-identical, and the trainer has no

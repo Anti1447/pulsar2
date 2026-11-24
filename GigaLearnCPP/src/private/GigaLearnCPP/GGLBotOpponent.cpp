@@ -442,6 +442,19 @@ void GGL::GGLBotOpponent::Act(const std::vector<GameState>& states,
 
 	std::vector<int> pickVec = Pick(obsBuf, maskBuf, numRows);
 
+	if (recordProbs) {
+		RG_NO_GRAD;
+		auto tObs = torch::from_blob((void*)obsBuf.data(), { numRows, obsSize }, torch::kFloat32).to(device);
+		auto tMasks = torch::from_blob((void*)maskBuf.data(), { numRows, numActions }, torch::kUInt8).to(device);
+		torch::Tensor probs = PPOLearner::InferPolicyProbsFromModels(models, tObs, tMasks, 1.f, false).to(torch::kFloat32).cpu().contiguous();
+		const float* pp = probs.data_ptr<float>();
+		probRows.assign((size_t)numRows * numActions, 0.f);
+		for (int row = 0; row < numRows; row++)
+			for (int t = 0; t < numActions; t++)
+				probRows[(size_t)row * numActions + ToOurAction(t, rowMirrored[row])] += pp[(size_t)row * numActions + t];
+		probRowPlayer = rowPlayer;
+	}
+
 	for (int row = 0; row < numRows; row++)
 		outActionIdx[rowPlayer[row]] = ToOurAction(pickVec[row], rowMirrored[row]);
 }

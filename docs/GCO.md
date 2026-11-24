@@ -27,6 +27,11 @@ timeout ends the episode as a real outcome instead of a truncation, and every ca
 (`GCO_TIMEOUT_PENALTY` in `src/ExampleMain.cpp`, `NoTouchTimeoutPenalty` in `CommonRewards.h`). As a truncation, the
 critic's bootstrapped value hid what a dead ball cost, so neither team had a reason to end the stall.
 
+Reset-mix diagnosis (2026-11-16, per-setter outcomes, validity, coverage against matches, and the pending proposals):
+`docs/GCO_RESET_MIX.md`. 2026-11-17: its P1 applied, AirPlay 0.30 -> 0.20 and Kickoff 0.10 -> 0.20 (shared with main;
+revert line in the `MakeEnv` comment). Same day, P2 (AirPlay air-players on mirrored slots) and P3 (no
+spawns beyond the corner walls) were applied in the setter code.
+
 ## Running it
 
 From the build directory:

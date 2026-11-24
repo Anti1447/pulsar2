@@ -114,3 +114,28 @@ GGL::MatchResult GGL::GauntletEval::Run(PPOLearner* ppo, ExternalOpponent& bot, 
 	std::fill(env->state.terminals.begin(), env->state.terminals.end(), 1);
 	return res;
 }
+
+GGL::MatchResult GGL::GauntletEval::RunBots(ExternalOpponent& a, ExternalOpponent& b, int teamSize) {
+	RLGC::EnvSet* env = (teamSize == 1) ? envSet : (extraEnvSets.count(teamSize) ? extraEnvSets[teamSize] : nullptr);
+	if (!env)
+		RG_ERR_CLOSE("GauntletEval: no arenas for team size " << teamSize);
+	if (teamSize > a.MaxTeamSize() || teamSize > b.MaxTeamSize())
+		RG_ERR_CLOSE("GauntletEval: " << a.name << " or " << b.name << " cannot field " << teamSize << " per team");
+	struct RestoreTemperature {
+		ExternalOpponent &x, &y;
+		float sx, sy;
+		~RestoreTemperature() { x.temperature = sx; y.temperature = sy; }
+	} restoreTemperature{ a, b, a.temperature, b.temperature };
+	a.temperature = 0.f;
+	b.temperature = 0.f;
+
+	MatchConfig mc;
+	mc.playersPerTeam = teamSize;
+	mc.maxSeconds = config.maxGameTime;
+	mc.alternateSides = true;
+
+	ScopedRandSeed seed(config.seed);
+	MatchResult res = PlayMatch(*env, a, b, config.gamesPerBot, mc);
+	std::fill(env->state.terminals.begin(), env->state.terminals.end(), 1);
+	return res;
+}

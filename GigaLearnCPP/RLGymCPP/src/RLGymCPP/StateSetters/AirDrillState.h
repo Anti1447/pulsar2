@@ -98,13 +98,14 @@ namespace RLGC {
 					carPos.z = bs.pos.z - RandFloat(minDrop, maxDrop);
 					if (carPos.z < 250) carPos.z = 250; // stay clearly airborne
 
-					if (fabsf(carPos.x) > clampX || fabsf(carPos.y) > clampY)
+					if (fabsf(carPos.x) > clampX || fabsf(carPos.y) > clampY || !InsideCorners(carPos))
 						continue;
 					ok = !fnOverlaps(carPos);
 				}
 				if (!ok) {
 					carPos.x = RS_CLAMP(carPos.x, -clampX, clampX);
 					carPos.y = RS_CLAMP(carPos.y, -clampY, clampY);
+					carPos = ClampToCorners(carPos);
 				}
 				placed.push_back(carPos);
 
@@ -161,13 +162,14 @@ namespace RLGC {
 					carPos = ballShadow + Vec(cosf(theta) * dist, sinf(theta) * dist, 0);
 					carPos.z = 17;
 
-					if (fabsf(carPos.x) > clampX || fabsf(carPos.y) > clampY)
+					if (fabsf(carPos.x) > clampX || fabsf(carPos.y) > clampY || !InsideCorners(carPos))
 						continue;
 					ok = !fnOverlaps(carPos);
 				}
 				if (!ok) {
 					carPos.x = RS_CLAMP(carPos.x, -clampX, clampX);
 					carPos.y = RS_CLAMP(carPos.y, -clampY, clampY);
+					carPos = ClampToCorners(carPos);
 					carPos.z = 17;
 				}
 				placed.push_back(carPos);

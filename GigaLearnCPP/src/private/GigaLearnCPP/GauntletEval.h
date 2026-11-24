@@ -29,6 +29,10 @@ namespace GGL {
 		// teamSize 1 = the 1v1 arenas; 2/3 need config.extraTeamSizes. The bot must be able to field that team size.
 		MatchResult Run(class PPOLearner* ppo, ExternalOpponent& bot, int teamSize = 1);
 
+		// Bot against bot (docs/GCO_IMITATION_CHRONOS.md E0, the teacher's own noise floor): `a` plays in the role `ours` has in Run. Both play argmax. `a` and `b` may be the same
+		// object (self-play: Act is called with disjoint player rows, the bots keep no per-arena state that two calls could mix up).
+		MatchResult RunBots(ExternalOpponent& a, ExternalOpponent& b, int teamSize = 1);
+
 		RG_NO_COPY(GauntletEval);
 	};
 }

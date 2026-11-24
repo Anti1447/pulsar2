@@ -22,6 +22,9 @@
 #include <private/GigaLearnCPP/PolicyVersionManager.h>
 #include <private/GigaLearnCPP/NextoOpponent.h>
 #include <private/GigaLearnCPP/GGLBotOpponent.h>
+#include <private/GigaLearnCPP/DecimatedOpponent.h>
+#include <private/GigaLearnCPP/TeacherDisagree.h>
+#include <private/GigaLearnCPP/GraphedPolicy.h>
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
 #include <RLGymCPP/StateSetters/FuzzedKickoffState.h>
@@ -335,6 +338,13 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 				externalOpps.push_back(std::make_shared<GGLBotOpponent>(
 					spec.kind == ExternalBotKind::GALACTUS_V2 ? GGLBotKind::GALACTUS_V2
 					: spec.kind == ExternalBotKind::DICE ? GGLBotKind::DICE : GGLBotKind::CHRONOS_V2, spec.path, device));
+		}
+		if (config.externalOpponent.botTickSkip > 0 && config.externalOpponent.botTickSkip != config.tickSkip) {
+			for (auto& opp : externalOpps)
+				opp = std::make_shared<DecimatedOpponent>(opp, config.tickSkip, config.actionDelay,
+					config.externalOpponent.botTickSkip, config.externalOpponent.botActionDelay);
+			RG_LOG("\tExternal opponents run at their trained rate: one decision per " << config.externalOpponent.botTickSkip
+				<< " ticks, latency " << config.externalOpponent.botActionDelay << " ticks (learner tickSkip " << config.tickSkip << ", actionDelay " << config.actionDelay << ")");
 		}
 		for (auto& opp : externalOpps)
 			opp->temperature = config.externalOpponent.sampleTemperature;
@@ -1385,7 +1395,59 @@ void GGL::Learner::Start() {
 		gc.seed = (unsigned)envI("GGL_H2H_SEED", 777001);
 		gc.extraTeamSizes.clear();
 		gc.teamEnvCreateFn = nullptr;
-		GauntletEval ge(envSet->config, gc, obsSize);
+		// GGL_H2H_TEACHER=<bot name> (docs/GCO_IMITATION_CHRONOS.md E0): the named external bot plays AS the subject (instead of our policy) against every
+		// bot in the list, itself included ("<name>" vs "<name>"); GGL_H2H_NATIVE=1 runs the arenas at the bots' trained cadence (tickSkip 8, actionDelay 7).
+		// Prints one GAUNT_RESULT per opponent with "a" = the teacher's name. The loaded checkpoint is never used.
+		// GGL_H2H_DISAGREE=1 (E9): ChronosV2 and GalactusV2 on the SAME states: Chronos vs Galactus, each side observed by the other, then each teacher in self-play
+		// observed by the other. Prints one DISAGREE_RESULT line per (acting teacher, game set). Needs both bots in the arm's list.
+		if (envI("GGL_H2H_DISAGREE", 0)) {
+			std::shared_ptr<GGLBotOpponent> C, G;
+			for (auto& opp : externalOpps) {
+				auto g = std::dynamic_pointer_cast<GGLBotOpponent>(opp);
+				if (g && g->name == "ChronosV2") C = g;
+				if (g && g->name == "GalactusV2") G = g;
+			}
+			if (!C || !G) RG_ERR_CLOSE("GGL_H2H_DISAGREE: both ChronosV2 and GalactusV2 must be in the arm's bot list");
+			RLGC::EnvSetConfig dcfg = envSet->config;
+			if (envI("GGL_H2H_NATIVE", 0)) { dcfg.tickSkip = 8; dcfg.actionDelay = 7; }
+			GauntletEval dge(dcfg, gc, obsSize);
+			auto dump = [&](const char* set, ObservedTeacher& w) {
+				std::cout << "DISAGREE_RESULT {\"set\":\"" << set << "\",\"acts\":\"" << w.primary->name << "\",\"observer\":\"" << w.observer->name << "\",\"cells\":{";
+				for (int c = 0; c <= DisagreeStats::NSIT; c++) {
+					const auto& k = w.stats.cells[c]; double n = std::max(1.0, k.n);
+					std::cout << (c ? "," : "") << "\"" << (c < DisagreeStats::NSIT ? DisagreeStats::SIT[c] : "all") << "\":{\"n\":" << k.n << ",\"agree\":" << k.agree / n << ",\"js\":" << k.js / n
+						<< ",\"klPO\":" << k.klPO / n << ",\"klOP\":" << k.klOP / n << ",\"pOnObsArgmax\":" << k.pOnObsArgmax / n << ",\"entP\":" << k.entP / n << ",\"entO\":" << k.entO / n << ",\"tv\":" << k.tv / n << ",\"sampleAgree\":" << k.sampleAgree / n << ",\"selfP\":" << k.selfP / n << ",\"selfO\":" << k.selfO / n
+						<< ",\"confP\":" << k.confP / n << ",\"confO\":" << k.confO / n << ",\"jsHist\":[";
+					for (int b = 0; b < 6; b++) std::cout << (b ? "," : "") << k.jsHist[b] / n;
+					std::cout << "]}";
+				}
+				std::cout << "}}" << std::endl;
+			};
+			// Self-check: a teacher observed by itself must read agreement 1 and JS 0, or the probability mapping / row alignment is broken
+			{ ObservedTeacher a(C, C), b(G, G); dge.RunBots(a, b, 1); dump("SELFCHECK", a); dump("SELFCHECK", b); }
+			{ ObservedTeacher a(C, G), b(G, C); dge.RunBots(a, b, 1); dump("C_vs_G", a); dump("C_vs_G", b); }
+			{ ObservedTeacher a(C, G), b(C, G); dge.RunBots(a, b, 1); dump("C_vs_C", a); }
+			{ ObservedTeacher a(G, C), b(G, C); dge.RunBots(a, b, 1); dump("G_vs_G", a); }
+			return;
+		}
+		std::string teacherName = std::getenv("GGL_H2H_TEACHER") ? std::getenv("GGL_H2H_TEACHER") : "";
+		RLGC::EnvSetConfig baseCfg = envSet->config;
+		if (envI("GGL_H2H_NATIVE", 0)) { baseCfg.tickSkip = 8; baseCfg.actionDelay = 7; }
+		GauntletEval ge(baseCfg, gc, obsSize);
+		if (!teacherName.empty()) {
+			std::shared_ptr<ExternalOpponent> teacher;
+			for (auto& opp : externalOpps) if (opp->name == teacherName) teacher = opp;
+			if (!teacher) RG_ERR_CLOSE("GGL_H2H_TEACHER: no external bot named \"" << teacherName << "\" in this arm's list");
+			for (auto& opp : externalOpps) {
+				MatchResult r = ge.RunBots(*teacher, *opp, 1);
+				std::cout << "GAUNT_RESULT {\"a\":\"" << teacherName << "\",\"a_ts\":0,\"bot\":\"" << opp->name
+					<< "\",\"games\":" << r.games << ",\"wins\":" << r.winsA << ",\"losses\":" << r.winsB << ",\"draws\":" << r.draws
+					<< ",\"ft_us\":" << r.firstTouchA << ",\"ft_bot\":" << r.firstTouchB << ",\"ft_both\":" << r.firstTouchBoth
+					<< ",\"mean_s\":" << (r.games ? r.seconds / r.games : 0.0) << ",\"seed\":" << gc.seed << ",\"secs\":" << gc.maxGameTime
+					<< ",\"native\":" << envI("GGL_H2H_NATIVE", 0) << "}" << std::endl;
+			}
+			return;
+		}
 		for (auto& opp : externalOpps) {
 			MatchResult r = ge.Run(ppo, *opp, 1);
 			std::cout << "GAUNT_RESULT {\"a\":\"" << config.checkpointFolder.string() << "\",\"a_ts\":" << totalTimesteps << ",\"bot\":\"" << opp->name
@@ -1416,11 +1478,27 @@ void GGL::Learner::Start() {
 			std::string dir = list.substr(pos, c == std::string::npos ? std::string::npos : c - pos);
 			pos = (c == std::string::npos) ? list.size() + 1 : c + 1;
 			if (dir.empty()) continue;
-			auto oppModels = ppo->GetPolicyModels().CloneAll();
+			// CROSS-ARCHITECTURE (2026-11-23): "<dir>@<sw>x<sd>/<pw>x<pd>" builds the opponent's shared trunk (sd layers of width sw) and policy (pd layers of width pw)
+			// with the SAME other settings as this process's config (norm, activation, residuals) and loads the checkpoint into them, so a net of a different
+			// width/depth than the subject can play it. Without the suffix the opponent is a clone of the subject's architecture, as before.
+			std::string archSpec;
+			if (size_t at = dir.find('@'); at != std::string::npos) { archSpec = dir.substr(at + 1); dir = dir.substr(0, at); }
+			ModelSet oppModels;
+			if (archSpec.empty()) {
+				oppModels = ppo->GetPolicyModels().CloneAll();
+			} else {
+				int sw = 0, sd = 0, pw = 0, pd = 0;
+				if (sscanf(archSpec.c_str(), "%dx%d/%dx%d", &sw, &sd, &pw, &pd) != 4 || sw <= 0 || sd <= 0 || pw <= 0 || pd <= 0)
+					RG_ERR_CLOSE("GGL_H2H_OPP: bad architecture suffix \"" << archSpec << "\" (want <sharedWidth>x<sharedDepth>/<policyWidth>x<policyDepth>)");
+				PartialModelConfig sh = config.ppo.sharedHead, po = config.ppo.policy;
+				sh.layerSizes.assign(sd, sw);
+				po.layerSizes.assign(pd, pw);
+				PPOLearner::MakeModels(false, obsSize, numActions, sh, po, config.ppo.critic, PartialModelConfig(), ppo->device, oppModels);
+			}
 			oppModels.Load(dir, false, false);
 			RG_LOG("H2H: " << config.checkpointFolder.string() << " (ts " << totalTimesteps << ") vs " << dir);
 			H2HResult r = RunHeadToHead(ppo, h2hEnv, oppModels, secs, det);
-			std::cout << "H2H_RESULT {\"a\":\"" << config.checkpointFolder.string() << "\",\"a_ts\":" << totalTimesteps << ",\"b\":\"" << dir
+			std::cout << "H2H_RESULT {\"a\":\"" << config.checkpointFolder.string() << "\",\"a_ts\":" << totalTimesteps << ",\"b\":\"" << dir << (archSpec.empty() ? std::string() : "@" + archSpec)
 				<< "\",\"for\":" << r.goalsFor << ",\"against\":" << r.goalsAgainst << ",\"arenas\":" << ec.numArenas << ",\"secs\":" << secs
 				<< ",\"det\":" << (det ? 1 : 0) << "}" << std::endl;
 			oppModels.Free();
@@ -1992,6 +2070,16 @@ void GGL::Learner::Start() {
 				if (ppo->models[nm])
 					collectSnapshot.Add(ppo->models[nm]->MakeClone());
 		ModelSet* const collectModelsPtr = pipelineOn ? &collectSnapshot : NULL;
+		// CUDA-graphed sampling of the collection snapshot (GraphedPolicy.h). Opt-in (GGL_GRAPH_INFER=1) since the measurement showed no gain.
+		const bool graphInfer = pipelineOn && ppo->device.is_cuda() && !ppo->config.deterministic
+			&& (std::getenv("GGL_GRAPH_INFER") && std::getenv("GGL_GRAPH_INFER")[0] == '1'); // OFF by default: measured no gain (docs/GCO_SPEED.md), opt-in with GGL_GRAPH_INFER=1
+		std::map<int64_t, std::unique_ptr<GraphedPolicy>> graphedPolicies; // one per row count, kept across iterations (the snapshot's parameters are updated in place)
+		auto fnGraphed = [&](int64_t rows) -> GraphedPolicy* {
+			auto& g = graphedPolicies[rows];
+			if (!g)
+				g = std::make_unique<GraphedPolicy>(collectModelsPtr, ppo->device, ppo->config.useHalfPrecision, ppo->config.policyTemperature);
+			return g.get();
+		};
 		auto fnSyncSnapshot = [&]() {
 			RG_NO_GRAD;
 			for (const char* nm : snapshotNames) {
@@ -2294,6 +2382,7 @@ void GGL::Learner::Start() {
 					RG_NO_GRAD;
 
 					float inferTime = 0;
+					float inferH2D = 0, inferLaunch = 0, inferWait = 0; // host-side split of the inference call (2026-11-23): copy-in, kernel launches, wait for the result
 					float envStepTime = 0;
 					float prepTime = 0;
 					float recordTime = 0;
@@ -2472,8 +2561,14 @@ void GGL::Learner::Start() {
 						Timer inferTimer = {};
 
 						if (oppServed) {
-							torch::Tensor tdNewStates = tStates.index_select(0, tNewPlayerIndices).to(ppo->device, true);
-							torch::Tensor tdNewActionMasks = tActionMasks.index_select(0, tNewPlayerIndices).to(ppo->device, true);
+														Timer h2dTimer = {};
+														torch::Tensor tdNewStates, tdNewActionMasks;
+														const bool graphNew = graphInfer && !render && collectModelsPtr && !fnGraphed(tNewPlayerIndices.numel())->broken;
+														if (!graphNew) {
+															tdNewStates = tStates.index_select(0, tNewPlayerIndices).to(ppo->device, true);
+															tdNewActionMasks = tActionMasks.index_select(0, tNewPlayerIndices).to(ppo->device, true);
+														}
+														inferH2D += h2dTimer.Elapsed();
 
 							torch::Tensor tNewActions;
 							torch::Tensor tOldActions;
@@ -2482,7 +2577,21 @@ void GGL::Learner::Start() {
 					ModelSet* newModelsPtr = collectModelsPtr;
 					if (render && !renderBlueModels.map.empty())
 						newModelsPtr = &renderBlueModels;
-					ppo->InferActions(tdNewStates, tdNewActionMasks, &tNewActions, &tLogProbs, newModelsPtr);
+					Timer launchTimer = {};
+					bool graphDone = false;
+					if (graphNew) {
+						GraphedPolicy* gp = fnGraphed(tNewPlayerIndices.numel());
+						graphDone = gp->Run(tStates, tActionMasks, tNewPlayerIndices, tNewActions, tLogProbs);
+						inferH2D += gp->tCopyIn;
+						inferWait += gp->tWait;
+						if (!graphDone) { // broken or non-finite rows: the eager path (which carries the forensic error)
+							tdNewStates = tStates.index_select(0, tNewPlayerIndices).to(ppo->device, true);
+							tdNewActionMasks = tActionMasks.index_select(0, tNewPlayerIndices).to(ppo->device, true);
+						}
+					}
+					if (!graphDone)
+						ppo->InferActions(tdNewStates, tdNewActionMasks, &tNewActions, &tLogProbs, newModelsPtr);
+					inferLaunch += launchTimer.Elapsed();
 							if (oppExternal) {
 								// The bot reads GameStates directly (its own obs builder), and
 								// returns OUR action-table indices via its checked map. The
@@ -2502,14 +2611,31 @@ void GGL::Learner::Start() {
 						ppo->InferActions(tdOldStates, tdOldActionMasks, &tOldActions, NULL, oldModelsPtr);
 							}
 
+							Timer waitTimer = {};
 							tActions = torch::zeros(numPlayers, tNewActions.dtype());
 							tActions.index_copy_(0, tNewPlayerIndices, tNewActions.cpu());
 							tActions.index_copy_(0, tOldPlayerIndices, tOldActions.cpu().to(tNewActions.dtype()));
+							inferWait += waitTimer.Elapsed();
 						} else {
-							torch::Tensor tdStates = tStates.to(ppo->device, true);
-							torch::Tensor tdActionMasks = tActionMasks.to(ppo->device, true);
-							ppo->InferActions(tdStates, tdActionMasks, &tActions, &tLogProbs, collectModelsPtr);
-							tActions = tActions.cpu();
+							Timer launchTimer2 = {};
+							bool graphDone2 = false;
+							if (graphInfer && !render && collectModelsPtr && !fnGraphed(numPlayers)->broken) {
+								GraphedPolicy* gp = fnGraphed(numPlayers);
+								graphDone2 = gp->Run(tStates, tActionMasks, torch::Tensor(), tActions, tLogProbs);
+								inferH2D += gp->tCopyIn;
+								inferWait += gp->tWait;
+							}
+							if (!graphDone2) {
+								Timer h2dTimer2 = {};
+								torch::Tensor tdStates = tStates.to(ppo->device, true);
+								torch::Tensor tdActionMasks = tActionMasks.to(ppo->device, true);
+								inferH2D += h2dTimer2.Elapsed();
+								ppo->InferActions(tdStates, tdActionMasks, &tActions, &tLogProbs, collectModelsPtr);
+								Timer waitTimer2 = {};
+								tActions = tActions.cpu();
+								inferWait += waitTimer2.Elapsed();
+							}
+							inferLaunch += launchTimer2.Elapsed();
 						}
 						inferTime += inferTimer.Elapsed();
 
@@ -2803,6 +2929,9 @@ void GGL::Learner::Start() {
 					}
 
 					collectReport["Inference Time"] = inferTime;
+					collectReport["Inference H2D Time"] = inferH2D;
+					collectReport["Inference Launch Time"] = inferLaunch;
+					collectReport["Inference Wait Time"] = inferWait;
 					collectReport["Env Step Time"] = envStepTime;
 					collectReport["Prep Time"] = prepTime;
 					collectReport["Record Time"] = recordTime;
