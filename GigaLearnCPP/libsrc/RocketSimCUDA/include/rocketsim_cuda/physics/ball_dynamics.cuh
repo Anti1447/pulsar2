@@ -31,10 +31,11 @@ __device__ __forceinline__ void step_ball_state(
     apply_rigid_body_damping(vel, ang_vel, mut_cfg.ball_drag, 0.0f, dt);
 
     // 2. Gravity
+    const Vec3 vel_pre_gravity = vel;
     vel = vel + mut_cfg.gravity * dt;
 
     // 3. Arena / Ground collision resolution (updates velocities and pushes out penetration)
-    resolve_ball_arena_collision(pos, vel, ang_vel, mut_cfg.ball_radius, mut_cfg.ball_world_restitution, mut_cfg.ball_world_friction, mut_cfg.gravity.z, dt);
+    resolve_ball_arena_collision(pos, vel, ang_vel, mut_cfg.ball_radius, mut_cfg.ball_world_restitution, mut_cfg.ball_world_friction, mut_cfg.gravity.z, dt, &vel_pre_gravity);
 
     // 4. Linear pos integration with post-collision velocity (in Bullet units for exact rounding parity)
     pos = (pos * 0.02f + vel * (0.02f * dt)) * 50.0f;

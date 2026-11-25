@@ -1,3 +1,4 @@
+#include "rocketsim_cuda/physics/quantize.cuh"
 #include "rocketsim_cuda/sim_context.cuh"
 #include "rocketsim_cuda/physics/ball_dynamics.cuh"
 #include "rocketsim_cuda/physics/arena_sdf.cuh"
@@ -1213,6 +1214,8 @@ __global__ void k_predict_ball_trajectory(
         }
 
         if (t + 1 < num_ticks) {
+            // P1-11: the real step quantizes the ball at the start of every tick; so does the prediction
+            pos = quantize_position(pos); vel = quantize_velocity(vel); ang_vel = quantize_ang_velocity(ang_vel); quat = quantize_rotation(quat);
             step_ball_state(pos, vel, ang_vel, quat, dt, mut_cfg);
         }
     }

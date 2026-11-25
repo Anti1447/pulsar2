@@ -1,3 +1,4 @@
+#include "rocketsim_cuda/physics/quantize.cuh"
 #include "rocketsim_cuda/config.h"
 #include "rocketsim_cuda/sim_context.cuh"
 #include "rocketsim_cuda/physics/arena_sdf.cuh"
@@ -157,16 +158,6 @@ __device__ void StepCarDevice(
 
     int num_wheels_contact = wheels_contact[0] + wheels_contact[1] + wheels_contact[2] + wheels_contact[3];
     bool is_on_ground = (num_wheels_contact >= 3);
-
-    // Velocity limiting, at the start of the tick as in RocketSim v3
-    float speed_sq = vel.length_sq();
-    if (speed_sq > CAR_MAX_SPEED * CAR_MAX_SPEED) {
-        vel = vel * (CAR_MAX_SPEED / sqrtf(speed_sq));
-    }
-    float ang_speed_sq = omega.length_sq();
-    if (ang_speed_sq > CAR_MAX_ANG_SPEED * CAR_MAX_ANG_SPEED) {
-        omega = omega * (CAR_MAX_ANG_SPEED / sqrtf(ang_speed_sq));
-    }
 
     // Jump, flip, air and boost logic reads LAST tick's wheel contact, as RocketSim v3 does.
     bool was_on_ground = car_state.is_on_ground[car_idx] != 0;
@@ -386,6 +377,34 @@ __global__ void StepSimulationKernel(
 
     MutatorConfig mut_cfg = mutator_config.get(env_idx);
     ArenaConfig arena_cfg = arena_config.get(env_idx);
+
+    // P1-6 / P1-11: speed limits, then quantization, at the start of the tick (RocketSim v3 step_tick)
+    for (uint32_t c = 0; c < cars_per_env; ++c) {
+        uint32_t car_idx = env_idx * cars_per_env + c;
+        if (car_state.is_demoed && car_state.is_demoed[car_idx]) continue;
+        Vec3 p(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
+        Vec3 v(car_state.vel_x[car_idx], car_state.vel_y[car_idx], car_state.vel_z[car_idx]);
+        Vec3 w(car_state.ang_vel_x[car_idx], car_state.ang_vel_y[car_idx], car_state.ang_vel_z[car_idx]);
+        Quat q(car_state.q_w[car_idx], car_state.q_x[car_idx], car_state.q_y[car_idx], car_state.q_z[car_idx]);
+        float vs = v.length_sq(); if (vs > CAR_MAX_SPEED * CAR_MAX_SPEED) v = v * (CAR_MAX_SPEED / sqrtf(vs));
+        float ws = w.length_sq(); if (ws > CAR_MAX_ANG_SPEED * CAR_MAX_ANG_SPEED) w = w * (CAR_MAX_ANG_SPEED / sqrtf(ws));
+        p = quantize_position(p); v = quantize_velocity(v); w = quantize_ang_velocity(w); q = quantize_rotation(q);
+        car_state.pos_x[car_idx] = p.x; car_state.pos_y[car_idx] = p.y; car_state.pos_z[car_idx] = p.z;
+        car_state.pos_bt_x[car_idx] = p.x * 0.02f; car_state.pos_bt_y[car_idx] = p.y * 0.02f; car_state.pos_bt_z[car_idx] = p.z * 0.02f;
+        car_state.vel_x[car_idx] = v.x; car_state.vel_y[car_idx] = v.y; car_state.vel_z[car_idx] = v.z;
+        car_state.ang_vel_x[car_idx] = w.x; car_state.ang_vel_y[car_idx] = w.y; car_state.ang_vel_z[car_idx] = w.z;
+        car_state.q_w[car_idx] = q.w; car_state.q_x[car_idx] = q.x; car_state.q_y[car_idx] = q.y; car_state.q_z[car_idx] = q.z;
+    }
+    {
+        Vec3 p = quantize_position(Vec3(ball_state.pos_x[env_idx], ball_state.pos_y[env_idx], ball_state.pos_z[env_idx]));
+        Vec3 v = quantize_velocity(Vec3(ball_state.vel_x[env_idx], ball_state.vel_y[env_idx], ball_state.vel_z[env_idx]));
+        Vec3 w = quantize_ang_velocity(Vec3(ball_state.ang_vel_x[env_idx], ball_state.ang_vel_y[env_idx], ball_state.ang_vel_z[env_idx]));
+        Quat q = quantize_rotation(Quat(ball_state.q_w[env_idx], ball_state.q_x[env_idx], ball_state.q_y[env_idx], ball_state.q_z[env_idx]));
+        ball_state.pos_x[env_idx] = p.x; ball_state.pos_y[env_idx] = p.y; ball_state.pos_z[env_idx] = p.z;
+        ball_state.vel_x[env_idx] = v.x; ball_state.vel_y[env_idx] = v.y; ball_state.vel_z[env_idx] = v.z;
+        ball_state.ang_vel_x[env_idx] = w.x; ball_state.ang_vel_y[env_idx] = w.y; ball_state.ang_vel_z[env_idx] = w.z;
+        ball_state.q_w[env_idx] = q.w; ball_state.q_x[env_idx] = q.x; ball_state.q_y[env_idx] = q.y; ball_state.q_z[env_idx] = q.z;
+    }
 
     // Multi-body kinematics snapshot for this environment (up to 8 cars for 4v4 support)
     constexpr uint32_t MAX_ENV_CARS = 8;

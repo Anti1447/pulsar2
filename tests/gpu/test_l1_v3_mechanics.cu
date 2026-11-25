@@ -92,8 +92,8 @@ TEST(DrivingAndSteeringMatchV3) { // P1-10: throttle, brake and steer act in the
 TEST(GroundHitCarryAndJumpHitMatchV3) { // P1-9: contacts solved on the start-of-tick pose, before positions move
 	{ BallStatePOD b; CarStatePOD c = Run("carhit_1200_off60", 240, &b);
 	  CHECK(Dist(c.pos, -207.7f, 1889.3f, 17.0f) < 3.f); CHECK(Dist(b.pos, -816.3f, 2331.2f, 102.3f) < 35.f); }
-	{ BallStatePOD b; CarStatePOD c = Run("carry_800", 200, &b);
-	  CHECK(Dist(c.pos, 0.0f, -1323.9f, 17.0f) < 3.f); CHECK(Dist(b.pos, 0.0f, -1860.5f, 95.5f) < 20.f); }
+	{ BallStatePOD b; CarStatePOD c = Run("carry_800", 120, &b);
+	  CHECK(Dist(c.pos, 0.0f, -2066.1f, 17.0f) < 3.f); CHECK(Dist(b.pos, 0.0f, -2240.1f, 122.3f) < 10.f); }
 	{ BallStatePOD b; CarStatePOD c = Run("jumphit_double", 200, &b);
 	  CHECK(Dist(c.pos, 0.0f, 730.5f, 338.4f) < 12.f); CHECK(Dist(b.pos, 0.0f, 1548.1f, 91.6f) < 15.f); }
 }

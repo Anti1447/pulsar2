@@ -62,7 +62,8 @@ __device__ __forceinline__ bool test_car_ball_collision(
     float ball_radius,
     Vec3& out_normal_world,
     Vec3& out_contact_pt_world,
-    float& out_penetration)
+    float& out_penetration,
+    float separation_threshold = 0.0f) // contacts this far apart still count (Bullet's contact breaking threshold); penetration is then negative
 {
     Vec3 hitbox_center = car_pos + car_basis * hitbox_offset;
 
@@ -84,7 +85,8 @@ __device__ __forceinline__ bool test_car_ball_collision(
     float dist_sq = diff_local.length_sq();
     float total_radius = ball_radius + BOX_MARGIN;
 
-    if (dist_sq > total_radius * total_radius) {
+    float reach = total_radius + separation_threshold;
+    if (dist_sq > reach * reach) {
         return false;
     }
 
@@ -177,6 +179,8 @@ struct BallSnapshot { Vec3 pos, vel, omega, hit_vel; }; // hit_vel: ball velocit
 // Pulsar patch P1-8: one car-ball contact as Bullet solves it: a normal row and one friction row whose direction is fixed
 // from the velocities BEFORE the solve, both with accumulated impulses.
 struct CarBallRow { Vec3 n, r_c, r_b, t; float jn = 0.0f, jt = 0.0f; };
+// Bullet's contact breaking threshold of the ball-car pair, (ball radius + 4 UU sphere margin) * 0.02 (P1-12)
+constexpr float CAR_BALL_CONTACT_THRESHOLD = 1.905f;
 struct BallDeltas { Vec3 dpos = Vec3(0.0f, 0.0f, 0.0f), dvel = Vec3(0.0f, 0.0f, 0.0f), domega = Vec3(0.0f, 0.0f, 0.0f); };
 
 __device__ __forceinline__ bool resolve_car_ball_collision(
@@ -219,7 +223,7 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     Vec3 hitbox_offset = car_cfg.hitbox_pos_offset;
     Vec3 hitbox_half = car_cfg.get_hitbox_half();
 
-    if (!test_car_ball_collision(car_pos, car_basis, hitbox_offset, hitbox_half, ball_pos, ball_radius, normal_world, contact_pt_world, penetration)) {
+    if (!test_car_ball_collision(car_pos, car_basis, hitbox_offset, hitbox_half, ball_pos, ball_radius, normal_world, contact_pt_world, penetration, acc ? CAR_BALL_CONTACT_THRESHOLD : 0.0f)) {
         return false;
     }
 
@@ -465,6 +469,7 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
 /**
  * @brief Resolves ball collision against arena SDF and floor.
  */
+constexpr float BALL_WORLD_CONTACT_THRESHOLD = 1.905f;
 __device__ __forceinline__ void resolve_ball_arena_collision(
     Vec3& pos,
     Vec3& vel,
@@ -473,7 +478,8 @@ __device__ __forceinline__ void resolve_ball_arena_collision(
     float restitution = BALL_RESTITUTION,
     float friction = BALL_FRICTION,
     float gravity_z = GRAVITY_Z,
-    float dt = 1.0f / 120.0f)
+    float dt = 1.0f / 120.0f,
+    const Vec3* vel_pre_gravity = nullptr) // Bullet takes restitution from the velocity BEFORE this tick's forces
 {
     float dist = 0.0f;
     Vec3 normal(0.0f, 0.0f, 1.0f);
@@ -481,16 +487,16 @@ __device__ __forceinline__ void resolve_ball_arena_collision(
 
     // Pulsar patch P1-2: Bullet's contact is speculative (a contact within the breaking threshold already constrains the approach
     // velocity), so the ball bounces on the tick it WOULD penetrate, not one tick later. Upstream waited for actual penetration.
-    const bool will_hit = (dist + normal.dot(vel) * dt) < radius;
-    if (dist < radius || will_hit) {
+    // P1-12: as RocketSim v3: contact when within the breaking threshold on the start-of-tick pose (a resting ball sits at
+    // radius + threshold = 93.15); real overlap is corrected on position only (split impulse, ERP 0.8).
+    if (dist < radius + BALL_WORLD_CONTACT_THRESHOLD) {
         float penetration = fmaxf(radius - dist, 0.0f);
-        pos = pos + normal * penetration;
+        pos = pos + normal * (0.8f * penetration);
 
         float vn = normal.dot(vel);
         if (vn < 0.0f) {
-            // Low-speed restitution threshold matching Bullet (0.2 BT units = 10.0 UU/s)
-            float e = (fabsf(vn) < 10.0f) ? 0.0f : restitution;
-            float delta_vn = -(1.0f + e) * vn;
+            float vn_pre = normal.dot(vel_pre_gravity ? *vel_pre_gravity : vel);
+            float delta_vn = fmaxf(0.0f, -restitution * vn_pre) - vn;
             Vec3 normal_impulse = normal * delta_vn;
 
             // Surface contact slip velocity (contact point r = -radius * normal)

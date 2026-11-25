@@ -2,6 +2,7 @@
 // Docs: docs/gpu_env/G1_PREREG.md (Part A). Pure C++17, no engine types, so the same definitions drive all three engines.
 #pragma once
 #include <cmath>
+#include <math.h>
 #include <functional>
 #include <string>
 #include <vector>
@@ -150,6 +151,72 @@ namespace parity {
 			if (b.mode == 1) { v.vel = { 0, 0, 0 }; }
 			s.cars = { a, v }; s.ball.pos = FarBall(); s.ticks = 200;
 			s.ctl = [](int, int car) { Ctl k; if (car == 0) k.throttle = 1; return k; }; add(s);
+		}
+
+		// ---- wall driving: starts on the side wall (up = -x), boosting along it, turning, jumping and dodging off it
+		{
+			auto wallCar = [](float y, float z, Vec3f fwd, float speed, float x = 4079.f) { CarInit c; c.pos = { x, y, z }; c.forward = fwd; c.up = { -1, 0, 0 }; c.vel = { 0, fwd.y * speed, fwd.z * speed }; c.boost = 100; return c; };
+			auto wall = [&](const char* name, CarInit c, int ticks, std::function<Ctl(int, int)> f) { Scenario s; s.name = name; s.cars = { c }; s.ball.pos = { -3000, 3000, 93.15f }; s.ticks = ticks; s.ctl = f; add(s); };
+			wall("wall_drive_level", wallCar(-2000, 600, { 0, 1, 0 }, 1400), 180, [](int, int) { Ctl k; k.throttle = 1; return k; });
+			wall("wall_drive_boost", wallCar(-3000, 500, { 0, 1, 0 }, 1200), 180, [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; });
+			wall("wall_drive_up", wallCar(0, 400, { 0, 0, 1 }, 1100), 180, [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; });
+			wall("wall_drive_down", wallCar(0, 1500, { 0, 0, -1 }, 900), 240, [](int, int) { Ctl k; k.throttle = 1; return k; });
+			wall("wall_turn", wallCar(-1500, 700, { 0, 1, 0 }, 1200), 180, [](int, int) { Ctl k; k.throttle = 1; k.steer = 0.6f; return k; });
+			wall("wall_slide", wallCar(-1500, 900, { 0, 1, 0 }, 1500), 180, [](int t, int) { Ctl k; k.throttle = 1; k.steer = -1; k.handbrake = t < 90; return k; });
+			wall("wall_coast_fall", wallCar(0, 1200, { 0, 1, 0 }, 500), 240, [](int, int) { return Ctl{}; });
+			wall("wall_jump", wallCar(-1000, 700, { 0, 1, 0 }, 1200), 240, [](int t, int) { Ctl k; k.throttle = 1; k.jump = t >= 30 && t < 50; return k; });
+			wall("wall_dodge", wallCar(-1000, 700, { 0, 1, 0 }, 1200), 240, [](int t, int) { Ctl k; k.throttle = 1; k.jump = (t >= 30 && t < 33) || (t >= 45 && t < 46); if (t >= 45 && t < 46) k.pitch = -1; return k; });
+			for (int deg : { 30, 60, 90 }) { // drive from the floor up the side wall at different angles
+				Scenario s; s.name = "wall_entry_" + std::to_string(deg); float yaw = HALF_PI * (1.0f - deg / 90.0f); CarInit c = baseCar(3000, -1500, yaw, 1300); c.boost = 100; s.cars = { c }; s.ball.pos = { -3000, 3000, 93.15f }; s.ticks = 240;
+				s.ctl = [](int, int) { Ctl k; k.throttle = 1; k.boost = true; return k; }; add(s);
+			}
+		}
+		// ---- car vs car: car 0 into car 1, opponents (opp) and teammates (mate), head-on / rear / side / angled, below and at supersonic
+		for (int mate : { 0, 1 }) {
+			struct K { const char* tag; float av, bv, byaw, bx, by; };
+			for (K k : { K{ "slow_headon", 700, 700, (float)M_PI, 0, 0 }, K{ "med_rear", 1500, 500, 0, 0, 0 }, K{ "side", 1400, 0, HALF_PI, 0, 0 }, K{ "side_moving", 1400, 900, HALF_PI, 0, -260 }, K{ "angled", 1600, 800, 2.356f, 0, -200 }, K{ "offset_headon", 1100, 1100, (float)M_PI, 0, 60 }, K{ "super_headon", 2300, 1000, (float)M_PI, 0, 0 }, K{ "super_side", 2300, 0, HALF_PI, 0, 0 } }) {
+				Scenario s; s.name = std::string(mate ? "mate_" : "opp_") + k.tag; CarInit a = baseCar(-900, -3500, 0.f, k.av); a.boost = k.av >= 2200 ? 100.f : 0.f; a.team = 0;
+				CarInit b = baseCar(k.bx, -3500 + k.by, k.byaw, k.bv); b.boost = 0; b.team = mate ? 0 : 1; s.cars = { a, b }; s.ball.pos = FarBall(); s.ticks = 180;
+				bool sup = k.av >= 2200;
+				s.ctl = [sup](int, int car) { Ctl c; c.throttle = 1; if (car == 0 && sup) c.boost = true; return c; }; add(s);
+			}
+			{ Scenario s; s.name = std::string(mate ? "mate_" : "opp_") + "aerial"; CarInit a; a.pos = { 0, -800, 600 }; a.vel = { 0, 900, 100 }; Face(a, HALF_PI, 0.1f); a.onGround = false; a.hasJumped = true; a.boost = 0;
+			  CarInit b; b.pos = { 40, 0, 620 }; b.vel = { 0, 0, 100 }; Face(b, 0.f); b.onGround = false; b.hasJumped = true; b.boost = 0; b.team = mate ? 0 : 1; s.cars = { a, b }; s.ball.pos = FarBall(); s.ticks = 150; add(s); }
+		}
+		{ Scenario s; s.name = "mate_three_pile"; CarInit a = baseCar(-900, -3500, 0.f, 1500); a.boost = 0; CarInit b = baseCar(0, -3500, HALF_PI, 0); b.boost = 0; CarInit c = baseCar(900, -3450, (float)M_PI, 1500); c.boost = 0; c.team = 1;
+		  s.cars = { a, b, c }; s.ball.pos = FarBall(); s.ticks = 180; s.ctl = [](int, int) { Ctl k; k.throttle = 1; return k; }; add(s); }
+
+		// ---- seeded random battery (held out: nothing is tuned to these). Controls change every 20 ticks.
+		{
+			auto rnd = [](unsigned& st, float lo, float hi) { st = st * 1664525u + 1013904223u; return lo + (hi - lo) * ((st >> 8) & 0xFFFFFF) / 16777215.0f; };
+			auto randCtl = [](unsigned seed, int t, int car) { unsigned st = seed * 7919u + (unsigned)(t / 20) * 104729u + (unsigned)car * 31u; auto r = [&st]() { st = st * 1664525u + 1013904223u; return ((st >> 8) & 0xFFFFFF) / 16777215.0f; };
+				r(); Ctl k; k.throttle = r() < 0.8f ? 1.f : r() * 2 - 1; k.steer = r() < 0.5f ? 0.f : r() * 2 - 1; k.pitch = r() * 2 - 1; k.yaw = k.steer; k.roll = r() < 0.7f ? 0.f : r() * 2 - 1; k.boost = r() < 0.4f; k.jump = r() < 0.2f; k.handbrake = r() < 0.1f; return k; };
+			for (unsigned n = 0; n < 20; n++) { // random driving, jumping and flipping near the middle of the field
+				unsigned st = 1000 + n; Scenario s; s.name = "rand_drive_" + std::to_string(n); CarInit c = baseCar(rnd(st, -2000, 2000), rnd(st, -2500, 2500), rnd(st, -3.14f, 3.14f), rnd(st, 0, 1800)); c.boost = 100; s.cars = { c }; s.ball.pos = FarBall(); s.ticks = 240;
+				s.ctl = [randCtl, n](int t, int car) { return randCtl(1000 + n, t, car); }; add(s);
+			}
+			for (unsigned n = 0; n < 20; n++) { // random approach to the ball (ground and air)
+				unsigned st = 2000 + n; Scenario s; s.name = "rand_hit_" + std::to_string(n); float yaw = rnd(st, -3.14f, 3.14f), d = rnd(st, 500, 900), sp = rnd(st, 700, 1800), off = rnd(st, -80, 80);
+				bool air = (n % 2) == 1; float bz = air ? rnd(st, 500, 900) : 93.15f;
+				CarInit c = baseCar(-d * std::cos(yaw) - off * std::sin(yaw), -d * std::sin(yaw) + off * std::cos(yaw), yaw, sp); c.boost = 0;
+				if (air) { c.pos.z = bz + rnd(st, -90, 50); c.onGround = false; c.hasJumped = true; c.vel.z = rnd(st, 100, 300); }
+				s.cars = { c }; s.ball.pos = { 0, 0, bz }; if (air) s.ball.vel = { 0, 0, rnd(st, 100, 300) }; s.ticks = 180;
+				s.ctl = [](int, int) { Ctl k; k.throttle = 1; return k; }; add(s);
+			}
+			for (unsigned n = 0; n < 20; n++) { // random ball shots
+				unsigned st = 3000 + n; Scenario s; s.name = "rand_ball_" + std::to_string(n); CarInit c; c.pos = { -2500, -4500, 17 }; s.cars = { c };
+				s.ball.pos = { rnd(st, -3000, 3000), rnd(st, -4000, 4000), rnd(st, 150, 1500) }; s.ball.vel = { rnd(st, -2500, 2500), rnd(st, -2500, 2500), rnd(st, -1000, 1500) }; s.ball.angVel = { rnd(st, -3, 3), rnd(st, -3, 3), rnd(st, -3, 3) }; s.ticks = 360; add(s);
+			}
+			for (unsigned n = 0; n < 20; n++) { // random car-car meetings, alternating opponents and teammates
+				unsigned st = 4000 + n; Scenario s; s.name = "rand_bump_" + std::to_string(n); float y1 = rnd(st, -3.14f, 3.14f), y2 = y1 + rnd(st, 1.0f, 5.2f), s1 = rnd(st, 600, 2000), s2 = rnd(st, 0, 1500), t = 0.5f, off = rnd(st, -60, 60);
+				CarInit a = baseCar(-s1 * t * std::cos(y1), -2000 - s1 * t * std::sin(y1), y1, s1); a.boost = 0; CarInit b = baseCar(-s2 * t * std::cos(y2) + off, -2000 - s2 * t * std::sin(y2), y2, s2); b.boost = 0; b.team = n % 2 ? 0 : 1;
+				s.cars = { a, b }; s.ball.pos = FarBall(); s.ticks = 150; s.ctl = [](int, int) { Ctl k; k.throttle = 1; return k; }; add(s);
+			}
+			for (unsigned n = 0; n < 20; n++) { // random wall and ramp runs
+				unsigned st = 5000 + n; Scenario s; s.name = "rand_wall_" + std::to_string(n); float sign = (n % 2) ? 1.f : -1.f; CarInit c = baseCar(sign * rnd(st, 2200, 3200), rnd(st, -3000, 3000), (sign > 0 ? 0.f : (float)M_PI) + rnd(st, -1.0f, 1.0f), rnd(st, 800, 1900)); c.boost = 100;
+				s.cars = { c }; s.ball.pos = FarBall(); s.ball.pos.x = -sign * 1000; s.ticks = 240;
+				s.ctl = [n](int t, int) { Ctl k; k.throttle = 1; k.boost = (t / 40 + n) % 2 == 0; k.steer = (t >= 100 && t < 140) ? ((n % 3) - 1) * 0.5f : 0.f; k.jump = (n % 4 == 0) && t >= 150 && t < 160; return k; }; add(s);
+			}
 		}
 
 		// ---- boost pads: big pad at (-3072,-4096), small pad at (-1792,-4184)
