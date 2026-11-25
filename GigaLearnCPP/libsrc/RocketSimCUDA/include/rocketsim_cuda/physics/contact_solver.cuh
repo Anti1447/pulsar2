@@ -516,9 +516,9 @@ __device__ __forceinline__ void resolve_ball_arena_collision(
 }
 
 /**
- * @brief Resolves chassis-arena and chassis-ground penetration and records world contact normals.
+ * @brief Upstream chassis solver, kept for cars driving on their wheels (see PATCHES.md P1-7).
  */
-__device__ __forceinline__ void resolve_chassis_arena_collision(
+__device__ __forceinline__ void resolve_chassis_arena_collision_driving(
     uint32_t car_idx,
     CarStateSoA& car_state,
     Vec3& pos,
@@ -618,6 +618,126 @@ __device__ __forceinline__ void resolve_chassis_arena_collision(
                     ang_imp_loc.z * inv_inertia_bt.z
                 );
                 omega = omega + basis * d_omega_loc;
+            }
+        }
+        vel = vel_bt * 50.0f;
+    }
+
+    if (has_contact) {
+        Vec3 avg_normal = (sum_normal.length_sq() > 1e-6f) ? sum_normal.normalized() : Vec3(0.0f, 0.0f, 1.0f);
+        car_state.world_contact_has_contact[car_idx] = 1;
+        car_state.world_contact_normal_x[car_idx]    = avg_normal.x;
+        car_state.world_contact_normal_y[car_idx]    = avg_normal.y;
+        car_state.world_contact_normal_z[car_idx]    = avg_normal.z;
+    } else {
+        car_state.world_contact_has_contact[car_idx] = 0;
+        car_state.world_contact_normal_x[car_idx]    = 0.0f;
+        car_state.world_contact_normal_y[car_idx]    = 0.0f;
+        car_state.world_contact_normal_z[car_idx]    = 0.0f;
+    }
+}
+
+/**
+ * @brief Resolves chassis-arena and chassis-ground penetration and records world contact normals.
+ */
+__device__ __forceinline__ void resolve_chassis_arena_collision(
+    uint32_t car_idx,
+    CarStateSoA& car_state,
+    Vec3& pos,
+    Vec3& vel,
+    Vec3& omega,
+    const Mat3& basis,
+    float dt,
+    const Vec3& hitbox_offset = get_octane_hitbox_offset(),
+    const Vec3& hitbox_half = get_octane_hitbox_half(),
+    float car_mass = CAR_MASS,
+    const Vec3& inv_inertia_bt = Vec3(1.0f / 54.0f, 1.0f / 96.0f, 1.0f / 132.0f))
+{
+    bool has_contact = false;
+    Vec3 sum_normal(0.0f, 0.0f, 0.0f);
+    int num_contacts = 0;
+
+    // P1-7: chassis-world contacts solved the way Bullet does for RocketSim: contacts are found on the
+    // start-of-tick pose (including near misses, as speculative contacts), then normal and friction impulses
+    // are solved by sequential impulses on the velocity that this tick will integrate. No position push-out.
+    constexpr float CONTACT_DIST_UU = 2.5f;      // corners closer than this take part
+    constexpr float RESTITUTION = 0.3f;          // CARWORLD_COLLISION_RESTITUTION
+    constexpr float FRICTION = 0.3f;             // CARWORLD_COLLISION_FRICTION
+    constexpr float RESTITUTION_MIN_SPEED = 10.0f;
+    constexpr float ERP = 0.2f;
+    constexpr int ITERATIONS = 10;
+
+    Vec3 normals[8];
+    Vec3 arms_bt[8];   // contact point relative to the centre of mass, bullet units
+    float target[8];   // wanted normal velocity at the contact, bt/s
+    float normal_acc[8];
+    Vec3 fric_acc[8];
+
+    Mat3 basis_t = basis.transpose();
+    auto angular_response = [&](const Vec3& arm, const Vec3& impulse) -> Vec3 {
+        Vec3 loc = basis_t * arm.cross(impulse);
+        return basis * Vec3(loc.x * inv_inertia_bt.x, loc.y * inv_inertia_bt.y, loc.z * inv_inertia_bt.z);
+    };
+    auto effective_mass = [&](const Vec3& arm, const Vec3& dir) -> float {
+        Vec3 c = basis_t * arm.cross(dir);
+        return 1.0f / ((1.0f / car_mass) + c.x * c.x * inv_inertia_bt.x + c.y * c.y * inv_inertia_bt.y + c.z * c.z * inv_inertia_bt.z);
+    };
+
+    Vec3 vel_bt = vel * 0.02f;
+
+    #pragma unroll
+    for (int i = 0; i < 8; ++i) {
+        float sx = (i & 1) ? 1.0f : -1.0f;
+        float sy = (i & 2) ? 1.0f : -1.0f;
+        float sz = (i & 4) ? 1.0f : -1.0f;
+        Vec3 world_corner = pos + basis * (hitbox_offset + Vec3(sx * hitbox_half.x, sy * hitbox_half.y, sz * hitbox_half.z));
+        float dist = 0.0f;
+        Vec3 normal(0.0f, 0.0f, 1.0f);
+        arena_sdf_and_normal(world_corner, dist, normal);
+        if (dist > CONTACT_DIST_UU) continue;
+
+        has_contact = true;
+        sum_normal = sum_normal + normal;
+        Vec3 arm = (world_corner - pos) * 0.02f;
+        float vn = normal.dot(vel_bt + omega.cross(arm));
+        float bounce = (-vn > RESTITUTION_MIN_SPEED * 0.02f) ? -vn * RESTITUTION : 0.0f;
+        float dist_bt = dist * 0.02f;
+        normals[num_contacts] = normal;
+        arms_bt[num_contacts] = arm;
+        target[num_contacts] = (dist_bt > 0.0f) ? bounce - dist_bt / dt : bounce - ERP * dist_bt / dt;
+        normal_acc[num_contacts] = 0.0f;
+        fric_acc[num_contacts] = Vec3(0.0f, 0.0f, 0.0f);
+        num_contacts++;
+    }
+
+    if (num_contacts > 0) {
+        for (int it = 0; it < ITERATIONS; ++it) {
+            for (int k = 0; k < num_contacts; ++k) {
+                Vec3 n = normals[k];
+                Vec3 arm = arms_bt[k];
+                float vn = n.dot(vel_bt + omega.cross(arm));
+                float acc = fmaxf(0.0f, normal_acc[k] + (target[k] - vn) * effective_mass(arm, n));
+                Vec3 imp = n * (acc - normal_acc[k]);
+                normal_acc[k] = acc;
+                vel_bt = vel_bt + imp * (1.0f / car_mass);
+                omega = omega + angular_response(arm, imp);
+            }
+            for (int k = 0; k < num_contacts; ++k) {
+                Vec3 n = normals[k];
+                Vec3 arm = arms_bt[k];
+                Vec3 pv = vel_bt + omega.cross(arm);
+                Vec3 vt = pv - n * n.dot(pv);
+                float speed = vt.length();
+                if (speed < 1e-6f) continue;
+                Vec3 dir = vt * (1.0f / speed);
+                Vec3 want = fric_acc[k] - dir * (speed * effective_mass(arm, dir));
+                float limit = FRICTION * normal_acc[k];
+                float mag = want.length();
+                if (mag > limit) want = (mag > 1e-9f) ? want * (limit / mag) : Vec3(0.0f, 0.0f, 0.0f);
+                Vec3 imp = want - fric_acc[k];
+                fric_acc[k] = want;
+                vel_bt = vel_bt + imp * (1.0f / car_mass);
+                omega = omega + angular_response(arm, imp);
             }
         }
         vel = vel_bt * 50.0f;

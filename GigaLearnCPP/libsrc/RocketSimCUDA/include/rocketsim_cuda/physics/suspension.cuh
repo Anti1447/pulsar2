@@ -569,6 +569,24 @@ __device__ __forceinline__ void update_car_ground_support_soa(
     if (car_state.flip_time) car_state.flip_time[car_idx] = flip_time;
 }
 
+/**
+ * @brief Recomputes each contacting wheel's chassis velocity terms after velocity impulses applied since the raycast.
+ */
+__device__ __forceinline__ void refresh_wheel_contact_velocities(
+    const Vec3& car_pos, const Vec3& vel_bt, const Vec3& omega, const Mat3& basis, WheelRaycastResult* results)
+{
+    #pragma unroll
+    for (int w = 0; w < 4; ++w) {
+        if (!results[w].in_contact) continue;
+        Vec3 rel_pos_bt = (results[w].contact_pt - car_pos) * 0.02f;
+        Vec3 normal = results[w].contact_normal;
+        float proj_vel = normal.dot(vel_bt + omega.cross(rel_pos_bt));
+        float denominator = normal.dot(basis.up);
+        results[w].proj_vel_bt = proj_vel;
+        results[w].v_rel_bt = (denominator > 0.1f) ? proj_vel / denominator : 0.0f;
+    }
+}
+
 // ============================================================================
 // Bilateral Constraint & Newton's 3rd Law Reaction Applicators
 // CPU Reference: libsrc/bullet3-3.24/BulletDynamics/ConstraintSolver/btContactConstraint.cpp:108-150

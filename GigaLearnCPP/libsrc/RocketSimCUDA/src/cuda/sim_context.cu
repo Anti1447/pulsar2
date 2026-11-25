@@ -137,7 +137,7 @@ __device__ inline void init_single_car(
 
     car_state.has_flipped[idx] = 0;
     car_state.is_flipping[idx] = 0;
-    car_state.flip_time[idx] = 0.0f;
+    car_state.flip_time[idx] = 10.0f;
     car_state.flip_rel_torque_x[idx] = 0.0f;
     car_state.flip_rel_torque_y[idx] = 0.0f;
     car_state.flip_rel_torque_z[idx] = 0.0f;
@@ -1090,13 +1090,14 @@ __global__ void k_set_car_state_tensor(
 
     // Reset transient mechanics on state reset
     dst.is_on_ground[car_idx] = (pz <= 17.5f) ? 1 : 0;
+    dst.wheel_contact_0[car_idx] = dst.wheel_contact_1[car_idx] = dst.wheel_contact_2[car_idx] = dst.wheel_contact_3[car_idx] = dst.is_on_ground[car_idx];
     dst.has_jumped[car_idx] = 0;
     dst.is_jumping[car_idx] = 0;
     dst.jump_time[car_idx] = 0.0f;
     dst.has_double_jumped[car_idx] = 0;
     dst.has_flipped[car_idx] = 0;
     dst.is_flipping[car_idx] = 0;
-    dst.flip_time[car_idx] = 0.0f;
+    dst.flip_time[car_idx] = 10.0f;
     dst.air_time[car_idx] = 0.0f;
     dst.air_time_since_jump[car_idx] = 0.0f;
     dst.is_boosting[car_idx] = 0;

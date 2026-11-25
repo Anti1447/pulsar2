@@ -158,8 +158,21 @@ __device__ void StepCarDevice(
     int num_wheels_contact = wheels_contact[0] + wheels_contact[1] + wheels_contact[2] + wheels_contact[3];
     bool is_on_ground = (num_wheels_contact >= 3);
 
-    // Update ground support and flip reset (R3)
-    update_car_ground_support_soa(car_idx, car_state, num_wheels_contact);
+    // Velocity limiting, at the start of the tick as in RocketSim v3
+    float speed_sq = vel.length_sq();
+    if (speed_sq > CAR_MAX_SPEED * CAR_MAX_SPEED) {
+        vel = vel * (CAR_MAX_SPEED / sqrtf(speed_sq));
+    }
+    float ang_speed_sq = omega.length_sq();
+    if (ang_speed_sq > CAR_MAX_ANG_SPEED * CAR_MAX_ANG_SPEED) {
+        omega = omega * (CAR_MAX_ANG_SPEED / sqrtf(ang_speed_sq));
+    }
+
+    // Jump, flip, air and boost logic reads LAST tick's wheel contact, as RocketSim v3 does.
+    bool was_on_ground = car_state.is_on_ground[car_idx] != 0;
+    int prev_wheels_contact = car_state.wheel_contact_0[car_idx] + car_state.wheel_contact_1[car_idx]
+                            + car_state.wheel_contact_2[car_idx] + car_state.wheel_contact_3[car_idx];
+    apply_car_flip_zdamp(car_idx, car_state, was_on_ground, vel);
 
     // 4. Load previous tick's cached wheel dynamics
     float cached_engine_force = car_state.wheel_engine_force[car_idx];
@@ -194,26 +207,32 @@ __device__ void StepCarDevice(
         contact_normals, basis,
         vel, omega, dt,
         total_force,
-        car_cfg
+        car_cfg,
+        prev_wheels_contact
     );
 
-    // 6. Air control vs flipping reset
+    // 6. Landing ends a flip (v3 pre_tick_update)
     float fwd_speed = vel.dot(basis.forward);
-    if (num_wheels_contact < 3) {
-        bool allow_air_torque = (num_wheels_contact == 0);
-        update_car_air_control(car_idx, car_state, ctrl, basis, dt, omega, total_torque_omega, total_force, allow_air_torque);
-    } else {
+    if (was_on_ground) {
+        if (car_state.is_flipping[car_idx]) car_state.flip_time[car_idx] = 0.0f;
         car_state.is_flipping[car_idx] = 0;
     }
 
-    // 7. Turtle recovery (auto-flip)
+    // 7. First jump, turtle recovery, double jump / dodge, then air torques (v3 order)
+    bool was_jumping = car_state.is_jumping[car_idx] != 0;
+    update_car_jump(car_idx, car_state, ctrl, was_on_ground, basis, dt, vel, total_force);
     update_car_auto_flip(car_idx, car_state, ctrl, basis, dt, vel, omega);
-
-    // 8. Jump, double jump, flip/dodge
-    update_car_jump(car_idx, car_state, ctrl, is_on_ground, basis, fwd_speed, dt, vel, total_force);
+    bool prev_is_flipping = car_state.is_flipping[car_idx] != 0;
+    float prev_flip_time = car_state.flip_time[car_idx];
+    bool flip_ended = update_car_double_jump_or_flip(car_idx, car_state, ctrl, was_on_ground, was_jumping, basis, fwd_speed, dt, vel);
+    if (!was_on_ground) {
+        update_car_air_control(car_idx, car_state, ctrl, basis, prev_wheels_contact, prev_is_flipping, prev_flip_time,
+                               omega, total_torque_omega, total_force);
+    }
 
     // 9. Surface alignment (auto-roll) matching Car.cpp:135
-    if (ctrl.throttle != 0.0f && ((num_wheels_contact > 0 && num_wheels_contact < 4) || car_state.world_contact_has_contact[car_idx])) {
+    if (ctrl.throttle != 0.0f && !car_state.is_flipping[car_idx] && !flip_ended &&
+        ((num_wheels_contact > 0 && num_wheels_contact < 4) || car_state.world_contact_has_contact[car_idx])) {
         update_car_auto_roll(
             car_idx, car_state, num_wheels_contact, wheels_contact,
             contact_normals, basis, dt, total_force, total_torque_omega
@@ -223,6 +242,8 @@ __device__ void StepCarDevice(
 
     // 10. Multi-body suspension & bilateral tire friction impulses (btVehicleRL::updateVehicleSecond) (R3)
     Vec3 vel_bt = vel * 0.02f;
+    // v3 raycasts after the jump / dodge impulses, so suspension damping sees them.
+    refresh_wheel_contact_velocities(pos, vel_bt, omega, basis, wheel_results);
     apply_suspension_and_friction_multibody(
         pos, basis, car_cfg, wheel_results, dt,
         cached_engine_force, cached_brake, cached_steer_angle,
@@ -236,39 +257,38 @@ __device__ void StepCarDevice(
     vel = vel_bt * 50.0f;
 
     // 11. Boost update matching Car.cpp:143
-    update_car_boost(car_idx, car_state, ctrl, is_on_ground, basis, dt, total_force);
+    update_car_boost(car_idx, car_state, ctrl, was_on_ground, basis, dt, total_force);
 
     // 12. Gravity (R6)
     total_force = total_force + mut_cfg.gravity * mut_cfg.car_mass;
 
-    // 13. Symplectic Euler linear integration (in Bullet units for exact rounding parity)
+    // 13-15. Linear and angular integration with the chassis arena contact (P1-7).
+    // On its wheels (3+ touching) a car keeps the upstream order and solver, which track the CPU engines
+    // better on ramps and walls. Tumbling or flipping, contacts are solved Bullet-style on the start-of-tick
+    // pose before positions move, which tracks flip landings far better.
     vel = vel + total_force * ((1.0f / mut_cfg.car_mass) * dt);
-    pos_bt = pos_bt + (vel * 0.02f) * dt;
-    pos = pos_bt * 50.0f;
-
-    // 14. Angular dynamics integration matching Bullet integrateVelocities
     omega = omega + total_torque_omega * dt;
-
-    // 15. Chassis arena contact with preset hitbox extents (R5, R6)
-    resolve_chassis_arena_collision(
-        car_idx, car_state, pos, vel, omega, basis, dt,
-        car_cfg.hitbox_pos_offset, car_cfg.get_hitbox_half(),
-        mut_cfg.car_mass, car_cfg.calculate_inv_inertia_bt(mut_cfg.car_mass)
-    );
-    pos_bt = pos * 0.02f;
+    if (num_wheels_contact >= 3) {
+        pos_bt = pos_bt + (vel * 0.02f) * dt;
+        pos = pos_bt * 50.0f;
+        resolve_chassis_arena_collision_driving(
+            car_idx, car_state, pos, vel, omega, basis, dt,
+            car_cfg.hitbox_pos_offset, car_cfg.get_hitbox_half(),
+            mut_cfg.car_mass, car_cfg.calculate_inv_inertia_bt(mut_cfg.car_mass)
+        );
+        pos_bt = pos * 0.02f;
+    } else {
+        resolve_chassis_arena_collision(
+            car_idx, car_state, pos, vel, omega, basis, dt,
+            car_cfg.hitbox_pos_offset, car_cfg.get_hitbox_half(),
+            mut_cfg.car_mass, car_cfg.calculate_inv_inertia_bt(mut_cfg.car_mass)
+        );
+        pos_bt = pos_bt + (vel * 0.02f) * dt;
+        pos = pos_bt * 50.0f;
+    }
 
     // 16. Quaternion integration
     quat = bullet_integrate_quaternion(quat, omega, dt);
-
-    // 17. Velocity limiting (clamping)
-    float speed_sq = vel.length_sq();
-    if (speed_sq > CAR_MAX_SPEED * CAR_MAX_SPEED) {
-        vel = vel * (CAR_MAX_SPEED / sqrtf(speed_sq));
-    }
-    float ang_speed_sq = omega.length_sq();
-    if (ang_speed_sq > CAR_MAX_ANG_SPEED * CAR_MAX_ANG_SPEED) {
-        omega = omega * (CAR_MAX_ANG_SPEED / sqrtf(ang_speed_sq));
-    }
 
     // 18. Supersonic status update
     update_car_supersonic(car_idx, car_state, vel, dt);

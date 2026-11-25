@@ -33,7 +33,7 @@ constexpr float BOOST_SPAWN = BOOST_MAX / 3.0f;
 constexpr float BOOST_CONSUMPTION_RATE = BOOST_MAX / 3.0f; // 33.33333f/s
 constexpr float BOOST_MIN_TIME = 0.1f;
 constexpr float BOOST_ACCEL_GROUND = 2975.0f / 3.0f;
-constexpr float BOOST_ACCEL_AIR = 3175.0f / 3.0f;
+constexpr float BOOST_ACCEL_AIR = 2975.0f / 3.0f; // RocketSim v3: same as ground; the +66.7 is air throttle, forced to 1 while boosting
 
 // Supersonic Constants
 constexpr float SUPERSONIC_START_SPEED = 2200.0f;

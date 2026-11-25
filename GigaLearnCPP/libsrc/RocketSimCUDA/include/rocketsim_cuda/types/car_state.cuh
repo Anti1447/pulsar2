@@ -35,7 +35,7 @@ struct CarStatePOD {
     uint8_t is_jumping          = 0;
     float jump_time             = 0.0f;
     float air_time_since_jump   = 0.0f;
-    float flip_time             = 0.0f;
+    float flip_time             = 10.0f; // time since the last flip began (v3); < 0.3 s locks pitch
     uint8_t is_flipping         = 0;
 
     CarControls last_controls;

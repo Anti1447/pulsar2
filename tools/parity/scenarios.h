@@ -67,6 +67,20 @@ namespace parity {
 			Scenario s; s.name = "dodge_p" + std::to_string(p) + "_r" + std::to_string(r); s.cars = { baseCar(0, -800, HALF_PI, 0) }; s.cars[0].boost = 0; s.ball.pos = FarBall(); s.ticks = 300;
 			s.ctl = [p, r](int t, int) { Ctl c; c.jump = (t < 3) || (t >= 15 && t < 16); if (t >= 15 && t < 16) { c.pitch = (float)p; c.roll = (float)r; } return c; }; add(s);
 		}
+		// ---- aerial touches: an airborne car boosting into an airborne ball, centred and off-centre
+		for (int off : { -60, 0, 60 }) {
+			Scenario s; s.name = "aerialhit_off" + std::to_string(off); CarInit c; c.pos = { (float)off, -700, 500 }; c.vel = { 0, 900, 250 }; Face(c, HALF_PI, 0.15f); c.boost = 100; c.onGround = false; c.hasJumped = true;
+			s.cars = { c }; s.ball.pos = { 0, 0, 640 }; s.ball.vel = { 0, 0, 250 }; s.ticks = 180;
+			s.ctl = [](int, int) { Ctl k; k.boost = true; return k; }; add(s);
+		}
+		// ---- flips into a ball on the ground: front flip and diagonal flip
+		for (int r : { 0, 1 }) {
+			Scenario s; s.name = std::string("fliphit_") + (r ? "diag" : "front"); s.cars = { baseCar(r ? -60.f : 0.f, -700, HALF_PI, 1000) }; s.cars[0].boost = 0; s.ball.pos = { 0, 0, 93.15f }; s.ticks = 240;
+			s.ctl = [r](int t, int) { Ctl c; c.jump = (t < 3) || (t >= 30 && t < 31); if (t >= 30 && t < 31) { c.pitch = -1.f; c.roll = (float)r; } return c; }; add(s);
+		}
+		// ---- a double jump into a hanging ball
+		{ Scenario s; s.name = "jumphit_double"; s.cars = { baseCar(0, -750, HALF_PI, 1000) }; s.cars[0].boost = 0; s.ball.pos = { 0, 0, 260 }; s.ball.vel = { 0, 0, 300 }; s.ticks = 240;
+		  s.ctl = [](int t, int) { Ctl c; c.jump = (t < 20) || (t >= 30 && t < 31); return c; }; add(s); }
 		{ Scenario s; s.name = "air_pitch_up"; CarInit c; c.pos = { 0, 0, 400 }; c.boost = 0; c.onGround = false; c.hasJumped = true; s.cars = { c }; s.ball.pos = FarBall(); s.ticks = 60;
 		  s.ctl = [](int, int) { Ctl k; k.pitch = 1; return k; }; add(s); }
 		{ Scenario s; s.name = "air_roll_yaw_boost"; CarInit c; c.pos = { 0, -2000, 600 }; c.vel = { 0, 800, 200 }; Face(c, HALF_PI, 0.3f); c.boost = 100; c.onGround = false; c.hasJumped = true; s.cars = { c }; s.ball.pos = FarBall(); s.ticks = 120;

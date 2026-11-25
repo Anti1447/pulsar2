@@ -66,7 +66,7 @@ struct alignas(16) MutatorConfig {
 
     // 4. Boost Mechanics
     float boost_accel_ground     = BOOST_ACCEL_GROUND;          // 2975.0f / 3.0f (~991.6667f)
-    float boost_accel_air        = BOOST_ACCEL_AIR;             // 3175.0f / 3.0f (~1058.3333f)
+    float boost_accel_air        = BOOST_ACCEL_AIR;             // P1-6: 2975.0f / 3.0f (v3)
     float boost_used_per_second  = BOOST_CONSUMPTION_RATE;      // 100.0f / 3.0f (~33.33333f)
     float car_spawn_boost_amount = BOOST_SPAWN;                 // 100.0f / 3.0f (~33.33333f)
     bool recharge_boost_enabled  = false;

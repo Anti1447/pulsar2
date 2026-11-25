@@ -28,7 +28,8 @@ namespace pulsar_gpu {
 		p.boost = c.boost; p.team = c.team; p.is_on_ground = c.onGround; for (int i = 0; i < 4; i++) p.wheels_with_contact[i] = c.wheels[i];
 		p.has_jumped = c.hasJumped; p.has_double_jumped = c.hasDoubleJumped; p.has_flipped = c.hasFlipped; p.is_jumping = c.isJumping; p.is_flipping = c.isFlipping;
 		p.is_demoed = c.isDemoed; p.is_supersonic = c.isSupersonic; p.is_auto_flipping = c.isAutoFlipping; p.is_boosting = c.isBoosting;
-		p.jump_time = c.jumpTime; p.flip_time = c.flipTime; p.air_time = c.airTime; p.air_time_since_jump = c.airTimeSinceJump; p.handbrake_val = c.handbrake;
+		p.jump_time = c.jumpTime; p.flip_time = (!c.isFlipping && c.flipTime == 0) ? 10.0f : c.flipTime; // same mapping as the v3 CPU facade
+		p.air_time = c.airTime; p.air_time_since_jump = c.airTimeSinceJump; p.handbrake_val = c.handbrake;
 		p.demo_respawn_timer = c.demoRespawn; p.supersonic_time = c.supersonicTime; p.auto_flip_timer = c.autoFlipTimer; p.auto_flip_torque_scale = c.autoFlipTorqueScale;
 		p.time_since_boosted = c.timeSinceBoosted; p.boosting_time = c.boostingTime; p.flip_rel_torque = Vec3(c.flipRelTorque[0], c.flipRelTorque[1], c.flipRelTorque[2]);
 		p.world_contact_has_contact = c.worldContact; p.world_contact_normal = Vec3(c.worldNormal[0], c.worldNormal[1], c.worldNormal[2]);
