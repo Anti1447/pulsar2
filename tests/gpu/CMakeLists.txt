@@ -36,3 +36,8 @@ set_tests_properties(test_l2_arena_batch PROPERTIES LABELS "unit;gpu")
 pulsar_gpu_test(test_l1_goal_mouth unit;gpu;parity)
 pulsar_gpu_test(test_l1_contested_ball unit;gpu;parity)
 pulsar_gpu_test(test_l1_v3_mechanics unit;gpu;parity)
+
+# Throughput benchmark with moving cars (hand-run, not ctest)
+add_executable(gpu_bench gpu_bench.cu)
+target_link_libraries(gpu_bench PRIVATE rocketsim_cuda_core)
+set_target_properties(gpu_bench PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
