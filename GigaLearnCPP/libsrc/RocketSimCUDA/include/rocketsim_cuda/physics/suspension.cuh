@@ -6,6 +6,7 @@
 #include "rocketsim_cuda/math/quat.cuh"
 #include "rocketsim_cuda/math/mat3.cuh"
 #include "rocketsim_cuda/physics/arena_sdf.cuh"
+#include "rocketsim_cuda/physics/mesh_ball.cuh"
 #include "rocketsim_cuda/types/car_state.cuh"
 #include "rocketsim_cuda/types/ball_state.cuh"
 #include "rocketsim_cuda/types/car_config.cuh"
@@ -318,17 +319,32 @@ __device__ __forceinline__ void evaluate_car_wheels_raycast_multibody(
     float* __restrict__ suspension_lengths,
     WheelRaycastResult* __restrict__ results,
     const Vec3& vel_bt = Vec3(0.0f, 0.0f, 0.0f),
-    const Vec3& omega = Vec3(0.0f, 0.0f, 0.0f))
+    const Vec3& omega = Vec3(0.0f, 0.0f, 0.0f),
+    const ArenaMesh* arena_mesh = nullptr) // P2-3: v3's mesh arena when loaded, else the analytic SDF
 {
     Vec3 up_dir = basis.up;
     Vec3 wheel_dir = up_dir * -1.0f;
+    const bool use_mesh = arena_mesh && arena_mesh->num_meshes > 0;
+    float mesh_frac[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    Vec3 mesh_normal[4];
+    if (use_mesh) {
+        Vec3 from[4], to[4];
+        for (int w = 0; w < 4; ++w) {
+            Vec3 hp = car_pos + basis * car_cfg.get_wheel_connection_offset(w);
+            float len = car_cfg.get_susp_rest_effective(w) + SUSP_MAX_TRAVEL + car_cfg.get_wheel_radius(w);
+            from[w] = hp * 0.02f; to[w] = (hp + wheel_dir * len) * 0.02f;
+        }
+        float min_dist = (car_cfg.hitbox_size.z * 0.5f - 2.25f) * 0.02f; // v3 wheel_ray_min_hit_dist_sq
+        mesh_raycast4(*arena_mesh, from, to, min_dist * min_dist, mesh_frac, mesh_normal);
+    }
 
     #pragma unroll
     for (int w = 0; w < 4; ++w) {
         Vec3 hardpoint = car_pos + basis * car_cfg.get_wheel_connection_offset(w);
         float config_rest = car_cfg.get_susp_rest_effective(w);
         float radius = car_cfg.get_wheel_radius(w);
-        float real_ray_len = config_rest + SUSP_MAX_TRAVEL + radius - SUSP_SUBTRACTION;
+        // v3 casts the full rest + travel + radius; v2 (and the SDF path) stop 2.5 UU short
+        float real_ray_len = config_rest + SUSP_MAX_TRAVEL + radius - (use_mesh ? 0.0f : SUSP_SUBTRACTION);
 
         float closest_dist = real_ray_len + 1.0f;
         Vec3 closest_normal = up_dir;
@@ -338,7 +354,10 @@ __device__ __forceinline__ void evaluate_car_wheels_raycast_multibody(
         // 1. Raycast against analytical Arena SDF (Static geometry)
         float sdf_hit_dist = 0.0f;
         Vec3 sdf_hit_normal = Vec3(0.0f, 0.0f, 1.0f);
-        if (raycast_arena_sdf(hardpoint, wheel_dir, real_ray_len, &sdf_hit_dist, &sdf_hit_normal)) {
+        bool world_hit;
+        if (use_mesh) { world_hit = mesh_frac[w] < 1.0f; sdf_hit_dist = mesh_frac[w] * real_ray_len; sdf_hit_normal = mesh_normal[w]; }
+        else world_hit = raycast_arena_sdf(hardpoint, wheel_dir, real_ray_len, &sdf_hit_dist, &sdf_hit_normal);
+        if (world_hit) {
             if (sdf_hit_dist < closest_dist) {
                 closest_dist = sdf_hit_dist;
                 closest_normal = sdf_hit_normal;
@@ -397,7 +416,7 @@ __device__ __forceinline__ void evaluate_car_wheels_raycast_multibody(
             results[w].hit_car_index = closest_car_idx;
 
             wheels_in_contact[w] = 1;
-            float cur_susp_len = fminf(fmaxf(closest_dist - radius, config_rest - SUSP_MAX_TRAVEL), config_rest + SUSP_MAX_TRAVEL);
+            float cur_susp_len = fminf(fmaxf(closest_dist - radius, config_rest - SUSP_MAX_TRAVEL), config_rest + SUSP_MAX_TRAVEL); // v3 has no lower clamp
             suspension_lengths[w] = config_rest - cur_susp_len; // Compression in UU
 
             Vec3 rel_pos_bt = (results[w].contact_pt - car_pos) * 0.02f;
@@ -725,7 +744,7 @@ __device__ __forceinline__ void apply_suspension_and_friction_multibody(
         float config_rest = car_cfg.get_susp_rest_effective(w);
         float radius = car_cfg.get_wheel_radius(w);
         float hit_dist = wheel_results[w].hit_dist;
-        float cur_susp_len = fminf(fmaxf(hit_dist - radius, config_rest - SUSP_MAX_TRAVEL), config_rest + SUSP_MAX_TRAVEL);
+        float cur_susp_len = fminf(fmaxf(hit_dist - radius, config_rest - SUSP_MAX_TRAVEL), config_rest + SUSP_MAX_TRAVEL); // v3 has no lower clamp
 
         Vec3 contact_pt_uu = wheel_results[w].contact_pt;
         Vec3 hit_normal = wheel_results[w].contact_normal;
@@ -755,7 +774,7 @@ __device__ __forceinline__ void apply_suspension_and_friction_multibody(
             float wheel_trace_len_bt = hit_dist * 0.02f;
             if (wheel_trace_len_bt < pushback_thresh_bt) {
                 float dist_delta = wheel_trace_len_bt - pushback_thresh_bt;
-                float pos_error = 0.2f * (-dist_delta) / dt;
+                float pos_error = 0.2f * (-dist_delta) / dt; // P2-3: v3 WHEEL_PUSHBACK_ERP
                 float vel_error = -proj_vel_bt;
                 Vec3 c0 = rel_pos_bt.cross(hit_normal);
                 Vec3 c0_loc = basis.transpose() * c0;

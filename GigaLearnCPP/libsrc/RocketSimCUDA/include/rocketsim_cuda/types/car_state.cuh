@@ -219,7 +219,7 @@ struct CarStateSoA {
         pod.ang_vel = get_ang_vel(idx);
 
         pod.boost                  = boost[idx];
-        pod.is_on_ground           = is_on_ground[idx];
+        pod.is_on_ground           = is_on_ground[idx] != 0;
         pod.has_jumped             = has_jumped[idx];
         pod.has_double_jumped      = has_double_jumped[idx];
         pod.has_flipped            = has_flipped[idx];
@@ -305,7 +305,7 @@ struct CarStateSoA {
         vel_bt_z[idx] = pod.vel.z * 0.02f;
 
         boost[idx]                 = pod.boost;
-        is_on_ground[idx]          = pod.is_on_ground;
+        is_on_ground[idx]          = pod.is_on_ground ? 2 : 0; // P2-4: 2 = on ground, state just set (no sticky force in the first tick, as in v3)
         has_jumped[idx]            = pod.has_jumped;
         has_double_jumped[idx]     = pod.has_double_jumped;
         has_flipped[idx]           = pod.has_flipped;

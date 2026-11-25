@@ -66,7 +66,8 @@ __device__ void StepCarDevice(
     const uint8_t* other_cars_is_demoed,
     const uint8_t* other_cars_hitbox_type,
     BodyReactionImpulse* ball_reaction,
-    BodyReactionImpulse* other_cars_reactions)
+    BodyReactionImpulse* other_cars_reactions,
+    const ArenaMesh* arena_mesh = nullptr)
 {
     // Reset ball touched for this car this tick (R4)
     if (car_state.ball_touched) {
@@ -144,7 +145,7 @@ __device__ void StepCarDevice(
         cars_per_env, car_in_env_idx,
         other_cars_pos, other_cars_basis, other_cars_is_demoed, other_cars_hitbox_type,
         wheels_contact, susp_lengths, wheel_results,
-        vel_bt_init, omega
+        vel_bt_init, omega, arena_mesh
     );
 
     // Track ball touched from wheel contacts (R4)
@@ -200,7 +201,7 @@ __device__ void StepCarDevice(
         vel, omega, dt,
         total_force,
         car_cfg,
-        prev_wheels_contact
+        car_state.is_on_ground[car_idx] == 2 ? 0 : prev_wheels_contact // P2-4: v3 has no sticky force on the first tick after a state set
     );
 
     // P1-10: v3 applies this tick's engine force, brake, steer angle and friction in this tick (v2, and upstream, one tick later)
@@ -450,7 +451,7 @@ __global__ void StepSimulationKernel(
             true, ball_pos, ball_vel_bt, ball_omega,
             cars_pos, cars_basis, cars_vel_bt, cars_omega,
             cars_is_demoed, cars_hitbox_type,
-            &total_ball_reaction, total_cars_reactions
+            &total_ball_reaction, total_cars_reactions, &arena_mesh
         );
     }
 

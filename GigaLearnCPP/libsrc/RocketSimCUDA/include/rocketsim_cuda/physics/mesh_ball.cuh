@@ -150,6 +150,62 @@ __device__ inline int mesh_ball_contacts(const ArenaMesh& arena, const Vec3& cen
     return count;
 }
 
+/**
+ * P2-3: the four wheel rays against the static arena (v3 quad_ray_callbacks.rs / static_plane_shape.rs): two-sided
+ * triangles with a -1e-4 edge tolerance, normal facing the ray origin, hits closer to the origin than sqrt(min_dist_sq)
+ * ignored. Inputs in Bullet units; frac[i] stays 1.0 when ray i hits nothing.
+ */
+__device__ inline void mesh_raycast4(const ArenaMesh& arena, const Vec3* from, const Vec3* to, float min_dist_sq, float* frac, Vec3* normal) {
+    Vec3 lo = from[0], hi = from[0];
+    for (int r = 0; r < 4; ++r) {
+        frac[r] = 1.0f;
+        lo = Vec3(fminf(lo.x, fminf(from[r].x, to[r].x)), fminf(lo.y, fminf(from[r].y, to[r].y)), fminf(lo.z, fminf(from[r].z, to[r].z)));
+        hi = Vec3(fmaxf(hi.x, fmaxf(from[r].x, to[r].x)), fmaxf(hi.y, fmaxf(from[r].y, to[r].y)), fmaxf(hi.z, fmaxf(from[r].z, to[r].z)));
+    }
+    for (int m = 0; m < arena.num_meshes; ++m) {
+        const MeshInfo& mi = arena.meshes[m];
+        if (hi.x < mi.mn.x || lo.x > mi.mx.x || hi.y < mi.mn.y || lo.y > mi.mx.y || hi.z < mi.mn.z || lo.z > mi.mx.z) continue;
+        Vec3 l = lo - mi.translation, h = hi - mi.translation;
+        for (int i = mi.node_begin; i < mi.node_end;) {
+            const MeshNode& node = arena.nodes[i];
+            if (h.x < node.mn.x || l.x > node.mx.x || h.y < node.mn.y || l.y > node.mx.y || h.z < node.mn.z || l.z > node.mx.z) { i = node.skip; continue; }
+            if (node.tri >= 0) {
+                const MeshTriangle& t = arena.tris[node.tri];
+                const float plane = t.p0.dot(t.n);
+                for (int r = 0; r < 4; ++r) {
+                    Vec3 a = from[r] - mi.translation, b = to[r] - mi.translation;
+                    float da = t.n.dot(a) - plane, db = t.n.dot(b) - plane;
+                    if (da * db >= 0.0f) continue;
+                    float f = da / (da - db);
+                    if (f >= frac[r]) continue;
+                    Vec3 pt = a + (b - a) * f;
+                    Vec3 v0 = t.p0 - pt, v1 = t.p1 - pt, v2 = t.p2 - pt;
+                    if (v0.cross(v1).dot(t.n) < -0.0001f || v1.cross(v2).dot(t.n) < -0.0001f || v2.cross(v0).dot(t.n) < -0.0001f) continue;
+                    if ((pt - a).length_sq() < min_dist_sq) continue;
+                    frac[r] = f;
+                    normal[r] = (da <= 0.0f) ? t.n * -1.0f : t.n;
+                }
+            }
+            ++i;
+        }
+    }
+    // static planes: floor, ceiling, side walls (each reports its own normal)
+    for (int r = 0; r < 4; ++r) {
+        const Vec3 a = from[r], b = to[r], d = b - a;
+        const float dist[4] = { a.z, 2048.0f * 0.02f - a.z, a.x + 4096.0f * 0.02f, 4096.0f * 0.02f - a.x };
+        const float rate[4] = { d.z, -d.z, d.x, -d.x };
+        const Vec3 ns[4] = { Vec3(0, 0, 1), Vec3(0, 0, -1), Vec3(1, 0, 0), Vec3(-1, 0, 0) };
+        for (int p = 0; p < 4; ++p) {
+            if (fabsf(rate[p]) < 1.1920929e-7f) continue;
+            float f = -dist[p] / rate[p];
+            if (f < 0.0f || f >= 1.0f || f >= frac[r]) continue;
+            if ((d * f).length_sq() < min_dist_sq) continue;
+            frac[r] = f;
+            normal[r] = ns[p];
+        }
+    }
+}
+
 /** The special ball-world solve. pos in UU, velocities in UU; `vel_pre` = velocity before this tick's gravity. */
 __device__ inline void mesh_ball_resolve(const ArenaMesh& arena, Vec3& pos, Vec3& vel, Vec3& ang_vel, const Vec3& vel_pre,
                                          float radius, float restitution, float friction, float dt) {

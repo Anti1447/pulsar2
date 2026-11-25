@@ -118,7 +118,7 @@ __device__ inline void init_single_car(
     car_state.boosting_time[idx] = 0.0f;
     car_state.is_boosting[idx] = 0;
 
-    car_state.is_on_ground[idx] = 1;
+    car_state.is_on_ground[idx] = 2;
     car_state.wheel_contact_0[idx] = 1;
     car_state.wheel_contact_1[idx] = 1;
     car_state.wheel_contact_2[idx] = 1;
@@ -1090,8 +1090,8 @@ __global__ void k_set_car_state_tensor(
     dst.boost[car_idx] = b_val;
 
     // Reset transient mechanics on state reset
-    dst.is_on_ground[car_idx] = (pz <= 17.5f) ? 1 : 0;
-    dst.wheel_contact_0[car_idx] = dst.wheel_contact_1[car_idx] = dst.wheel_contact_2[car_idx] = dst.wheel_contact_3[car_idx] = dst.is_on_ground[car_idx];
+    dst.is_on_ground[car_idx] = (pz <= 17.5f) ? 2 : 0;
+    dst.wheel_contact_0[car_idx] = dst.wheel_contact_1[car_idx] = dst.wheel_contact_2[car_idx] = dst.wheel_contact_3[car_idx] = (pz <= 17.5f) ? 1 : 0;
     dst.has_jumped[car_idx] = 0;
     dst.is_jumping[car_idx] = 0;
     dst.jump_time[car_idx] = 0.0f;
