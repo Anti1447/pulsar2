@@ -55,3 +55,5 @@ v2 vs v3 on the off-centre aerial: 0.8 / 1.7 / 1.2 / 2.3, so a gap remains. Part
 | aerial hits (3) | about 1 / 4; 3.5 / 3 | 0.1 / 0.5; 0.3 / 0.8 |
 | drive, steer, handbrake | 2.4 to 15 at 1 s | 0.3 or less at 1 s |
 Part A bands: 36/43 vs v3, unchanged in count. Remaining flip error is mostly the car's own floor landing. The GPU now follows v3 rather than v2 on drive timing.
+
+Part B rerun on P1-6/P1-7 (GPU arm only, 20,000 episodes per cell): PASS in all 6 cells; 1v1 vs_oldest 6 of 7 metrics inside (worst 0.164), the others 7 of 7. GPU boost use stayed 4-6% below the CPU. It does not cover P1-8 or later.
