@@ -25,16 +25,32 @@ struct MeshInfo {
     Vec3 mn, mx;       // world bounds, Bullet units
 };
 constexpr int ARENA_MAX_MESHES = 16;
+// coarse occupancy grid: a cell holds 1 if any triangle's bounds overlap it, so queries far from every surface skip the trees
+constexpr float ARENA_CELL_BT = 2.56f;                          // 128 UU
+constexpr int ARENA_GRID_X = 68, ARENA_GRID_Y = 96, ARENA_GRID_Z = 20;
+constexpr float ARENA_GRID_MIN_X = -87.04f, ARENA_GRID_MIN_Y = -122.88f, ARENA_GRID_MIN_Z = -5.12f;
 
 struct ArenaMesh {
     const MeshTriangle* tris = nullptr;
     const MeshNode* nodes = nullptr;
     const MeshInfo* meshes = nullptr;
+    const uint8_t* grid = nullptr;
     int32_t num_meshes = 0;   // 0 = not loaded: the analytic SDF is used instead
 };
 
 // Host: loads <dir>/soccar/*.cmf once (device memory, kept for the process lifetime). Returns an empty ArenaMesh when the
 // directory is missing. GetArenaMesh() loads on first use from $RSC_COLLISION_MESHES, else ./collision_meshes and parents.
+/** False only if no mesh triangle can overlap the box [lo, hi] (world, Bullet units). */
+__device__ __forceinline__ bool arena_mesh_near(const ArenaMesh& arena, const Vec3& lo, const Vec3& hi) {
+    auto idx = [](float v, float mn, int n) { int i = static_cast<int>(floorf((v - mn) * (1.0f / ARENA_CELL_BT))); return i < 0 ? 0 : (i >= n ? n - 1 : i); };
+    const int x0 = idx(lo.x, ARENA_GRID_MIN_X, ARENA_GRID_X), x1 = idx(hi.x, ARENA_GRID_MIN_X, ARENA_GRID_X);
+    const int y0 = idx(lo.y, ARENA_GRID_MIN_Y, ARENA_GRID_Y), y1 = idx(hi.y, ARENA_GRID_MIN_Y, ARENA_GRID_Y);
+    const int z0 = idx(lo.z, ARENA_GRID_MIN_Z, ARENA_GRID_Z), z1 = idx(hi.z, ARENA_GRID_MIN_Z, ARENA_GRID_Z);
+    for (int z = z0; z <= z1; ++z) for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x)
+        if (arena.grid[(z * ARENA_GRID_Y + y) * ARENA_GRID_X + x]) return true;
+    return false;
+}
+
 ArenaMesh LoadArenaMesh(const char* collision_meshes_dir);
 const ArenaMesh& GetArenaMesh();
 

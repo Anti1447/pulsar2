@@ -111,7 +111,9 @@ __device__ __forceinline__ Vec3 mesh_adjust_internal_edge(const MeshTriangle& tr
 __device__ inline int mesh_ball_contacts(const ArenaMesh& arena, const Vec3& center_bt, float radius_bt, BallContact* out) {
     int count = 0;
     const float reach = radius_bt + BALL_MESH_THRESHOLD_BT;
-    for (int m = 0; m < arena.num_meshes; ++m) {
+    const Vec3 ext(reach, reach, reach);
+    const int num = arena_mesh_near(arena, center_bt - ext, center_bt + ext) ? arena.num_meshes : 0;
+    for (int m = 0; m < num; ++m) {
         const MeshInfo& mi = arena.meshes[m];
         if (center_bt.x + reach < mi.mn.x || center_bt.x - reach > mi.mx.x || center_bt.y + reach < mi.mn.y || center_bt.y - reach > mi.mx.y ||
             center_bt.z + reach < mi.mn.z || center_bt.z - reach > mi.mx.z) continue;
@@ -162,7 +164,8 @@ __device__ inline void mesh_raycast4(const ArenaMesh& arena, const Vec3* from, c
         lo = Vec3(fminf(lo.x, fminf(from[r].x, to[r].x)), fminf(lo.y, fminf(from[r].y, to[r].y)), fminf(lo.z, fminf(from[r].z, to[r].z)));
         hi = Vec3(fmaxf(hi.x, fmaxf(from[r].x, to[r].x)), fmaxf(hi.y, fmaxf(from[r].y, to[r].y)), fmaxf(hi.z, fmaxf(from[r].z, to[r].z)));
     }
-    for (int m = 0; m < arena.num_meshes; ++m) {
+    const int num = arena_mesh_near(arena, lo, hi) ? arena.num_meshes : 0;
+    for (int m = 0; m < num; ++m) {
         const MeshInfo& mi = arena.meshes[m];
         if (hi.x < mi.mn.x || lo.x > mi.mx.x || hi.y < mi.mn.y || lo.y > mi.mx.y || hi.z < mi.mn.z || lo.z > mi.mx.z) continue;
         Vec3 l = lo - mi.translation, h = hi - mi.translation;

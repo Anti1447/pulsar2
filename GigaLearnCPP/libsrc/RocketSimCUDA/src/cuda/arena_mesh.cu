@@ -171,8 +171,19 @@ ArenaMesh LoadArenaMesh(const char* dir) {
         mi.mn = nodes[0].mn + mi.translation; mi.mx = nodes[0].mx + mi.translation;
         infos.push_back(mi);
     }
-    out.tris = upload(all_tris); out.nodes = upload(all_nodes); out.meshes = upload(infos);
-    if (!out.tris || !out.nodes || !out.meshes) return ArenaMesh{};
+    std::vector<uint8_t> grid((size_t)ARENA_GRID_X * ARENA_GRID_Y * ARENA_GRID_Z, 0);
+    for (const MeshInfo& mi : infos) for (int i = mi.node_begin; i < mi.node_end; i++) {
+        const MeshNode& n = all_nodes[i];
+        if (n.tri < 0) continue;
+        auto idx = [](float v, float mn, int c) { int k = (int)std::floor((v - mn) / ARENA_CELL_BT); return k < 0 ? 0 : (k >= c ? c - 1 : k); };
+        Vec3 lo = n.mn + mi.translation, hi = n.mx + mi.translation;
+        for (int z = idx(lo.z, ARENA_GRID_MIN_Z, ARENA_GRID_Z); z <= idx(hi.z, ARENA_GRID_MIN_Z, ARENA_GRID_Z); z++)
+            for (int y = idx(lo.y, ARENA_GRID_MIN_Y, ARENA_GRID_Y); y <= idx(hi.y, ARENA_GRID_MIN_Y, ARENA_GRID_Y); y++)
+                for (int x = idx(lo.x, ARENA_GRID_MIN_X, ARENA_GRID_X); x <= idx(hi.x, ARENA_GRID_MIN_X, ARENA_GRID_X); x++)
+                    grid[((size_t)z * ARENA_GRID_Y + y) * ARENA_GRID_X + x] = 1;
+    }
+    out.tris = upload(all_tris); out.nodes = upload(all_nodes); out.meshes = upload(infos); out.grid = upload(grid);
+    if (!out.tris || !out.nodes || !out.meshes || !out.grid) return ArenaMesh{};
     out.num_meshes = (int32_t)infos.size();
     return out;
 }
