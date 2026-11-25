@@ -474,13 +474,14 @@ __global__ void StepSimulationKernel(
                        Vec3(ball_state.vel_x[env_idx], ball_state.vel_y[env_idx], ball_state.vel_z[env_idx]),
                        Vec3(ball_state.ang_vel_x[env_idx], ball_state.ang_vel_y[env_idx], ball_state.ang_vel_z[env_idx]) };
     BallDeltas acc; bool any_hit = false; bool hit_car[8] = { false, false, false, false, false, false, false, false };
+    CarBallRow rows[8];
     // Phase 0: detect every contact against the pre-step ball; hit bookkeeping, push-out and the RocketSim extra hit impulse (summed, applied after the solve).
     for (uint32_t c = 0; c < cars_per_env && c < 8; ++c) {
         uint32_t car_idx = env_idx * cars_per_env + c;
         if (car_state.is_demoed && car_state.is_demoed[car_idx]) continue;
         uint8_t ht = car_state.hitbox_type ? car_state.hitbox_type[car_idx] : 0;
         const CarConfig& car_cfg = get_car_config(ht);
-        if (resolve_car_ball_collision(env_idx, car_idx, ball_state, car_state, arena_state, dt, mut_cfg, car_cfg, &snap, &acc)) {
+        if (resolve_car_ball_collision(env_idx, car_idx, ball_state, car_state, arena_state, dt, mut_cfg, car_cfg, &snap, &acc, &rows[c])) {
             hit_car[c] = true; any_hit = true;
             if (car_state.ball_touched) car_state.ball_touched[car_idx] = 1;
         }
@@ -489,13 +490,16 @@ __global__ void StepSimulationKernel(
     // on the evolving ball velocity. The result no longer depends on slot order and does not double-count a ball squeezed between two cars.
     Vec3 bvel = snap.vel, bomg = snap.omega;
     if (any_hit) {
-        for (int pass = 0; pass < 8; ++pass) {
-            for (uint32_t k = 0; k < cars_per_env && k < 8; ++k) {
-                uint32_t c = (pass & 1) ? (cars_per_env - 1 - k) : k;
-                if (!hit_car[c]) continue;
-                uint32_t car_idx = env_idx * cars_per_env + c;
-                uint8_t ht = car_state.hitbox_type ? car_state.hitbox_type[car_idx] : 0;
-                solve_car_ball_contact_pass(car_idx, car_state, snap.pos, bvel, bomg, mut_cfg, get_car_config(ht));
+        // P1-8: 10 iterations, all normal rows then all friction rows, as Bullet orders them
+        for (int pass = 0; pass < 10; ++pass) {
+            for (int friction = 0; friction < 2; ++friction) {
+                for (uint32_t k = 0; k < cars_per_env && k < 8; ++k) {
+                    uint32_t c = (pass & 1) ? (cars_per_env - 1 - k) : k;
+                    if (!hit_car[c]) continue;
+                    uint32_t car_idx = env_idx * cars_per_env + c;
+                    uint8_t ht = car_state.hitbox_type ? car_state.hitbox_type[car_idx] : 0;
+                    solve_car_ball_row(car_idx, car_state, rows[c], friction != 0, bvel, bomg, mut_cfg, get_car_config(ht));
+                }
             }
         }
         Vec3 p = snap.pos + acc.dpos, v = bvel + acc.dvel, w = bomg + acc.domega;

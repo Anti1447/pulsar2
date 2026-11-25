@@ -16,20 +16,21 @@ static Quat FromForward(Vec3f f) {
 	return Quat(cy * cp, -sy * sp, cy * sp, sy * cp);
 }
 
-static CarStatePOD Run(const char* name, int ticks) {
+static CarStatePOD Run(const char* name, int ticks, BallStatePOD* ballOut = nullptr) {
 	for (const Scenario& sc : BuildScenarios()) {
 		if (sc.name != name) continue;
 		SimContext ctx{ 1, 1 };
 		const CarInit& c = sc.cars[0];
 		CarStatePOD p; p.pos = Vec3(c.pos.x, c.pos.y, c.pos.z); p.vel = Vec3(c.vel.x, c.vel.y, c.vel.z); p.quat = FromForward(c.forward);
 		p.boost = c.boost; p.is_on_ground = c.onGround; for (int w = 0; w < 4; w++) p.wheels_with_contact[w] = c.onGround ? 1 : 0; p.has_jumped = c.hasJumped;
-		BallStatePOD b; b.pos = Vec3(sc.ball.pos.x, sc.ball.pos.y, sc.ball.pos.z);
+		BallStatePOD b; b.pos = Vec3(sc.ball.pos.x, sc.ball.pos.y, sc.ball.pos.z); b.vel = Vec3(sc.ball.vel.x, sc.ball.vel.y, sc.ball.vel.z);
 		ctx.CopyCarStateToDevice(&p, 0, 1); ctx.CopyBallStateToDevice(&b, 0, 1); Sync();
 		for (int t = 0; t < ticks; t++) {
 			Ctl k = sc.ctl(t, 0); CarControls cc;
 			cc.throttle = k.throttle; cc.steer = k.steer; cc.pitch = k.pitch; cc.yaw = k.yaw; cc.roll = k.roll; cc.jump = k.jump; cc.boost = k.boost; cc.handbrake = k.handbrake;
 			ctx.CopyControlsToDevice(&cc, 0, 1); ctx.Step(1);
 		}
+		if (ballOut) *ballOut = DownloadBalls(ctx)[0];
 		return DownloadCars(ctx)[0];
 	}
 	throw TestFailure{ std::string("no scenario ") + name };
@@ -74,4 +75,10 @@ TEST(AFreshAirborneCarIsNotPitchLocked) { // flip_time starts large (time since 
 	for (int t = 0; t < 10; t++) ctx.Step(1); // Step takes a batch size, one tick per call
 	CarStatePOD c = DownloadCars(ctx)[0];
 	CHECK(std::sqrt(c.ang_vel.x * c.ang_vel.x + c.ang_vel.y * c.ang_vel.y + c.ang_vel.z * c.ang_vel.z) > 0.5f);
+}
+
+TEST(OffCentreAerialHitMatchesV3) { // P1-8; before it the car was 50 uu and the ball 54 uu off by the end
+	BallStatePOD b; CarStatePOD c = Run("aerialhit_off60", 180, &b);
+	CHECK(Dist(c.pos, -142.8f, 1659.6f, 249.2f) < 12.f);
+	CHECK(Dist(b.pos, -589.3f, 1246.0f, 975.9f) < 12.f);
 }

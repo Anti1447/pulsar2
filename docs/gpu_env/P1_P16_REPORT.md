@@ -32,3 +32,15 @@ vs v3: 36 of 43 scored scenarios pass (before: 34 of 43, same scenario set). Sti
 - Car vs ceiling (airborne, 219 uu at 1 s, was 70; v2 and v3 themselves differ by 168). Back-wall ramp unchanged and bad (670 uu at 2 s).
 - Car-car bumps are 5 to 20% further from v3 than before (GPU was already 15 to 35 uu off at 1 s).
 - The new P1-6 behaviour gives up the exact v2 match the GPU had on jumps and side dodges.
+
+## Follow-up: off-centre hits (P1-8)
+Cause: the GPU applied the contact's normal and friction impulses together and never revised them; Bullet iterates both with accumulated impulses.
+
+| mean position error vs v3 (uu), after P1-6/7 -> after P1-8 | car 1 s | car 2 s | ball 1 s | ball 2 s |
+|---|---|---|---|---|
+| aerial hit, off-centre | 10.6 -> 1.1 | 51.6 -> 6.3 | 29.5 -> 5.0 | 53.7 -> 3.9 |
+| ground hits (9) | 6.1 -> 7.6 | 21.4 -> 27.6 (worse) | 19.2 -> 11.8 | 32.6 -> 15.4 |
+| flip into ball | 16.5 -> 16.6 | 29.3 -> 29.4 | 4.2 -> 2.5 | 2.0 -> 5.8 |
+| carried ball | 2.1 -> 1.9 | 3.3 -> 3.0 | 1.5 -> 3.2 | 4.1 -> 9.0 (worse) |
+
+v2 vs v3 on the off-centre aerial: 0.8 / 1.7 / 1.2 / 2.3, so a gap remains. Part A bands unchanged (36/43). The one-tick-earlier first touch is unchanged. The Part B rerun in progress at the time was built before P1-8.

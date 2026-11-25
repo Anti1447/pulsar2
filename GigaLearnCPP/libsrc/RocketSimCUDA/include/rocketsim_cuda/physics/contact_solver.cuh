@@ -174,6 +174,9 @@ __device__ __forceinline__ bool test_car_ball_collision(
  */
 // Pulsar patch P1-4 helpers
 struct BallSnapshot { Vec3 pos, vel, omega; };
+// Pulsar patch P1-8: one car-ball contact as Bullet solves it: a normal row and one friction row whose direction is fixed
+// from the velocities BEFORE the solve, both with accumulated impulses.
+struct CarBallRow { Vec3 n, r_c, r_b, t; float jn = 0.0f, jt = 0.0f; };
 struct BallDeltas { Vec3 dpos = Vec3(0.0f, 0.0f, 0.0f), dvel = Vec3(0.0f, 0.0f, 0.0f), domega = Vec3(0.0f, 0.0f, 0.0f); };
 
 __device__ __forceinline__ bool resolve_car_ball_collision(
@@ -186,7 +189,8 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     const MutatorConfig& mut_cfg,
     const CarConfig& car_cfg,
     const BallSnapshot* snap = nullptr,
-    BallDeltas* acc = nullptr)
+    BallDeltas* acc = nullptr,
+    CarBallRow* row = nullptr)
 {
     // Load car pose & velocities
     Vec3 car_pos(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
@@ -262,6 +266,12 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     float inv_m_b = 1.0f / ball_mass;
     Vec3 inv_I_c_local = car_cfg.calculate_inv_inertia(car_mass);
     float inv_I_b = 1.0f / (0.4f * ball_mass * ball_radius * ball_radius);
+
+    if (row) {
+        row->n = normal_world; row->r_c = r_c; row->r_b = r_b; row->jn = 0.0f; row->jt = 0.0f;
+        Vec3 slip = v_rel_pt - normal_world * vn; float len = slip.length();
+        row->t = (len > 1e-5f) ? slip * (1.0f / len) : Vec3(0.0f, 0.0f, 0.0f);
+    }
 
     // Bilateral impulse exchange (restitution e = 0.0f, friction mu = 2.0f)
     Vec3 J_total(0.0f, 0.0f, 0.0f);
@@ -340,11 +350,11 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
         ball_omega = ball_omega * (BALL_MAX_ANG_SPEED / b_ang_speed);
     }
     float c_speed = car_vel.length();
-    if (c_speed > CAR_MAX_SPEED) {
+    if (!acc && c_speed > CAR_MAX_SPEED) {
         car_vel = car_vel * (CAR_MAX_SPEED / c_speed);
     }
     float c_ang_speed = car_omega.length();
-    if (c_ang_speed > CAR_MAX_ANG_SPEED) {
+    if (!acc && c_ang_speed > CAR_MAX_ANG_SPEED) {
         car_omega = car_omega * (CAR_MAX_ANG_SPEED / c_ang_speed);
     }
 
@@ -397,48 +407,42 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     return true;
 }
 
-// Pulsar patch P1-5: one Gauss-Seidel pass of the contact (normal + friction) impulse between a car and the ball, on the CURRENT ball velocity
-// (ball_vel / ball_omega are carried by the caller across cars and passes). Same math as the single-car path (restitution 0, mu 2). Bullet
-// iterates its contact solver the same way, so several passes over all cars converge to an order-independent answer.
-__device__ __forceinline__ bool solve_car_ball_contact_pass(
-    uint32_t car_idx, CarStateSoA& car_state, const Vec3& ball_pos, Vec3& ball_vel, Vec3& ball_omega,
+// Pulsar patches P1-5 / P1-8: one sequential-impulse update of one row (normal or friction) of a car-ball contact on the CURRENT
+// velocities (ball_vel / ball_omega are carried by the caller across cars and iterations). Restitution 0, friction 2, no clamping
+// of speeds here (the engine clamps at the start of the next tick).
+__device__ __forceinline__ void solve_car_ball_row(
+    uint32_t car_idx, CarStateSoA& car_state, CarBallRow& row, bool friction, Vec3& ball_vel, Vec3& ball_omega,
     const MutatorConfig& mut_cfg, const CarConfig& car_cfg)
 {
-    Vec3 car_pos(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
+    if (friction && (row.jn <= 0.0f || row.t.length_sq() < 0.5f)) return;
     Vec3 car_vel(car_state.vel_x[car_idx], car_state.vel_y[car_idx], car_state.vel_z[car_idx]);
     Vec3 car_omega(car_state.ang_vel_x[car_idx], car_state.ang_vel_y[car_idx], car_state.ang_vel_z[car_idx]);
     Mat3 car_basis = Mat3::from_quat(Quat(car_state.q_w[car_idx], car_state.q_x[car_idx], car_state.q_y[car_idx], car_state.q_z[car_idx]));
-    Vec3 normal_world, contact_pt_world; float penetration = 0.0f;
     const float ball_radius = mut_cfg.ball_radius;
-    if (!test_car_ball_collision(car_pos, car_basis, car_cfg.hitbox_pos_offset, car_cfg.get_hitbox_half(), ball_pos, ball_radius, normal_world, contact_pt_world, penetration)) return false;
-    Vec3 r_c = contact_pt_world - car_pos, r_b = normal_world * (-ball_radius);
-    Vec3 v_rel_pt = (ball_vel + ball_omega.cross(r_b)) - (car_vel + car_omega.cross(r_c));
-    float vn = v_rel_pt.dot(normal_world);
-    if (vn >= 0.0f) return true; // already separating
     const float inv_m_c = 1.0f / mut_cfg.car_mass, inv_m_b = 1.0f / mut_cfg.ball_mass;
     Vec3 inv_I_c = car_cfg.calculate_inv_inertia(mut_cfg.car_mass);
     const float inv_I_b = 1.0f / (0.4f * mut_cfg.ball_mass * ball_radius * ball_radius);
-    Vec3 u = car_basis.transpose() * r_c.cross(normal_world);
-    float Kn = inv_m_c + inv_m_b + u.dot(Vec3(u.x * inv_I_c.x, u.y * inv_I_c.y, u.z * inv_I_c.z)) + r_b.cross(normal_world).length_sq() * inv_I_b;
-    float Jn = (Kn > 1e-8f) ? (-vn / Kn) : 0.0f;
-    Vec3 J = normal_world * Jn;
-    Vec3 v_t = v_rel_pt - normal_world * vn; float vt = v_t.length();
-    if (vt > 1e-5f) {
-        Vec3 t = v_t * (1.0f / vt);
-        Vec3 ut = car_basis.transpose() * r_c.cross(t);
-        float Kt = inv_m_c + inv_m_b + ut.dot(Vec3(ut.x * inv_I_c.x, ut.y * inv_I_c.y, ut.z * inv_I_c.z)) + r_b.cross(t).length_sq() * inv_I_b;
-        float Jt = fminf((Kt > 1e-8f) ? (vt / Kt) : 0.0f, 2.0f * Jn);
-        J = J + t * (-Jt);
+    Vec3 dir = friction ? row.t : row.n;
+    Vec3 u = car_basis.transpose() * row.r_c.cross(dir);
+    float K = inv_m_c + inv_m_b + u.dot(Vec3(u.x * inv_I_c.x, u.y * inv_I_c.y, u.z * inv_I_c.z)) + row.r_b.cross(dir).length_sq() * inv_I_b;
+    if (K <= 1e-8f) return;
+    float v = ((ball_vel + ball_omega.cross(row.r_b)) - (car_vel + car_omega.cross(row.r_c))).dot(dir);
+    float dj;
+    if (friction) {
+        float limit = 2.0f * row.jn;
+        float next = fminf(fmaxf(row.jt - v / K, -limit), limit);
+        dj = next - row.jt; row.jt = next;
+    } else {
+        float next = fmaxf(0.0f, row.jn - v / K);
+        dj = next - row.jn; row.jn = next;
     }
-    ball_vel = ball_vel + J * inv_m_b; ball_omega = ball_omega + r_b.cross(J) * inv_I_b;
+    Vec3 J = dir * dj;
+    ball_vel = ball_vel + J * inv_m_b; ball_omega = ball_omega + row.r_b.cross(J) * inv_I_b;
     car_vel = car_vel - J * inv_m_c;
-    Vec3 tau_local = car_basis.transpose() * r_c.cross(J * (-1.0f));
+    Vec3 tau_local = car_basis.transpose() * row.r_c.cross(J * (-1.0f));
     car_omega = car_omega + car_basis * Vec3(tau_local.x * inv_I_c.x, tau_local.y * inv_I_c.y, tau_local.z * inv_I_c.z);
-    float cs = car_vel.length(); if (cs > CAR_MAX_SPEED) car_vel = car_vel * (CAR_MAX_SPEED / cs);
-    float cw = car_omega.length(); if (cw > CAR_MAX_ANG_SPEED) car_omega = car_omega * (CAR_MAX_ANG_SPEED / cw);
     car_state.vel_x[car_idx] = car_vel.x; car_state.vel_y[car_idx] = car_vel.y; car_state.vel_z[car_idx] = car_vel.z;
     car_state.ang_vel_x[car_idx] = car_omega.x; car_state.ang_vel_y[car_idx] = car_omega.y; car_state.ang_vel_z[car_idx] = car_omega.z;
-    return true;
 }
 
 __device__ __forceinline__ bool resolve_car_ball_collision(
