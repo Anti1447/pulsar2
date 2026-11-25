@@ -44,3 +44,14 @@ Cause: the GPU applied the contact's normal and friction impulses together and n
 | carried ball | 2.1 -> 1.9 | 3.3 -> 3.0 | 1.5 -> 3.2 | 4.1 -> 9.0 (worse) |
 
 v2 vs v3 on the off-centre aerial: 0.8 / 1.7 / 1.2 / 2.3, so a gap remains. Part A bands unchanged (36/43). The one-tick-earlier first touch is unchanged. The Part B rerun in progress at the time was built before P1-8.
+
+## Second follow-up: contact order and drive latency (P1-9, P1-10)
+| mean position error vs v3 (uu), car 1 s / 2 s; ball 1 s / 2 s | after P1-8 | after P1-10 |
+|---|---|---|
+| ground hits (9) | 7.6 / 27.6; 11.8 / 15.4 | 0.4 / 0.7; 7.7 / 13.7 |
+| carried ball | 1.9 / 3.0; 3.2 / 9.0 | 0.3 / 1.0; 3.5 / 13.2 (ball at 2 s worse) |
+| flips into / near ball (2) | 16.6 / 29.4; 2.5 / 5.8 | 12.9 / 21.5; 4.9 / 13.6 (ball worse) |
+| double jump into ball | 7.7 / 14.9; 13.6 / 23.6 | 3.8 / 7.2; 4.4 / 9.9 |
+| aerial hits (3) | about 1 / 4; 3.5 / 3 | 0.1 / 0.5; 0.3 / 0.8 |
+| drive, steer, handbrake | 2.4 to 15 at 1 s | 0.3 or less at 1 s |
+Part A bands: 36/43 vs v3, unchanged in count. Remaining flip error is mostly the car's own floor landing. The GPU now follows v3 rather than v2 on drive timing.

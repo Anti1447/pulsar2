@@ -82,3 +82,18 @@ TEST(OffCentreAerialHitMatchesV3) { // P1-8; before it the car was 50 uu and the
 	CHECK(Dist(c.pos, -142.8f, 1659.6f, 249.2f) < 12.f);
 	CHECK(Dist(b.pos, -589.3f, 1246.0f, 975.9f) < 12.f);
 }
+
+TEST(DrivingAndSteeringMatchV3) { // P1-10: throttle, brake and steer act in the same tick; before it these were 5 to 15 uu off
+	CHECK(Dist(Run("steer_left", 120).pos, -1058.0f, -3774.9f, 17.0f) < 1.5f);
+	CHECK(Dist(Run("handbrake_turn", 120).pos, -407.2f, -2545.8f, 17.0f) < 1.5f);
+	CHECK(Dist(Run("drive_ground", 120).pos, 0.0f, -2910.2f, 17.0f) < 1.5f);
+}
+
+TEST(GroundHitCarryAndJumpHitMatchV3) { // P1-9: contacts solved on the start-of-tick pose, before positions move
+	{ BallStatePOD b; CarStatePOD c = Run("carhit_1200_off60", 240, &b);
+	  CHECK(Dist(c.pos, -207.7f, 1889.3f, 17.0f) < 3.f); CHECK(Dist(b.pos, -816.3f, 2331.2f, 102.3f) < 35.f); }
+	{ BallStatePOD b; CarStatePOD c = Run("carry_800", 200, &b);
+	  CHECK(Dist(c.pos, 0.0f, -1323.9f, 17.0f) < 3.f); CHECK(Dist(b.pos, 0.0f, -1860.5f, 95.5f) < 20.f); }
+	{ BallStatePOD b; CarStatePOD c = Run("jumphit_double", 200, &b);
+	  CHECK(Dist(c.pos, 0.0f, 730.5f, 338.4f) < 12.f); CHECK(Dist(b.pos, 0.0f, 1548.1f, 91.6f) < 15.f); }
+}

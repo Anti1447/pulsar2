@@ -211,6 +211,15 @@ __device__ void StepCarDevice(
         prev_wheels_contact
     );
 
+    // P1-10: v3 applies this tick's engine force, brake, steer angle and friction in this tick (v2, and upstream, one tick later)
+    cached_engine_force = car_state.wheel_engine_force[car_idx];
+    cached_brake = car_state.wheel_brake[car_idx];
+    cached_steer_angle = car_state.wheel_steer_angle[car_idx];
+    cached_lat_frictions[0] = car_state.wheel_lat_friction_0[car_idx]; cached_lat_frictions[1] = car_state.wheel_lat_friction_1[car_idx];
+    cached_lat_frictions[2] = car_state.wheel_lat_friction_2[car_idx]; cached_lat_frictions[3] = car_state.wheel_lat_friction_3[car_idx];
+    cached_long_frictions[0] = car_state.wheel_long_friction_0[car_idx]; cached_long_frictions[1] = car_state.wheel_long_friction_1[car_idx];
+    cached_long_frictions[2] = car_state.wheel_long_friction_2[car_idx]; cached_long_frictions[3] = car_state.wheel_long_friction_3[car_idx];
+
     // 6. Landing ends a flip (v3 pre_tick_update)
     float fwd_speed = vel.dot(basis.forward);
     if (was_on_ground) {
@@ -386,6 +395,7 @@ __global__ void StepSimulationKernel(
     Vec3 cars_omega[MAX_ENV_CARS];
     uint8_t cars_is_demoed[MAX_ENV_CARS];
     uint8_t cars_hitbox_type[MAX_ENV_CARS];
+    Quat cars_quat[MAX_ENV_CARS];
 
     uint32_t active_cars = (cars_per_env > MAX_ENV_CARS) ? MAX_ENV_CARS : cars_per_env;
     for (uint32_t c = 0; c < active_cars; ++c) {
@@ -393,6 +403,7 @@ __global__ void StepSimulationKernel(
         cars_pos[c] = Vec3(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
         Quat q(car_state.q_w[car_idx], car_state.q_x[car_idx], car_state.q_y[car_idx], car_state.q_z[car_idx]);
         cars_basis[c] = Mat3::from_quat(q);
+        cars_quat[c] = q;
         cars_vel_bt[c] = Vec3(car_state.vel_x[car_idx] * 0.02f, car_state.vel_y[car_idx] * 0.02f, car_state.vel_z[car_idx] * 0.02f);
         cars_omega[c] = Vec3(car_state.ang_vel_x[car_idx], car_state.ang_vel_y[car_idx], car_state.ang_vel_z[car_idx]);
         cars_is_demoed[c] = car_state.is_demoed ? car_state.is_demoed[car_idx] : 0;
@@ -402,6 +413,8 @@ __global__ void StepSimulationKernel(
     Vec3 ball_pos(ball_state.pos_x[env_idx], ball_state.pos_y[env_idx], ball_state.pos_z[env_idx]);
     Vec3 ball_vel_bt(ball_state.vel_x[env_idx] * 0.02f, ball_state.vel_y[env_idx] * 0.02f, ball_state.vel_z[env_idx] * 0.02f);
     Vec3 ball_omega(ball_state.ang_vel_x[env_idx], ball_state.ang_vel_y[env_idx], ball_state.ang_vel_z[env_idx]);
+
+    const Vec3 ball_vel_start(ball_state.vel_x[env_idx], ball_state.vel_y[env_idx], ball_state.vel_z[env_idx]);
 
     BodyReactionImpulse total_ball_reaction;
     BodyReactionImpulse total_cars_reactions[MAX_ENV_CARS];
@@ -470,9 +483,15 @@ __global__ void StepSimulationKernel(
     // Pulsar patch P1-4: simultaneous. Upstream resolved cars one after another against the ball the previous car had already pushed,
     // so in a 50/50 the LAST slot always won (symmetric kickoff race: ball ended 1400 uu toward blue's side on the GPU, centred on the CPU).
     // Now every car resolves against the pre-step ball and the ball's deltas are summed.
-    BallSnapshot snap{ Vec3(ball_state.pos_x[env_idx], ball_state.pos_y[env_idx], ball_state.pos_z[env_idx]),
+    // P1-9: Bullet's order. Contacts are found on the START-of-tick pose and solved on this tick's velocities (forces and tyres
+    // already applied), and positions move with the solved velocities. Everything above has already integrated, so the contact's
+    // velocity change is carried into the positions afterwards.
+    const Vec3 ball_end(ball_state.pos_x[env_idx], ball_state.pos_y[env_idx], ball_state.pos_z[env_idx]);
+    BallSnapshot snap{ ball_pos,
                        Vec3(ball_state.vel_x[env_idx], ball_state.vel_y[env_idx], ball_state.vel_z[env_idx]),
-                       Vec3(ball_state.ang_vel_x[env_idx], ball_state.ang_vel_y[env_idx], ball_state.ang_vel_z[env_idx]) };
+                       Vec3(ball_state.ang_vel_x[env_idx], ball_state.ang_vel_y[env_idx], ball_state.ang_vel_z[env_idx]),
+                       ball_vel_start };
+    Vec3 car_end_pos[8], car_end_vel[8]; Quat car_end_quat[8];
     BallDeltas acc; bool any_hit = false; bool hit_car[8] = { false, false, false, false, false, false, false, false };
     CarBallRow rows[8];
     // Phase 0: detect every contact against the pre-step ball; hit bookkeeping, push-out and the RocketSim extra hit impulse (summed, applied after the solve).
@@ -481,9 +500,22 @@ __global__ void StepSimulationKernel(
         if (car_state.is_demoed && car_state.is_demoed[car_idx]) continue;
         uint8_t ht = car_state.hitbox_type ? car_state.hitbox_type[car_idx] : 0;
         const CarConfig& car_cfg = get_car_config(ht);
-        if (resolve_car_ball_collision(env_idx, car_idx, ball_state, car_state, arena_state, dt, mut_cfg, car_cfg, &snap, &acc, &rows[c])) {
+        car_end_pos[c] = Vec3(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
+        car_end_vel[c] = Vec3(car_state.vel_x[car_idx], car_state.vel_y[car_idx], car_state.vel_z[car_idx]);
+        car_end_quat[c] = Quat(car_state.q_w[car_idx], car_state.q_x[car_idx], car_state.q_y[car_idx], car_state.q_z[car_idx]);
+        const bool rewind = !cars_is_demoed[c]; // a car that respawned this tick has no meaningful earlier pose
+        Vec3 hit_pos = rewind ? cars_pos[c] : car_end_pos[c];
+        Quat hit_quat = rewind ? cars_quat[c] : car_end_quat[c];
+        Vec3 hit_vel = rewind ? cars_vel_bt[c] * 50.0f : car_end_vel[c];
+        car_state.pos_x[car_idx] = hit_pos.x; car_state.pos_y[car_idx] = hit_pos.y; car_state.pos_z[car_idx] = hit_pos.z;
+        car_state.q_w[car_idx] = hit_quat.w; car_state.q_x[car_idx] = hit_quat.x; car_state.q_y[car_idx] = hit_quat.y; car_state.q_z[car_idx] = hit_quat.z;
+        cars_pos[c] = hit_pos; cars_quat[c] = hit_quat;
+        if (resolve_car_ball_collision(env_idx, car_idx, ball_state, car_state, arena_state, dt, mut_cfg, car_cfg, &snap, &acc, &rows[c], &hit_vel)) {
             hit_car[c] = true; any_hit = true;
             if (car_state.ball_touched) car_state.ball_touched[car_idx] = 1;
+        } else {
+            car_state.pos_x[car_idx] = car_end_pos[c].x; car_state.pos_y[car_idx] = car_end_pos[c].y; car_state.pos_z[car_idx] = car_end_pos[c].z;
+            car_state.q_w[car_idx] = car_end_quat[c].w; car_state.q_x[car_idx] = car_end_quat[c].x; car_state.q_y[car_idx] = car_end_quat[c].y; car_state.q_z[car_idx] = car_end_quat[c].z;
         }
     }
     // Phase 1 (P1-5): the contact impulses, solved the way Bullet does: Gauss-Seidel passes over all touching cars, alternating direction,
@@ -502,7 +534,20 @@ __global__ void StepSimulationKernel(
                 }
             }
         }
-        Vec3 p = snap.pos + acc.dpos, v = bvel + acc.dvel, w = bomg + acc.domega;
+        // move the hit cars: this tick's integration, plus the contact's velocity change, plus the push-out
+        for (uint32_t c = 0; c < cars_per_env && c < 8; ++c) {
+            if (!hit_car[c]) continue;
+            uint32_t car_idx = env_idx * cars_per_env + c;
+            Vec3 pushed(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
+            Vec3 v1(car_state.vel_x[car_idx], car_state.vel_y[car_idx], car_state.vel_z[car_idx]);
+            Vec3 w1(car_state.ang_vel_x[car_idx], car_state.ang_vel_y[car_idx], car_state.ang_vel_z[car_idx]);
+            Vec3 p1 = car_end_pos[c] + (v1 - car_end_vel[c]) * dt + (pushed - cars_pos[c]);
+            Quat q1 = cars_is_demoed[c] ? car_end_quat[c] : bullet_integrate_quaternion(cars_quat[c], w1, dt);
+            car_state.pos_x[car_idx] = p1.x; car_state.pos_y[car_idx] = p1.y; car_state.pos_z[car_idx] = p1.z;
+            car_state.pos_bt_x[car_idx] = p1.x * 0.02f; car_state.pos_bt_y[car_idx] = p1.y * 0.02f; car_state.pos_bt_z[car_idx] = p1.z * 0.02f;
+            car_state.q_w[car_idx] = q1.w; car_state.q_x[car_idx] = q1.x; car_state.q_y[car_idx] = q1.y; car_state.q_z[car_idx] = q1.z;
+        }
+        Vec3 p = ball_end + acc.dpos + (bvel - snap.vel) * dt, v = bvel + acc.dvel, w = bomg + acc.domega;
         float b_speed = v.length(); if (b_speed > mut_cfg.ball_max_speed) v = v * (mut_cfg.ball_max_speed / b_speed);
         float b_ang = w.length(); if (b_ang > BALL_MAX_ANG_SPEED) w = w * (BALL_MAX_ANG_SPEED / b_ang);
         ball_state.pos_x[env_idx] = p.x; ball_state.pos_y[env_idx] = p.y; ball_state.pos_z[env_idx] = p.z;

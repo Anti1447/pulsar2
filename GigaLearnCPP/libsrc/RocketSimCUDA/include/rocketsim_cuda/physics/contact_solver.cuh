@@ -173,7 +173,7 @@ __device__ __forceinline__ bool test_car_ball_collision(
  * RocketSim extra hit impulse curve, velocity limits, and hit tracking state updates.
  */
 // Pulsar patch P1-4 helpers
-struct BallSnapshot { Vec3 pos, vel, omega; };
+struct BallSnapshot { Vec3 pos, vel, omega, hit_vel; }; // hit_vel: ball velocity the extra hit impulse is computed from (start of tick)
 // Pulsar patch P1-8: one car-ball contact as Bullet solves it: a normal row and one friction row whose direction is fixed
 // from the velocities BEFORE the solve, both with accumulated impulses.
 struct CarBallRow { Vec3 n, r_c, r_b, t; float jn = 0.0f, jt = 0.0f; };
@@ -190,7 +190,8 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     const CarConfig& car_cfg,
     const BallSnapshot* snap = nullptr,
     BallDeltas* acc = nullptr,
-    CarBallRow* row = nullptr)
+    CarBallRow* row = nullptr,
+    const Vec3* car_hit_vel = nullptr)
 {
     // Load car pose & velocities
     Vec3 car_pos(car_state.pos_x[car_idx], car_state.pos_y[car_idx], car_state.pos_z[car_idx]);
@@ -231,7 +232,8 @@ __device__ __forceinline__ bool resolve_car_ball_collision(
     // Compute RocketSim Piecewise Extra Hit Impulse (RLConst.h:135-139, 496-503, Ball.cpp:261-285)
     Vec3 car_forward = car_basis.forward;
     Vec3 rel_pos = ball_pos - car_pos;
-    Vec3 rel_vel = ball_vel - car_vel;
+    // RocketSim computes the extra hit impulse from the state at the start of the tick (P1-9)
+    Vec3 rel_vel = (snap ? snap->hit_vel : ball_vel) - (car_hit_vel ? *car_hit_vel : car_vel);
     float rel_speed = fminf(rel_vel.length(), 4600.0f); // BALL_CAR_EXTRA_IMPULSE_MAXDELTAVEL_UU
 
     Vec3 added_vel(0.0f, 0.0f, 0.0f);
