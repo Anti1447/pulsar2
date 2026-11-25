@@ -1157,7 +1157,8 @@ __global__ void k_predict_ball_trajectory(
     int64_t stride_out_tick,
     int64_t stride_out_col,
     float dt,
-    MutatorConfigSoA mutator_config)
+    MutatorConfigSoA mutator_config,
+    ArenaMesh arena_mesh)
 {
     uint32_t env_idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (env_idx >= num_envs) return;
@@ -1216,7 +1217,7 @@ __global__ void k_predict_ball_trajectory(
         if (t + 1 < num_ticks) {
             // P1-11: the real step quantizes the ball at the start of every tick; so does the prediction
             pos = quantize_position(pos); vel = quantize_velocity(vel); ang_vel = quantize_ang_velocity(ang_vel); quat = quantize_rotation(quat);
-            step_ball_state(pos, vel, ang_vel, quat, dt, mut_cfg);
+            step_ball_state(pos, vel, ang_vel, quat, dt, mut_cfg, &arena_mesh);
         }
     }
 }
@@ -1359,7 +1360,8 @@ void SimContext::PredictBallTrajectory(
         stride_out_tick,
         stride_out_col,
         DELTA_TIME,
-        m_mutator_config
+        m_mutator_config,
+        GetArenaMesh()
     );
 }
 

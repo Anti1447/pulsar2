@@ -17,14 +17,15 @@ __device__ void StepBallDevice(
     uint32_t env_idx,
     BallStateSoA& ball_state,
     float dt,
-    const MutatorConfig& mut_cfg = MutatorConfig())
+    const MutatorConfig& mut_cfg = MutatorConfig(),
+    const ArenaMesh* arena_mesh = nullptr)
 {
     Vec3 pos(ball_state.pos_x[env_idx], ball_state.pos_y[env_idx], ball_state.pos_z[env_idx]);
     Vec3 vel(ball_state.vel_x[env_idx], ball_state.vel_y[env_idx], ball_state.vel_z[env_idx]);
     Vec3 ang_vel(ball_state.ang_vel_x[env_idx], ball_state.ang_vel_y[env_idx], ball_state.ang_vel_z[env_idx]);
     Quat quat(ball_state.q_w[env_idx], ball_state.q_x[env_idx], ball_state.q_y[env_idx], ball_state.q_z[env_idx]);
 
-    step_ball_state(pos, vel, ang_vel, quat, dt, mut_cfg);
+    step_ball_state(pos, vel, ang_vel, quat, dt, mut_cfg, arena_mesh);
 
     // Write back coalesced
     ball_state.pos_x[env_idx] = pos.x;
@@ -370,7 +371,8 @@ __global__ void StepSimulationKernel(
     float dt,
     MutatorConfigSoA mutator_config = {},
     ArenaConfigSoA arena_config = {},
-    CarConfigSoA car_config = {})
+    CarConfigSoA car_config = {},
+    ArenaMesh arena_mesh = {})
 {
     uint32_t env_idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (env_idx >= num_envs) return;
@@ -480,7 +482,7 @@ __global__ void StepSimulationKernel(
     }
 
     // Step Ball (R6 mutators)
-    StepBallDevice(env_idx, ball_state, dt, mut_cfg);
+    StepBallDevice(env_idx, ball_state, dt, mut_cfg, &arena_mesh);
 
     // Increment Arena Tick Count
     if (arena_state.tick_count) {
@@ -704,7 +706,8 @@ void sim_step_batch(SimContext* ctx, uint32_t batch_size, const CarControlsSoA* 
         DELTA_TIME,
         ctx->GetMutatorConfig(),
         ctx->GetArenaConfig(),
-        ctx->GetCarConfig()
+        ctx->GetCarConfig(),
+        GetArenaMesh()
     );
 
     if (ctx->IsGameEventTrackingEnabled()) {

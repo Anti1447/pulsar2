@@ -5,6 +5,7 @@
 #include "rocketsim_cuda/physics/integrator.cuh"
 #include "rocketsim_cuda/physics/arena_sdf.cuh"
 #include "rocketsim_cuda/physics/contact_solver.cuh"
+#include "rocketsim_cuda/physics/mesh_ball.cuh"
 #include "rocketsim_cuda/types/arena_config.cuh"
 #include "rocketsim_cuda/types/ball_state.cuh"
 
@@ -20,7 +21,8 @@ __device__ __forceinline__ void step_ball_state(
     Vec3& ang_vel,
     Quat& quat,
     float dt,
-    const MutatorConfig& mut_cfg = MutatorConfig())
+    const MutatorConfig& mut_cfg = MutatorConfig(),
+    const ArenaMesh* arena_mesh = nullptr) // P2-2: v3's mesh arena when loaded, else the analytic SDF
 {
     // Check if sleeping (zero velocity on ground)
     if (vel.length_sq() == 0.0f && ang_vel.length_sq() == 0.0f && pos.z <= BALL_REST_Z + 0.1f) {
@@ -35,7 +37,10 @@ __device__ __forceinline__ void step_ball_state(
     vel = vel + mut_cfg.gravity * dt;
 
     // 3. Arena / Ground collision resolution (updates velocities and pushes out penetration)
-    resolve_ball_arena_collision(pos, vel, ang_vel, mut_cfg.ball_radius, mut_cfg.ball_world_restitution, mut_cfg.ball_world_friction, mut_cfg.gravity.z, dt, &vel_pre_gravity);
+    if (arena_mesh && arena_mesh->num_meshes > 0)
+        mesh_ball_resolve(*arena_mesh, pos, vel, ang_vel, vel_pre_gravity, mut_cfg.ball_radius, mut_cfg.ball_world_restitution, mut_cfg.ball_world_friction, dt);
+    else
+        resolve_ball_arena_collision(pos, vel, ang_vel, mut_cfg.ball_radius, mut_cfg.ball_world_restitution, mut_cfg.ball_world_friction, mut_cfg.gravity.z, dt, &vel_pre_gravity);
 
     // 4. Linear pos integration with post-collision velocity (in Bullet units for exact rounding parity)
     pos = (pos * 0.02f + vel * (0.02f * dt)) * 50.0f;

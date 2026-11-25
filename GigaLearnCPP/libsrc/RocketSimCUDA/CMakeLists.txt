@@ -72,6 +72,7 @@ endif()
 set(ROCKETSIM_CUDA_SOURCES
     src/cuda/sim_context.cu
     src/cuda/step_kernel.cu
+    src/cuda/arena_mesh.cu
 )
 
 add_library(rocketsim_cuda_core STATIC ${ROCKETSIM_CUDA_SOURCES})
