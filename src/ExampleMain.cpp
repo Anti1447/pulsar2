@@ -220,7 +220,7 @@ std::vector<WeightedReward> BuildRewardsPulsar3(float gamma, float stepScale) {
 		// 2026-11-24 (user-directed, from memory of the weights): OffensiveDemo 75, VerifiedShot 25, ConsecutiveAirTouch 60, WallJumpToBall 15 added to the Pulsar3 stack.
 		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 75.f },
 		{ new ZeroSumReward(new BallProximityPotentialReward(gamma), TEAM_SPIRIT), 4.f },
-		{ new ZeroSumReward(new GuardedPickupBoostReward(), TEAM_SPIRIT), 6.f },
+		{ new ZeroSumReward(new GuardedPickupBoostReward(), TEAM_SPIRIT), 8.f }, // 6 -> 8 on 2026-11-27 (user-directed)
 		{ new ZeroSumReward(new AerialTouchReward(), TEAM_SPIRIT), 120.f },
 		{ new ZeroSumReward(new AirInterceptPotentialReward(gamma), TEAM_SPIRIT), 75.f },
 		{ new ZeroSumReward(new ConsecutiveAirTouchReward(gamma), TEAM_SPIRIT), 60.f },
