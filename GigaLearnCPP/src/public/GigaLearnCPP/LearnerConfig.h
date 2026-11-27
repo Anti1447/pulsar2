@@ -80,6 +80,9 @@ namespace GGL {
 		// and (botActionDelay - actionDelay) % tickSkip == 0.
 		int botTickSkip = 0;
 		int botActionDelay = 7;
+		// Whether bots serve arenas with unequal team sizes (2v1, 3v1, 3v2). Off: those arenas play as self-play on a bot iteration
+		// (their observations and team logic have not been checked for uneven games).
+		bool serveUnevenTeams = false;
 	};
 
 	// GAUNTLET (docs/Pre_Run_Checklist.md item 8; GauntletEval.h): every everyIterations iterations, fixed-seed 1v1 kickoff

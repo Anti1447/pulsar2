@@ -1,4 +1,5 @@
 #include "PPOLearner.h"
+#include <public/GigaLearnCPP/Util/LightMode.h>
 #include <map>
 
 #include <torch/nn/utils/convert_parameters.h>
@@ -529,6 +530,16 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 		avgVdagTwinSpread,
 		avgRhatLoss,
 		avgArchLive;
+
+	// BF16 LEARNING (config.bf16Learn, docs/ledger/H-021.md). Only the large dense bodies; reach, geo and the side heads stay fp32.
+	for (const char* n : { "shared_head", "policy", "critic_trunk", "critic", "goal_critic", "vdag1", "vdag2" })
+		if (models[n])
+			models[n]->learnBf16 = config.bf16Learn;
+	static bool bf16Logged = false;
+	if (!bf16Logged) {
+		bf16Logged = true;
+		RG_LOG("PPO learn precision: " << (config.bf16Learn && device.is_cuda() ? "BF16 autocast (hidden layers of the dense bodies)" : "fp32"));
+	}
 
 	// Save parameters first
 	auto policyBefore = models["policy"]->CopyParams();
@@ -1161,6 +1172,8 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					int64_t start = mbs;
 					int64_t stop = RS_MIN(start + config.miniBatchSize, curBatchSize);
 					fnRunMinibatch(start, stop);
+					static thread_local std::chrono::steady_clock::time_point lightMark; // light mode (Util/LightMode.h)
+					LightMode::Get().Pace(lightMark, [&] { c10::cuda::getCurrentCUDAStream(device.index()).synchronize(); });
 				}
 			}
 

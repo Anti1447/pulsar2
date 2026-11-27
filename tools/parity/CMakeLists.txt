@@ -7,3 +7,6 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../GigaLearnCPP/RLGymCPP RLGymCP
 add_executable(parity_record record_cpu.cpp)
 target_link_libraries(parity_record PRIVATE RLGymCPP)
 set_target_properties(parity_record PROPERTIES CXX_STANDARD 20)
+add_executable(parity_bench bench_cpu.cpp)
+target_link_libraries(parity_bench PRIVATE RLGymCPP)
+set_target_properties(parity_bench PROPERTIES CXX_STANDARD 20)

@@ -26,7 +26,9 @@ GGL::PolicyVersionManager::PolicyVersionManager(
 		skillEnvSetConfig.numArenas = skill.config.numArenas;
 		if (skill.config.envCreateFn)
 			skillEnvSetConfig.envCreateFn = skill.config.envCreateFn;
-		skill.envSet = new RLGC::EnvSet(skillEnvSetConfig);
+		RLGC::EnvSetConfig ratingEnvSetConfig = skillEnvSetConfig;
+		ratingEnvSetConfig.numArenas += skill.config.extraRatingArenas;
+		skill.envSet = new RLGC::EnvSet(ratingEnvSetConfig);
 		for (int i = 0; i < skill.envSet->arenas.size(); i++) {
 			skill.envSet->rewards[i].clear();
 			skill.envSet->stateSetters[i] = { new RLGC::FuzzedKickoffState() };

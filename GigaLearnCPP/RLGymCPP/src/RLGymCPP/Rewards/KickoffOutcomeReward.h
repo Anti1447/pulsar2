@@ -245,16 +245,19 @@ namespace RLGC {
 			scoreBlue = TeamScore(Team::BLUE, state);
 			scoreOrange = TeamScore(Team::ORANGE, state);
 
-			int perTeam = 0;
-			for (const Player& p : state.players) if (p.team == Team::BLUE) perTeam++;
+			int perTeam = 0, orange = 0;
+			for (const Player& p : state.players) (p.team == Team::BLUE ? perTeam : orange)++;
 			int mode = std::max(0, std::min(2, perTeam - 1));
+			const bool symmetric = perTeam == orange; // the per-mode counters are for 1v1 / 2v2 / 3v3 only
 
 			long long absMilli = (long long)(std::fabs(scoreBlue) * 1000.0f);
 			s_resolved.fetch_add(1);
 			s_absScoreMilli.fetch_add(absMilli);
 			s_firstTouchMilli.fetch_add((long long)(touchClock * 1000.0f));
-			s_modeResolved[mode].fetch_add(1);
-			s_modeAbsMilli[mode].fetch_add(absMilli);
+			if (symmetric) {
+				s_modeResolved[mode].fetch_add(1);
+				s_modeAbsMilli[mode].fetch_add(absMilli);
+			}
 			if (state.goalScored) s_goals.fetch_add(1);
 		}
 	};

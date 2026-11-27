@@ -108,6 +108,16 @@ CK_NAME="$(basename "$CKPT")"
 # 6.0's nets read the ball-prediction obs (278 wide): the launcher sets GGL_BALLPRED=1 so the client builds it (src/RLBotMain.cpp).
 # An exploiter checkpoint is exploiters_6.0/<run>/<step>, one level deeper, so the grandparent is checked too.
 BALLPRED=0
+# Pulsar3 (build/checkpoints_pulsar3): ball-prediction obs and the 6.x net shapes, but tickSkip 4 / actionDelay 0, and its own
+# release lineage "Pulsar3 vX.Y.Z" (rlbot-run/releases_pulsar3).
+BOT_NAME=Pulsar2; TIMING=""; DEPTH=""
+case "$(dirname "$CKPT")" in
+	*/checkpoints_pulsar3) BOT_NAME=Pulsar3; REL_ROOT="$REPO/rlbot-run/releases_pulsar3"; BALLPRED=1; TIMING=1 ;;
+	# the RocketGPU trial's bot (~/pulsar_rg), exported to Pulsar3's checkpoint format: same obs, nets and timing, its own lineage
+	*/checkpoints_pulsar3gpu) BOT_NAME=Pulsar3GPU; REL_ROOT="$REPO/rlbot-run/releases_pulsar3gpu"; BALLPRED=1; TIMING=1 ;;
+	# the trial's tick8 profile: Pulsar2's timing (8 / 7, the client's default) and a 2-deep policy
+	*/checkpoints_pulsar2gpu) BOT_NAME=Pulsar2GPU; REL_ROOT="$REPO/rlbot-run/releases_pulsar2gpu"; BALLPRED=1; DEPTH=2 ;;
+esac
 for d in "$(basename "$(dirname "$CKPT")")" "$(basename "$(dirname "$(dirname "$CKPT")")")"; do
 	case "$d" in checkpoints_6.0|checkpoints_6.1|checkpoints_gco_6.1|exploiters_6.0) BALLPRED=1;; esac
 done
@@ -174,7 +184,7 @@ echo "release    : $TAG   (previous: ${LATEST:+v}${LATEST:-none})"
 echo "checkpoint : $STEP_LABEL   ($CK_NAME, content hash $CK_SHA, mode: $MODE)"
 echo "source hash: $SRC_HASH   git: $(git -C "$REPO" rev-parse --short HEAD)$(git -C "$REPO" diff --quiet -- src || echo '+local-edits')"
 echo "WSL folder : $REL"
-[ "$INSTALL" = 1 ] && echo "Windows    : $WIN_BOTS/Pulsar2/$TAG" || echo "Windows    : (skipped, --no-install)"
+[ "$INSTALL" = 1 ] && echo "Windows    : $WIN_BOTS/$BOT_NAME/$TAG" || echo "Windows    : (skipped, --no-install)"
 [ "$DRY" = 1 ] && { echo "dry run: nothing written"; exit 0; }
 
 # ---- build the WSL release -----------------------------------------------------------
@@ -191,6 +201,8 @@ LIBTORCH="$REPO/GigaLearnCPP/libtorch/lib"
 export LD_LIBRARY_PATH="\$HERE/bin:\$LIBTORCH:\${LD_LIBRARY_PATH:-}"
 # One math thread per bot: two bots x 20 threads next to Rocket League starve the CPU and make the bot miss ticks.
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+$( [ -n "$TIMING" ] && printf '%s\n' "# Pulsar3 timing: a decision every 4 ticks, applied without delay, as trained" "export GGL_TICKSKIP=4" "export GGL_ACTION_DELAY=0" )
+$( [ -n "$DEPTH" ] && printf '%s\n' "export GGL_TICKSKIP=8" "export GGL_ACTION_DELAY=7" "export GGL_POLICY_DEPTH=$DEPTH" )
 $( [ "$BALLPRED" = 1 ] && printf '%s\n' "# 6.0: ball-prediction obs; the client predicts the ball with RocketSim, which needs its collision meshes" "export GGL_BALLPRED=1" "export GGL_COLLISION_MESHES=\"$BUILD/collision_meshes\"" )
 # WSL2 NAT: 127.0.0.1 is WSL itself, not the Windows RLBot server. Point at the Windows host instead.
 if [ "\$(wslinfo --networking-mode 2>/dev/null)" != "mirrored" ]; then
@@ -209,6 +221,7 @@ chmod +x "$REL/run.sh"
 
 # bot.toml, loadout and logo come from rlbot-run/pulsar-assets (placeholders: @TAG@ version tag, @STEP@ checkpoint)
 sed -e "s|@TAG@|$TAG|g" -e "s|@STEP@|$STEP_LABEL|g" "$ASSETS/bot.toml.template" > "$REL/bot.toml"
+[ "$BOT_NAME" = Pulsar2 ] || sed -i "s|Pulsar2|$BOT_NAME|g; s|pulsar2/gigalearn/|${BOT_NAME,,}/gigalearn/|g" "$REL/bot.toml"
 for f in "$ASSETS"/*; do
 	case "$f" in *bot.toml.template|*Zone.Identifier) ;; *) cp "$f" "$REL/" ;; esac
 done
@@ -233,12 +246,12 @@ echo "built $REL"
 
 # ---- install on Windows --------------------------------------------------------------
 if [ "$INSTALL" = 1 ]; then
-	WD="$WIN_BOTS/Pulsar2/$TAG"
+	WD="$WIN_BOTS/$BOT_NAME/$TAG"
 	mkdir -p "$WD"
 	cp "$REL/bot.toml" "$REL/release.json" "$WD/"
 	for f in "$ASSETS"/*; do case "$f" in *bot.toml.template|*Zone.Identifier) ;; *) cp "$f" "$WD/" ;; esac; done
 	WSLRUN="$REL/run.sh"
-	printf '@echo off\r\nrem Starts the Pulsar2 %s bot inside WSL. RLBot passes RLBOT_* variables; WSLENV forwards them.\r\nset "WSLENV=RLBOT_SERVER_IP:RLBOT_SERVER_PORT:RLBOT_AGENT_ID:%%WSLENV%%"\r\nwsl.exe -d %s -u %s -- %s\r\n' \
+	printf '@echo off\r\nrem Starts the pulsar %s bot inside WSL. RLBot passes RLBOT_* variables; WSLENV forwards them.\r\nset "WSLENV=RLBOT_SERVER_IP:RLBOT_SERVER_PORT:RLBOT_AGENT_ID:%%WSLENV%%"\r\nwsl.exe -d %s -u %s -- %s\r\n' \
 		"$TAG" "$DISTRO" "$WSL_USER" "$WSLRUN" > "$WD/run_wsl.bat"
 	echo "installed $WD"
 	if [ -n "$STABLE" ]; then
@@ -259,5 +272,5 @@ if [ "$INSTALL" = 1 ]; then
 			"$STABLE" "$TAG" "$DISTRO" "$WSL_USER" "$WSLRUN" > "$SD/run_wsl.bat"
 		echo "stable     : $SD  ->  $TAG"
 	fi
-	echo "In the RLBot v5 app, refresh or restart it; pick \"Pulsar2 $TAG\"."
+	echo "In the RLBot v5 app, refresh or restart it; pick \"$BOT_NAME $TAG\"."
 fi

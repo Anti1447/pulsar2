@@ -34,6 +34,7 @@
 #include <private/GigaLearnCPP/GauntletEval.h>
 #include <GigaLearnCPP/ExploiterFiles.h>
 #include <GigaLearnCPP/Util/Timer.h>
+#include <GigaLearnCPP/Util/LightMode.h>
 #include <private/GigaLearnCPP/Util/Plasticity.h>
 #include <private/GigaLearnCPP/Util/CriticHeadsPanels.h>
 
@@ -1382,6 +1383,9 @@ void GGL::Learner::SetPolicyLRScale(float scale) {
 
 void GGL::Learner::Start() {
 
+	if (!config.renderMode && !config.checkpointFolder.empty())
+		LightMode::Get().Bind(config.checkpointFolder / "THROTTLE");
+
 	// OFFLINE HEAD-TO-HEAD (docs/GCO_H2H_EVAL.md): GGL_H2H_OPP=<checkpoint dir>[,<dir>...] plays the checkpoint just loaded (this process's folder) against each
 	// listed checkpoint dir on its own arenas, prints one H2H_RESULT line per opponent and exits. Never trains, never saves. GGL_H2H_GAMES (arenas, 128),
 	// GGL_H2H_SECS (sim seconds per side, 900), GGL_H2H_STOCH=1 samples actions instead of argmax.
@@ -1435,6 +1439,10 @@ void GGL::Learner::Start() {
 		RLGC::EnvSetConfig baseCfg = envSet->config;
 		if (envI("GGL_H2H_NATIVE", 0)) { baseCfg.tickSkip = 8; baseCfg.actionDelay = 7; }
 		GauntletEval ge(baseCfg, gc, obsSize);
+		// GGL_H2H_FUZZ=1 (2026-11-25): jittered kickoffs, so deterministic bots cannot replay the same few games
+		if (envI("GGL_H2H_FUZZ", 0))
+			for (int i = 0; i < ge.envSet->arenas.size(); i++)
+				ge.envSet->stateSetters[i] = { new RLGC::FuzzedKickoffState() };
 		if (!teacherName.empty()) {
 			std::shared_ptr<ExternalOpponent> teacher;
 			for (auto& opp : externalOpps) if (opp->name == teacherName) teacher = opp;
@@ -1497,6 +1505,20 @@ void GGL::Learner::Start() {
 				PPOLearner::MakeModels(false, obsSize, numActions, sh, po, config.ppo.critic, PartialModelConfig(), ppo->device, oppModels);
 			}
 			oppModels.Load(dir, false, false);
+			// GGL_H2H_MATCH=1 (2026-11-25): count GAMES instead of goals. One game per arena (GGL_H2H_GAMES of them, half per side): fuzzed
+			// kickoff, ends at a goal, after 10 s without a touch or at GGL_H2H_BOT_SECS (60) as a draw.
+			if (envInt("GGL_H2H_MATCH", 0)) {
+				for (int i = 0; i < h2hEnv->arenas.size(); i++)
+					h2hEnv->terminalConditions[i] = { new RLGC::NoTouchCondition(10), new RLGC::GoalScoreCondition() };
+				std::fill(h2hEnv->state.terminals.begin(), h2hEnv->state.terminals.end(), 1);
+				unsigned seed = (unsigned)envInt("GGL_H2H_SEED", 777001);
+				MatchResult m = PlayPolicyMatch(ppo, *h2hEnv, oppModels, ec.numArenas, (float)envInt("GGL_H2H_BOT_SECS", 60), det, seed);
+				std::cout << "H2H_MATCH {\"a\":\"" << config.checkpointFolder.string() << "\",\"a_ts\":" << totalTimesteps << ",\"b\":\"" << dir
+					<< "\",\"games\":" << m.games << ",\"wins\":" << m.winsA << ",\"losses\":" << m.winsB << ",\"draws\":" << m.draws
+					<< ",\"first_touch_a\":" << m.firstTouchA << ",\"first_touch_b\":" << m.firstTouchB << ",\"det\":" << (det ? 1 : 0) << ",\"seed\":" << seed << "}" << std::endl;
+				oppModels.Free();
+				continue;
+			}
 			RG_LOG("H2H: " << config.checkpointFolder.string() << " (ts " << totalTimesteps << ") vs " << dir);
 			H2HResult r = RunHeadToHead(ppo, h2hEnv, oppModels, secs, det);
 			std::cout << "H2H_RESULT {\"a\":\"" << config.checkpointFolder.string() << "\",\"a_ts\":" << totalTimesteps << ",\"b\":\"" << dir << (archSpec.empty() ? std::string() : "@" + archSpec)
@@ -1796,12 +1818,16 @@ void GGL::Learner::Start() {
 		// existed only to serve the steering treatment/control populations and the
 		// frontier drill pool. Every arena is now identical.
 		constexpr int STEER_MODES = 3; // index = playersPerTeam - 1
+		constexpr int UNEVEN_MODE = 3; // the mode bits of rowTag for unequal teams
 		auto fnModeName = [](int md) { return std::to_string(md + 1) + "v" + std::to_string(md + 1); };
 		std::vector<uint8_t> arenaMode(envSet->arenas.size(), 0);
 		for (int a = 0; a < (int)envSet->arenas.size(); a++) {
-			int ppt = (int)envSet->arenas[a]->_cars.size() / 2;
-			RG_ASSERT(ppt >= 1 && ppt <= STEER_MODES);
-			arenaMode[a] = (uint8_t)(ppt - 1);
+			int perTeam[2] = { 0, 0 };
+			for (Car* car : envSet->arenas[a]->_cars)
+				perTeam[(int)car->team]++;
+			RG_ASSERT(RS_MAX(perTeam[0], perTeam[1]) >= 1 && RS_MAX(perTeam[0], perTeam[1]) <= STEER_MODES);
+			// Unequal team sizes (2v1, 3v1, 3v2) share one slot of their own, UNEVEN_MODE
+			arenaMode[a] = (uint8_t)(perTeam[0] == perTeam[1] ? perTeam[0] - 1 : UNEVEN_MODE);
 		}
 
 
@@ -2194,6 +2220,8 @@ void GGL::Learner::Start() {
 				int perTeam[2] = { 0, 0 };
 				for (auto& pl : gs.players)
 					perTeam[(int)pl.team]++;
+				if (perTeam[0] != perTeam[1] && !config.externalOpponent.serveUnevenTeams)
+					return false;
 				return RS_MAX(perTeam[0], perTeam[1]) <= externalOpps[extIdx]->MaxTeamSize();
 			};
 			auto fnServedArenaCount = [&](int extIdx) {
@@ -2359,7 +2387,33 @@ void GGL::Learner::Start() {
 
 			int numRealPlayers = oppServed ? newPlayerIndices.size() : envSet->state.numPlayers;
 
+			// UNEVEN ARENAS: the cars being trained this iteration, by side size and colour (rows are proportional to cars)
+			if (!render) {
+				int cars[2][2] = {}; // [bigger / smaller][blue / orange]
+				bool any = false;
+				for (int i = 0; i < envSet->state.numPlayers; i++) {
+					const int a = playerArenaIdx[i];
+					if (arenaMode[a] != UNEVEN_MODE)
+						continue;
+					any = true;
+					if (oppServed && oldVersionPlayerMask[i])
+						continue;
+					auto& gs = envSet->state.gameStates[a];
+					const Team team = gs.players[playerSlotIdx[i]].team;
+					int mine = 0;
+					for (auto& pl : gs.players)
+						mine += pl.team == team;
+					cars[mine * 2 > (int)gs.players.size() ? 0 : 1][team == Team::BLUE ? 0 : 1]++;
+				}
+				if (any)
+					for (int size = 0; size < 2; size++)
+						for (int colour = 0; colour < 2; colour++)
+							collectReport[std::string("Uneven/Trained Cars ") + (size == 0 ? "Bigger " : "Smaller ")
+								+ (colour == 0 ? "Blue" : "Orange")] = (float)cars[size][colour];
+			}
+
 			collectSteps = 0;
+			std::vector<double> rewardMagnitudeSum; // per reward index, over every arena and step of this collection (Reward Share %)
 			// -- Generate experience (scope brace removed: body now lives in the collect fn) --
 
 				combinedTrajNext.ClearKeepCapacity();
@@ -2401,6 +2455,11 @@ void GGL::Learner::Start() {
 					}
 
 					for (int step = 0; combinedTrajNext.Length() < config.ppo.tsPerItr || render; step++, collectSteps += numRealPlayers) {
+						if (!render) { // light mode: rest in proportion to the previous step (the step ends with its actions on the CPU, so no GPU work is queued)
+							static thread_local std::chrono::steady_clock::time_point lightMark;
+							LightMode::Get().Pace(lightMark, [] {});
+						}
+
 						Timer stepTimer = {};
 
 						// -- Viewer control panel (render only) --
@@ -2733,6 +2792,19 @@ void GGL::Learner::Start() {
 							continue;
 						}
 
+						if (config.addRewardsToMetrics) {
+							for (int arenaIdx = 0; arenaIdx < (int)envSet->arenas.size(); arenaIdx++) {
+								auto& magnitudes = envSet->state.rewardMagnitudes[arenaIdx];
+								// every arena of a fleet has the same reward list; one that differs is left out rather than misattributed
+								if (magnitudes.size() != envSet->rewards[0].size())
+									continue;
+								if (rewardMagnitudeSum.size() != magnitudes.size())
+									rewardMagnitudeSum.assign(magnitudes.size(), 0);
+								for (size_t j = 0; j < magnitudes.size(); j++)
+									rewardMagnitudeSum[j] += magnitudes[j];
+							}
+						}
+
 						// Calc average rewards
 						if (config.addRewardsToMetrics && (RocketSim::Math::RandInt(0, config.rewardSampleRandInterval) == 0)) {
 							int numSamples = RS_MIN(envSet->arenas.size(), config.maxRewardSamples);
@@ -2765,6 +2837,31 @@ void GGL::Learner::Start() {
 						}
 
 
+						// UNEVEN ARENAS: goals per iteration by the bigger team's colour and the scoring side, kept apart by who was playing.
+						// Self-play: both sides are the live policy. Against a bot or an old version: "We" is the live policy.
+						for (int arenaIdx = 0; arenaIdx < (int)envSet->state.gameStates.size(); arenaIdx++) {
+							if (arenaMode[arenaIdx] != UNEVEN_MODE)
+								continue;
+							auto& gs = envSet->state.gameStates[arenaIdx];
+							if (!gs.goalScored)
+								continue;
+							int blue = 0;
+							for (auto& pl : gs.players)
+								blue += pl.team == Team::BLUE;
+							const Team bigger = blue * 2 > (int)gs.players.size() ? Team::BLUE : Team::ORANGE;
+							const Team scorer = RS_TEAM_FROM_Y(gs.ball.pos.y) == Team::BLUE ? Team::ORANGE : Team::BLUE;
+							const char* colour = bigger == Team::BLUE ? " (Bigger Blue)" : " (Bigger Orange)";
+							const bool againstOther = (externalOppIdx >= 0 && (arenaServed.empty() || arenaServed[arenaIdx])) || (externalOppIdx < 0 && oppModels);
+							if (!againstOther) {
+								collectReport[std::string("Uneven/Self-Play Goals By ") + (scorer == bigger ? "Bigger" : "Smaller") + colour] += 1;
+							} else {
+								const char* kind = externalOppIdx >= 0 ? "Bot" : "Old Version";
+								const bool weAreBigger = oppTeam != bigger;
+								collectReport[std::string("Uneven/vs ") + kind + (weAreBigger ? " As Bigger" : " As Smaller")
+									+ (scorer != oppTeam ? " Goals For" : " Goals Against") + colour] += 1;
+							}
+						}
+
 						// External yardstick: cumulative goals for/against the external opponent
 						// (RS_TEAM_FROM_Y = the CONCEDING team; conceder == the bot -> we scored).
 						// EVERY arena counts: nothing is skipped. An earlier comment here promised to skip the
@@ -2780,6 +2877,8 @@ void GGL::Learner::Start() {
 								auto& gs = envSet->state.gameStates[arenaIdx];
 								if (!arenaServed.empty() && !arenaServed[arenaIdx])
 									continue;
+								if (arenaMode[arenaIdx] == UNEVEN_MODE)
+									continue; // the cumulative yardstick stays symmetric games only; uneven goals are under Uneven/*
 								if (gs.goalScored) {
 									const bool oppConceded = (RS_TEAM_FROM_Y(gs.ball.pos.y) == oppTeam);
 									if (oppConceded)
@@ -2826,8 +2925,7 @@ void GGL::Learner::Start() {
 							trajectories[newPlayerIdx].logProbs += newLogProbs[k];
 							{
 								int srcCode = externalOppIdx >= 0 ? 4 + externalOppIdx : (poolMemberIdx >= 0 ? 2 : (exploiterRun ? 3 : (oppModels ? 1 : 0)));
-								int teamSz = (int)envSet->state.gameStates[playerArenaIdx[newPlayerIdx]].players.size() / 2;
-								trajectories[newPlayerIdx].rowTag.push_back((uint8_t)(srcCode * 4 + RS_CLAMP(teamSz - 1, 0, 3)));
+								trajectories[newPlayerIdx].rowTag.push_back((uint8_t)(srcCode * 4 + arenaMode[playerArenaIdx[newPlayerIdx]]));
 							}
 							if (headsOn) // post-step touch flag of this row's player (CRITIC HEADS touch-within-5s label)
 								trajectories[newPlayerIdx].touchRow.push_back(
@@ -2927,6 +3025,21 @@ void GGL::Learner::Start() {
 						}
 
 						recordTime += recordTimer.Elapsed();
+					}
+
+					// Reward Share %: each reward's part of all |weight x reward| paid this collection, all players (a ZeroSum term after its
+					// wrapper). Rewards with the same name are added together.
+					{
+						double total = 0;
+						for (double v : rewardMagnitudeSum)
+							total += v;
+						if (total > 0) {
+							std::unordered_map<std::string, double> byName;
+							for (size_t j = 0; j < rewardMagnitudeSum.size(); j++)
+								byName[envSet->rewards[0][j].reward->GetName()] += rewardMagnitudeSum[j];
+							for (auto& pair : byName)
+								collectReport["Reward Share %/" + pair.first] = (float)(100 * pair.second / total);
+						}
 					}
 
 					collectReport["Inference Time"] = inferTime;
@@ -3497,6 +3610,7 @@ void GGL::Learner::Start() {
 							const char* modeNames[3] = { "1v1", "2v2", "3v3" };
 							for (int m = 0; m < 3; m++)
 								fnGroupEV((tTag % 4) == m, std::string("EV ") + modeNames[m]);
+							fnGroupEV((tTag % 4) == UNEVEN_MODE, "EV Uneven");
 							torch::Tensor tSrc = torch::div(tTag, 4, "floor");
 							fnGroupEV(tSrc == 0, "EV Src self-play");
 							fnGroupEV(tSrc == 1, "EV Src old version");
@@ -3598,7 +3712,8 @@ void GGL::Learner::Start() {
 									nTerm++;
 									if (t == (int8_t)RLGC::TerminalType::TRUNCATED)
 										nTrunc++;
-									epsByMode[combinedTraj.rowTag[i] % 4 % 3]++;
+									if (combinedTraj.rowTag[i] % 4 < 3)
+										epsByMode[combinedTraj.rowTag[i] % 4]++;
 								}
 								for (int m = 0; m < 3; m++)
 									report[rampPrefix + "Games " + modeNames[m]] = epsByMode[m] / (float)(2 * (m + 1));
@@ -3613,7 +3728,9 @@ void GGL::Learner::Start() {
 									const float* rw = tRewC.const_data_ptr<float>();
 									int64_t goalRows[3] = { 0, 0, 0 };
 									for (int64_t i = 0; i < nRows; i++) {
-										int m = combinedTraj.rowTag[i] % 4 % 3;
+										int m = combinedTraj.rowTag[i] % 4;
+										if (m == UNEVEN_MODE)
+											continue;
 										rowsByMode[m]++;
 										if (combinedTraj.terminals[i] != 0 && std::fabs(rw[i]) > 0.75f)
 											goalRows[m]++;
@@ -3634,7 +3751,7 @@ void GGL::Learner::Start() {
 										float rv = tScaledReturns.index({ mk }).var().item<float>();
 										float ev = 1 - tRes.index({ mk }).var().item<float>() / RS_MAX(rv, 1e-8f);
 										if (std::isfinite(ev))
-											report[rampPrefix + "EV Cell " + modeNames[t % 4 % 3] + " " + fnSrcName((int)(t / 4))] = ev;
+											report[rampPrefix + "EV Cell " + (t % 4 == UNEVEN_MODE ? "Uneven" : modeNames[t % 4]) + " " + fnSrcName((int)(t / 4))] = ev;
 									}
 
 									const float hz = 120.f / RS_MAX(config.tickSkip, 1);
@@ -3651,7 +3768,8 @@ void GGL::Learner::Start() {
 									{
 										int64_t binCnt[3][4] = {};
 										for (int64_t i = 0; i < nRows; i++)
-											binCnt[combinedTraj.rowTag[i] % 4 % 3][bin[i]]++;
+											if (combinedTraj.rowTag[i] % 4 < 3)
+												binCnt[combinedTraj.rowTag[i] % 4][bin[i]]++;
 										for (int m = 0; m < 3; m++)
 											if (rowsByMode[m] > 0)
 												for (int b = 0; b < 4; b++)
@@ -4292,6 +4410,22 @@ void GGL::Learner::Start() {
 
 				// Learn
 				Timer learnTimer = {};
+				// Light mode: half the minibatch (identical update through gradient accumulation, lower GPU memory peak) and say when it changes
+				if (!render) {
+					static const int64_t fullMiniBatch = ppo->config.miniBatchSize;
+					static float lastShare = 1.f;
+					const float share = LightMode::Get().Share();
+					const int64_t half = fullMiniBatch / 2;
+					ppo->config.miniBatchSize = (share < 1.f && half > 0 && ppo->config.batchSize % half == 0) ? half : fullMiniBatch;
+					if (share != lastShare) {
+						RG_LOG("Light mode: " << (share < 1.f ? "ON, share " + std::to_string(share) : std::string("OFF, full speed"))
+							<< " (miniBatchSize " << ppo->config.miniBatchSize << ")");
+						if (ppo->device.is_cuda() && share < lastShare)
+							c10::cuda::CUDACachingAllocator::emptyCache();
+						lastShare = share;
+					}
+					report["Light Mode/Share"] = share;
+				}
 				ppo->Learn(experience, report, isFirstIteration);
 				report["PPO Learn Time"] = learnTimer.Elapsed();
 #ifdef RG_CUDA_SUPPORT

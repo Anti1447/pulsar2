@@ -13,6 +13,8 @@ namespace {
 	public:
 		RLGC::EnvSet* env = nullptr;
 		GGL::PPOLearner* ppo = nullptr;
+		GGL::ModelSet* models = nullptr; // another checkpoint's policy; null = the live one
+		bool deterministic = true;
 
 		void BeginServe(int numPlayers) {}
 
@@ -31,8 +33,8 @@ namespace {
 			torch::Tensor tMasks = GGL::DIMLIST2_TO_TENSOR<uint8_t>(env->state.actionMasks).index_select(0, tRows).to(ppo->device, true);
 			torch::Tensor tActions, tLogProbs;
 			GGL::PPOLearner::InferActionsFromModels(
-				ppo->models, tObs, tMasks,
-				true, ppo->config.policyTemperature, ppo->config.useHalfPrecision,
+				models ? *models : ppo->models, tObs, tMasks,
+				deterministic, ppo->config.policyTemperature, ppo->config.useHalfPrecision,
 				&tActions, &tLogProbs);
 			auto actions = GGL::TENSOR_TO_VEC<int>(tActions);
 			for (size_t i = 0; i < rows.size(); i++)
@@ -138,4 +140,19 @@ GGL::MatchResult GGL::GauntletEval::RunBots(ExternalOpponent& a, ExternalOpponen
 	MatchResult res = PlayMatch(*env, a, b, config.gamesPerBot, mc);
 	std::fill(env->state.terminals.begin(), env->state.terminals.end(), 1);
 	return res;
+}
+
+GGL::MatchResult GGL::PlayPolicyMatch(PPOLearner* ppo, RLGC::EnvSet& env, ModelSet& opp, int games, float maxSeconds, bool deterministic, unsigned seed) {
+	PolicyController ours, theirs;
+	ours.env = theirs.env = &env;
+	ours.ppo = theirs.ppo = ppo;
+	theirs.models = &opp;
+	ours.deterministic = theirs.deterministic = deterministic;
+	MatchConfig mc;
+	mc.playersPerTeam = 1;
+	mc.maxSeconds = maxSeconds;
+	mc.alternateSides = true;
+	ScopedRandSeed rand(seed);
+	torch::manual_seed(seed);
+	return PlayMatch(env, ours, theirs, games, mc);
 }

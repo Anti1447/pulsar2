@@ -333,16 +333,18 @@ void GGL::NextoOpponent::Act(const std::vector<RLGC::GameState>& states,
 	RG_NO_GRAD;
 	using namespace RLGC;
 
-	// Entity counts differ by mode (2/4/6 players + ball + 34 pads), so batch per
-	// mode: [0]=1v1, [1]=2v2, [2]=3v3
-	std::vector<float> qBuf[3], kvBuf[3];
-	std::vector<int> who[3]; // global player index per batch row
+	// Entity counts differ by player count (players + ball + 34 pads), so batch per player count:
+	// 2 (1v1), 3 (2v1), 4 (2v2 and 3v1), 5 (3v2), 6 (3v3)
+	constexpr int MAX_PLAYERS_NEXTO = 6;
+	std::vector<float> qBuf[MAX_PLAYERS_NEXTO + 1], kvBuf[MAX_PLAYERS_NEXTO + 1];
+	std::vector<int> who[MAX_PLAYERS_NEXTO + 1]; // global player index per batch row
 
 	int globalIdx = 0;
 	for (int arenaIdx = 0; arenaIdx < (int)states.size(); arenaIdx++) {
 		const GameState& gs = states[arenaIdx];
 		int n = (int)gs.players.size();
-		int mode = n / 2 - 1;
+		if (n > MAX_PLAYERS_NEXTO)
+			RG_ERR_CLOSE("NextoOpponent: " << n << " players in one arena (at most " << MAX_PLAYERS_NEXTO << ")");
 		int nEnt = n + 1 + CommonValues::BOOST_LOCATIONS_AMOUNT;
 
 		bool freshEpisode = arenaIdx < (int)prevArenaTerminals.size()
@@ -355,26 +357,26 @@ void GGL::NextoOpponent::Act(const std::vector<RLGC::GameState>& states,
 			if (freshEpisode)
 				prevActions[g] = {};
 
-			auto& kv = kvBuf[mode];
+			auto& kv = kvBuf[n];
 			size_t base = kv.size();
 			kv.resize(base + (size_t)nEnt * KV_W, 0.f);
-			auto& q = qBuf[mode];
+			auto& q = qBuf[n];
 			size_t qBase = q.size();
 			q.resize(qBase + Q_W, 0.f);
 			BuildObs(gs, o, prevActions[g], kv.data() + base, q.data() + qBase);
 
-			who[mode].push_back(g);
+			who[n].push_back(g);
 		}
 	}
 
-	// One batched forward per mode present; masks are all-zero (exact player counts)
-	for (int mode = 0; mode < 3; mode++) {
-		if (who[mode].empty())
+	// One batched forward per player count present; masks are all-zero (exact player counts)
+	for (int n = 0; n <= MAX_PLAYERS_NEXTO; n++) {
+		if (who[n].empty())
 			continue;
-		int64_t b = (int64_t)who[mode].size();
-		int64_t nEnt = 2 * (mode + 1) + 1 + CommonValues::BOOST_LOCATIONS_AMOUNT;
-		auto tQ = torch::from_blob(qBuf[mode].data(), { b, 1, Q_W }, torch::kFloat32).to(device);
-		auto tKv = torch::from_blob(kvBuf[mode].data(), { b, nEnt, KV_W }, torch::kFloat32).to(device);
+		int64_t b = (int64_t)who[n].size();
+		int64_t nEnt = n + 1 + CommonValues::BOOST_LOCATIONS_AMOUNT;
+		auto tQ = torch::from_blob(qBuf[n].data(), { b, 1, Q_W }, torch::kFloat32).to(device);
+		auto tKv = torch::from_blob(kvBuf[n].data(), { b, nEnt, KV_W }, torch::kFloat32).to(device);
 		auto tM = torch::zeros({ b, nEnt }, torch::TensorOptions().device(device));
 
 		// try/catch so a worker-thread failure PRINTS before the process dies -
@@ -385,7 +387,7 @@ void GGL::NextoOpponent::Act(const std::vector<RLGC::GameState>& states,
 			auto out = model.forward({ std::make_tuple(tQ, tKv, tM) }).toTuple();
 			logits = out->elements()[0].toTensor(); // [b, 90]
 		} catch (const std::exception& e) {
-			RG_ERR_CLOSE("NextoOpponent::Act: forward failed (mode " << mode
+			RG_ERR_CLOSE("NextoOpponent::Act: forward failed (players " << n
 				<< ", batch " << b << ", device " << device << "): " << e.what());
 		}
 		auto picks = PickFromLogits(logits, temperature).cpu();
@@ -393,7 +395,7 @@ void GGL::NextoOpponent::Act(const std::vector<RLGC::GameState>& states,
 
 		for (int64_t i = 0; i < b; i++) {
 			int nextoIdx = (int)pickAcc[i];
-			int g = who[mode][i];
+			int g = who[n][i];
 			outActionIdx[g] = actionMap[nextoIdx];
 			prevActions[g] = lookup[nextoIdx];
 		}

@@ -252,13 +252,16 @@ namespace RLGC {
 			for (Car* car : arena->_cars)
 				teamCars[(int)car->team].push_back(car);
 			if (wallMode) {
-				// ONE blue car is the setup car behind the rolling ball; every other car (all orange cars included) is grounded support.
-				int blueIdx = teamCars[0].size() > 1 ? RandInt(0, (int)teamCars[0].size()) : 0;
-				if (!teamCars[0].empty())
-					fnSetWall(teamCars[0][blueIdx]);
+				// ONE car is the setup car behind the rolling ball; every other car is grounded support. It is a blue car when the teams are
+				// equal; in an uneven arena (2026-11-26) either colour, so the bigger and the smaller side each get it on both colours.
+				// SampleWall draws every wall with either sign, so the geometry is the same for both colours.
+				const int setupTeam = teamCars[0].size() != teamCars[1].size() ? RandInt(0, 2) : 0;
+				int setupIdx = teamCars[setupTeam].size() > 1 ? RandInt(0, (int)teamCars[setupTeam].size()) : 0;
+				if (!teamCars[setupTeam].empty())
+					fnSetWall(teamCars[setupTeam][setupIdx]);
 				for (int t = 0; t < 2; t++)
 					for (int i = 0; i < (int)teamCars[t].size(); i++)
-						if (!(t == 0 && i == blueIdx))
+						if (!(t == setupTeam && i == setupIdx))
 							fnSetSupport(teamCars[t][i], (Team)t);
 				return;
 			}

@@ -230,6 +230,10 @@ namespace GGL {
 		// This is much faster on GPU, not so much for CPU
 		bool useHalfPrecision = false;
 
+		// Run the learn pass's dense-body forwards (and so their backward) under BF16 autocast on CUDA. Weights, gradients,
+		// optimizer state, output layers and losses stay fp32. See docs/ledger/H-021.md.
+		bool bf16Learn = false;
+
 		PartialModelConfig policy, critic, sharedHead;
 
 		// CRITIC TRUNK (2026-07-29, user-directed): a SECOND shared body stacked on top of

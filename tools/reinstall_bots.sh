@@ -19,8 +19,9 @@ install_one() { # <bot name> <release dir>
 	printf '@echo off\r\nrem Starts %s %s inside WSL. RLBot passes RLBOT_* variables; WSLENV forwards them.\r\nset "WSLENV=RLBOT_SERVER_IP:RLBOT_SERVER_PORT:RLBOT_AGENT_ID:%%WSLENV%%"\r\nwsl.exe -d %s -u %s -- %s\r\n' \
 		"$name" "$tag" "$DISTRO" "$WSL_USER" "$rel/run.sh" > "$wd/run_wsl.bat"
 }
-for pair in "Pulsar2:$REPO/rlbot-run/releases" "PulsarGCO:$REPO/rlbot-run/releases_gco"; do
+for pair in "Pulsar2:$REPO/rlbot-run/releases" "PulsarGCO:$REPO/rlbot-run/releases_gco" "Pulsar3:$REPO/rlbot-run/releases_pulsar3" "Pulsar3GPU:$REPO/rlbot-run/releases_pulsar3gpu" "Pulsar2GPU:$REPO/rlbot-run/releases_pulsar2gpu"; do
 	name="${pair%%:*}"; root="${pair#*:}"
+	[ -d "$root" ] || continue
 	vers=$(ls "$root" | sort -V)
 	[ "${1:-}" = "--latest" ] && vers=$(echo "$vers" | tail -1)
 	for v in $vers; do install_one "$name" "$root/$v"; done

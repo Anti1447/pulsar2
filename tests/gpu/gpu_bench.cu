@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
 	for (uint32_t N : totals) {
 		std::mt19937 rng(1234);
 		auto uni = [&](float a, float b) { return std::uniform_real_distribution<float>(a, b)(rng); };
-		struct Ctx { std::unique_ptr<SimContext> sim; uint32_t arenas; float* actions; uint32_t cars; };
+		struct Ctx { std::unique_ptr<SimContext> sim; uint32_t arenas; float* actions; uint32_t cars; std::vector<CarStatePOD> cp0; std::vector<BallStatePOD> bp0; };
 		std::vector<Ctx> ctxs; double arenas = 0;
 		for (const Mode& m : MODES) {
 			Ctx c; c.arenas = std::max(1u, (uint32_t)(N * m.frac + 0.5)); c.cars = c.arenas * m.cars;
@@ -45,10 +45,12 @@ int main(int argc, char** argv) {
 			}
 			if (cudaMalloc(&c.actions, a.size() * sizeof(float)) != cudaSuccess) { printf("%9u | out of GPU memory\n", N); return 0; }
 			cudaMemcpy(c.actions, a.data(), a.size() * sizeof(float), cudaMemcpyHostToDevice);
-			arenas += c.arenas; ctxs.push_back(std::move(c));
+			c.cp0 = cp; c.bp0 = bp; arenas += c.arenas; ctxs.push_back(std::move(c));
 		}
 		int tick = 0;
-		auto run = [&](int ticks) { for (int t = 0; t < ticks; t++, tick++) for (Ctx& c : ctxs) c.sim->Step(c.arenas, c.actions + (size_t)((tick / 4) % ACTION_SETS) * c.cars * 8); cudaDeviceSynchronize(); };
+		const int resetEvery = getenv("RESET_TICKS") ? atoi(getenv("RESET_TICKS")) : 0;
+		auto reset = [&] { if (resetEvery && tick && tick % resetEvery == 0) { for (Ctx& c : ctxs) { c.sim->CopyCarStateToDevice(c.cp0.data(), 0, c.cars); c.sim->CopyBallStateToDevice(c.bp0.data(), 0, c.arenas); } cudaDeviceSynchronize(); } };
+		auto run = [&](int ticks) { for (int t = 0; t < ticks; t++, reset(), tick++) for (Ctx& c : ctxs) c.sim->Step(c.arenas, c.actions + (size_t)((tick / 4) % ACTION_SETS) * c.cars * 8); cudaDeviceSynchronize(); };
 		run(600); // settle into physical states
 		std::vector<double> rate;
 		for (int r = 0; r < REPEATS; r++) {

@@ -12,6 +12,10 @@ namespace GGL {
 		// Don't put this much higher than your CPU thread count
 		int numArenas = 16;
 
+		// Further arenas for the RATING matches only, at indices numArenas and up (envCreateFn lays them out). The reference battery
+		// keeps the first numArenas, so adding modes here never changes what Ref/* measures. (2026-11-27: uneven-team ratings.)
+		int extraRatingArenas = 0;
+
 		// Optional create-func for the eval arenas. Unset (default) clones the TRAINING
 		// create-func over numArenas LOW indices — with a mixed-mode fleet whose team arenas
 		// sit on trailing indices, that means the tracker only ever plays (and reports Elo

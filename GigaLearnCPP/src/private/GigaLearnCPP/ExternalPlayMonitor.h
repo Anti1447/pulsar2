@@ -116,8 +116,13 @@ namespace GGL {
 					continue;
 				const RLGC::GameState& gs = states[a];
 				Arena& ar = arenas[a];
-				int mode = (int)gs.players.size() / 2 - 1;
-				if (mode < 0 || mode > 2)
+				// These series are 1v1 / 2v2 / 3v3 only: an uneven arena (2v1, 3v1, 3v2) would be mislabelled and would shift the bot yardsticks,
+				// so it is left out here (the Learner reports its goals under Uneven/*)
+				int blueCount = 0;
+				for (auto& p : gs.players)
+					blueCount += p.team == RocketSim::Team::BLUE;
+				int mode = blueCount - 1;
+				if (blueCount * 2 != (int)gs.players.size() || mode < 0 || mode > 2)
 					continue;
 
 				if (a < startedFresh.size() && startedFresh[a]) {

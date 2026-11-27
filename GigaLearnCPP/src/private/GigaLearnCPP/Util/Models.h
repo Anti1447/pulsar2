@@ -90,6 +90,11 @@ namespace GGL {
 		// independently by its owning module (e.g. ProposerModule::Train()).
 		bool groupStepExempt = false;
 
+		// BF16 LEARNING (PPOLearnerConfig::bf16Learn, set by PPOLearner::Learn): grad-enabled CUDA forwards of this model run
+		// their hidden layers under BF16 autocast and return fp32. The output layer, weights, gradients, optimizer state and
+		// every loss stay fp32.
+		bool learnBf16 = false;
+
 
 		Model() : config(PartialModelConfig{}), device({}), modelName(NULL) {} // Uninitialized init
 

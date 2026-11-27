@@ -107,6 +107,8 @@ int main(int argc, char** argv) {
 	policyConfig.addResiduals = addResiduals;
 	policyConfig.activationType = ballPred ? ModelActivationType::GELU : ModelActivationType::LEAKY_RELU;
 	if (ballPred) policyConfig.layerSizes = { 1024, 1024, 1024, 1024 };
+	// GGL_POLICY_DEPTH (set by tools/package_bot.sh for the 2-deep Pulsar2GPU lineage): that many 1024-wide policy layers
+	if (const char* d = std::getenv("GGL_POLICY_DEPTH"); ballPred && d && d[0]) policyConfig.layerSizes = std::vector<int>((size_t)std::atoi(d), 1024);
 	policyConfig.addLayerNorm = true;
 
 	// NOTE: the policy head is at plain trunk width. The Optimistic-Critic Ladder's
@@ -122,10 +124,15 @@ int main(int argc, char** argv) {
 		checkpoint, useGPU);
 
 	RLBotParams params = {};
-	params.tickSkip = 8;      // matches cfg.tickSkip in ExampleMain.cpp
+	// GGL_TICKSKIP / GGL_ACTION_DELAY (set by the launcher) override the 6.0 timing for lineages trained differently
+	// (Pulsar3: tickSkip 4, actionDelay 0).
+	auto envInt = [](const char* name, int fallback) { const char* v = std::getenv(name); return (v && *v) ? std::atoi(v) : fallback; };
+	params.tickSkip = envInt("GGL_TICKSKIP", 8);      // matches cfg.tickSkip in ExampleMain.cpp
 	params.actionDelay = 7;   // live play uses 7: with 0 the bot behaved erratically in RLBot (observed 2026-11-02).
 	                          // The trainer's cfg.actionDelay is 7 too (ExampleMain.cpp, 6.0), so live and training match.
 	                          // Chronos and Galactus were trained with 7 (docs/6.0.md).
+	params.actionDelay = envInt("GGL_ACTION_DELAY", params.actionDelay);
+	RG_LOG("RLBot bot timing: tickSkip " << params.tickSkip << ", actionDelay " << params.actionDelay);
 	params.inferUnit = inferUnit;
 	params.obsBuilder = obsBuilder;
 	params.ballPredSlices = ballPredSlices;

@@ -38,6 +38,8 @@
 #include <RLGymCPP/Telemetry/CarryCatchTelemetry.h>
 #include <RLGymCPP/Telemetry/DemoTelemetry.h>
 #include <RLGymCPP/Telemetry/DemoFunnelTelemetry.h>
+#include <RLGymCPP/TeamLayout.h>
+#include <RLGymCPP/Rewards/WavedashGainReward.h>
 #include <RLGymCPP/StateSetters/DemoLaneState.h>
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetTouchReward.h>
 #include <RLGymCPP/Rewards/PlayerBall/FlipResetAirTouchReward.h>
@@ -73,6 +75,11 @@ static constexpr float TRAIN_GAMMA = 0.9969f;
 // Pulsar3 (--pulsar3, 2026-11-23): tickSkip 4 / actionDelay 0 (30 Hz) fresh lineage. The potentials' gamma is a runtime value so it can follow the learner's gaeGamma.
 static bool g_Pulsar3 = false;
 static float g_TrainGamma = TRAIN_GAMMA;      // what MakeEnv threads into BuildRewards; == cfg.ppo.gaeGamma by construction
+// 2026-11-26 evening (user-directed): Pulsar3 pays WavedashGainReward (speed gained by the dodge, +25% toward the ball) at 20 instead of
+// the per-landing WavedashReward at 12. The CPU comparison run keeps the old one at 1 (and Rolv 0), as the RocketGPU trial does.
+static bool g_Pulsar3OldWavedash = false;
+static float g_Pulsar3WavedashWeight = 20.f;
+static float g_Pulsar3RolvWeight = 5.f;
 static float g_RewardStepScale = 1.f;         // per-step reward terms (BuildRewards stepScale)
 static constexpr float PULSAR3_GAMMA = 0.99846f;       // 15 s half-life at 30 Hz: 0.5^(1/450)
 static constexpr float PULSAR3_GOAL_GAMMA = 0.9997f;   // ~77 s half-life at 30 Hz: 0.5^(1/2310)
@@ -202,7 +209,7 @@ static float TEAM_SPIRIT = 0.3f;
 // matching self-save farm with a last-touch guard.
 // === PULSAR3 REWARD STACK (user-directed 2026-11-23, supersedes the first Pulsar3 paste; docs/ledger/H-020.md) ===
 // A leaner stack than main 6.1's BuildRewards: flat DemoReward 37.5 only (no OffensiveDemo), no VerifiedShot, ConsecutiveAirTouch, WallJumpToBall, Dribble, CatchBall,
-// UnifiedAirDribble, FlipReset family or flat WavedashReward; KickoffRace 60 ON; AerialTouch 120 / AirIntercept 75 at the scaffold weights; RolvWavedash 5; GoalSpeed 75; Goal
+// UnifiedAirDribble, FlipReset family or flat WavedashReward; KickoffRace removed 2026-11-25; AerialTouch 120 / AirIntercept 75 at the scaffold weights; RolvWavedash 5; GoalSpeed 75; Goal
 // exactly +-150 zero-sum (GoalReward(), no -0.85 concede discount). Classes are the repo's current ones (e.g. BallProximityPotential is the spacing-aware version).
 // stepScale (0.5 at tickSkip 4) multiplies the per-step terms so their cost per second matches tickSkip 8.
 std::vector<WeightedReward> BuildRewardsPulsar3(float gamma, float stepScale) {
@@ -220,17 +227,17 @@ std::vector<WeightedReward> BuildRewardsPulsar3(float gamma, float stepScale) {
 		{ new ZeroSumReward(new WallJumpToBallReward(gamma), TEAM_SPIRIT), 15.f },
 		{ new ZeroSumReward(new OpposedSaveReward(), TEAM_SPIRIT), 25.f },
 		{ new ZeroSumReward(new VerifiedShotReward(), TEAM_SPIRIT), 25.f },
-		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 75.f },
+		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 50.f }, // 75 -> 25 on 2026-11-26, 25 -> 50 later that night (both user-directed)
 		{ new TimeCostReward(), 0.01f * stepScale },
 		{ new ZeroSumReward(new TeamPressureReward(), TEAM_SPIRIT), 0.15f * stepScale },
-		{ new ZeroSumReward(new KickoffRaceReward(), TEAM_SPIRIT), 60.f },
+		// 2026-11-25 (user-directed) KickoffRaceReward (ZeroSum, 60) removed: its 45-step window is 1.5 s at 30 Hz and the earliest kickoff touch comes later, so it paid nothing.
 		{ new KickoffOutcomeReward(), 30.f },
 		{ new OffsidePenalty(), 0.1f * stepScale },
 		{ new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.2f * stepScale },
 		{ new TeammateSpacingPenalty(1000.f, 1500.f), 2.f * stepScale },
-		{ new RolvWavedashReward(), 5.0f },
+		{ new RolvWavedashReward(), g_Pulsar3RolvWeight },
 		// 2026-11-24 (user-directed): the simple WavedashReward (CommonRewards.h: 1.0 on the landing step after a flip began airborne) at 10. Bare, NOT zero-sum.
-		{ new WavedashReward(), 10.f },
+		{ g_Pulsar3OldWavedash ? static_cast<Reward*>(new WavedashReward()) : static_cast<Reward*>(new WavedashGainReward()), g_Pulsar3WavedashWeight },
 		{ new ZeroSumReward(new GoalSpeedReward(), TEAM_SPIRIT), 75.f },
 		{ new GoalReward(), 150 }
 	};
@@ -541,6 +548,12 @@ static int g_NumPracticeArenas = 0;
 static int g_NumGames = 0;
 static int g_NumArenas2v2 = 0;
 static int g_NumArenas3v3 = 0;
+// UNEVEN ARENAS (2026-11-26, user-directed): 2v1 / 3v1 / 3v2 arenas on the trailing indices (RLGymCPP/TeamLayout.h). Off unless the
+// --pulsar3 checkpoint folder holds the marker file below (its content is the share of arenas, empty = the default). Enable: write the
+// marker and restart. Revert: delete it and restart. The reference battery and gauntlet stay symmetric.
+static int g_NumArenasUneven = 0;
+static constexpr const char* UNEVEN_MARKER = "UNEVEN_ARENAS";
+static constexpr float UNEVEN_DEFAULT_FRAC = 0.15f;
 
 // Same trailing-team layout for the skill tracker's own small eval fleet (set in main()
 // alongside the split above; zero in PHASE A). Separate from the training split because the
@@ -625,7 +638,7 @@ static int g_NumImpossibleArenas = 0;
 static bool IsImpossibleArena(int index) {
 	if (g_NumImpossibleArenas <= 0)
 		return false;
-	int n1 = g_NumGames - g_NumArenas2v2 - g_NumArenas3v3; // 1v1 block = [0, n1)
+	int n1 = g_NumGames - g_NumArenas2v2 - g_NumArenas3v3 - g_NumArenasUneven; // 1v1 block = [0, n1)
 	return index >= n1 - g_NumImpossibleArenas && index < n1;
 }
 
@@ -633,7 +646,8 @@ static bool IsImpossibleArena(int index) {
 // team size and the practice-terminal decision is identical (and the skill tracker
 // overwrites eval rewards/state setters/terminal conditions anyway — for eval arenas only
 // the arena's team size, the obs builder and the action parser matter).
-static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
+// orangePlayers < 0: the same number as blue (every caller but the uneven training arenas)
+static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena, int orangePlayers = -1) {
 	// NoTouch 10 -> 20 (2026-07-16, user hypothesis): the timeout truncation was
 	// cutting dead-play episodes before RECOVERY could ever be experienced - the
 	// re-enter-play trajectory never existed in the data (same shape as the takeoff
@@ -646,9 +660,14 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena) {
 	};
 
 	auto arena = Arena::Create(GameMode::SOCCAR);
-	for (int i = 0; i < playersPerTeam; i++) {
-		arena->AddCar(Team::BLUE);
-		arena->AddCar(Team::ORANGE);
+	if (orangePlayers < 0)
+		orangePlayers = playersPerTeam;
+	// Blue and orange alternate, as before; a bigger team's extra cars follow
+	for (int i = 0; i < RS_MAX(playersPerTeam, orangePlayers); i++) {
+		if (i < playersPerTeam)
+			arena->AddCar(Team::BLUE);
+		if (i < orangePlayers)
+			arena->AddCar(Team::ORANGE);
 	}
 
 	EnvCreateResult result = {};
@@ -809,12 +828,8 @@ EnvCreateResult EnvCreateFunc(int index) {
 		r.terminalConditions = { new GoalScoreCondition() };
 		return r;
 	}
-	int playersPerTeam = 1;
-	if (g_NumGames > 0 && index >= g_NumGames - g_NumArenas3v3)
-		playersPerTeam = 3;
-	else if (g_NumGames > 0 && index >= g_NumGames - g_NumArenas3v3 - g_NumArenas2v2)
-		playersPerTeam = 2;
-	EnvCreateResult result = MakeEnv(playersPerTeam, index < g_NumPracticeArenas);
+	const TeamSizes sizes = ArenaTeamSizes(index, g_NumGames, g_NumArenas2v2, g_NumArenas3v3, g_NumArenasUneven);
+	EnvCreateResult result = MakeEnv(sizes.blue, index < g_NumPracticeArenas, sizes.orange);
 	return result;
 }
 
@@ -824,6 +839,10 @@ EnvCreateResult EnvCreateFunc(int index) {
 // sender, and Rating/1v1 (the guard/trigger key) stays continuous across the flip. Never
 // a practice arena: eval matches must keep full consequences.
 EnvCreateResult SkillEnvCreateFunc(int index) {
+	if (g_SkillNumArenas > 0 && index >= g_SkillNumArenas) { // the uneven rating arenas, appended after the symmetric ones
+		const TeamSizes sizes = UnevenShape(index - g_SkillNumArenas);
+		return MakeEnv(sizes.blue, false, sizes.orange);
+	}
 	int playersPerTeam = 1;
 	if (g_SkillNumArenas > 0 && index >= g_SkillNumArenas - g_SkillArenas3v3)
 		playersPerTeam = 3;
@@ -1116,6 +1135,51 @@ static void ConfigureGCOFresh3(LearnerConfig& cfg) {
 // halved (g_RewardStepScale 0.5, BuildRewards) so their cost per second is unchanged; (3) the value side deeper (critic trunk, critic head and goal-critic head
 // {1280 x 4}, as the ts2critdeep arm; the V-dagger twins mirror the critic); (4) the external bots wrapped to decide at their own 8-tick / 7-delay rate (DecimatedOpponent).
 // GAE lambda stays 0.95 (user-directed: one fewer change from 6.1; its span in seconds halves). Everything else (rewards, reset mix, phases, optimizer, batch) is main's.
+static void ConfigurePulsar3(LearnerConfig& cfg);
+
+// GGL_P2GPU=1 (with --pulsar3): the shapes and timing of the RocketGPU trial's "tick8" profile (~/pulsar_rg/pulsar/profile.py,
+// user-directed 2026-11-25), so that this binary can score its checkpoints offline: Pulsar2's timing (tickSkip 8, actionDelay 7)
+// and gammas, policy and value side 2 deep, the outside bots at the learner's own rate. Without the variable nothing changes.
+static void ConfigureP2GPU(LearnerConfig& cfg) {
+	cfg.tickSkip = 8;
+	cfg.actionDelay = 7;
+	cfg.ppo.gaeGamma = 0.9969f;
+	cfg.ppo.goalCritic.gamma = 0.9994f;
+	cfg.ppo.policy.layerSizes = { 1024, 1024 };
+	cfg.ppo.criticTrunk.layerSizes = { 1280, 1280 };
+	cfg.ppo.critic.layerSizes = { 1280, 1280 };
+	cfg.ppo.goalCritic.model.layerSizes = { 1280, 1280 };
+	cfg.externalOpponent.botTickSkip = 8;
+	cfg.externalOpponent.botActionDelay = 7;
+}
+
+// GGL_P2GPU=train: a FRESH CPU-engine training run to compare 1:1 with the RocketGPU trial (user-directed 2026-11-25,
+// docs/ROCKETGPU_TRIAL_STAGE4_PREP.md). ConfigureP2GPU's shapes and timing, the trial's reward list (Wavedash 1, RolvWavedash 0), no old versions, no reach
+// heads or gap sensor, 30% of iterations against Pulsar2 / Galactus / Chronos / Nexto and the rest self-play. Its own folder: the Pulsar3
+// lineage is untouched. Applied after every other setting, so nothing later in main() overrides it.
+static bool P2GPUTrain() {
+	const char* e = std::getenv("GGL_P2GPU");
+	return e && std::string(e) == "train";
+}
+
+static void ConfigureP2GPUTrain(LearnerConfig& cfg) {
+	cfg.checkpointFolder = "checkpoints_p2gpu_cpu";
+	cfg.metricsRunName = "pulsar2cpu-t8";
+	cfg.trainAgainstOldVersions = false;
+	cfg.savePolicyVersions = false;
+	cfg.skillTracker.enabled = false; // also keeps the team-phase trigger quiet (it reads Rating/1v1)
+	cfg.gauntlet.enabled = false;     // scored offline with the same evaluator as the GPU run
+	cfg.exploiterPool.enabled = false;
+	cfg.ppo.reachability.enabled = false;
+	cfg.gapSensor.enabled = false;
+	cfg.externalOpponent.serveFrac = 0.30f;
+	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0") {
+		cfg.metricsRunName = "SMOKE-" + cfg.metricsRunName;
+		cfg.checkpointFolder = "checkpoints_p2gpu_cpu_SMOKE"; // never the real run's folder
+		cfg.externalOpponent.serveFrac = 0.75f;
+	}
+}
+
 static void ConfigurePulsar3(LearnerConfig& cfg) {
 	cfg.tickSkip = 4;
 	cfg.actionDelay = 0;
@@ -1149,6 +1213,10 @@ static void ConfigurePulsar3(LearnerConfig& cfg) {
 		cfg.ppo.batchSize = 200'000;
 		cfg.gauntlet.everyIterations = 100;
 	}
+	// BF16 learn pass (user-directed 2026-11-25, docs/ledger/H-021.md): 21-22% faster per minibatch in the offline test; effect on playing
+	// strength untested. Revert: delete this line, rebuild, restart (checkpoints stay compatible; the pre-switch copy is in
+	// build/checkpoints_pulsar3_pre_bf16).
+	cfg.ppo.bf16Learn = true;
 	cfg.checkpointFolder = "checkpoints_pulsar3";
 	cfg.metricsRunName = "pulsar3";
 	if (const char* s = std::getenv("GGL_SMOKE"); s && s[0] && std::string(s) != "0")
@@ -1535,6 +1603,13 @@ int main(int argc, char* argv[]) {
 		g_Pulsar3 = true;
 		g_TrainGamma = PULSAR3_GAMMA;
 		g_RewardStepScale = 0.5f;
+		if (P2GPUTrain()) {
+			g_TrainGamma = 0.9969f; // ConfigureP2GPU's gaeGamma
+			g_RewardStepScale = 1.f;
+			g_Pulsar3OldWavedash = true;
+			g_Pulsar3WavedashWeight = 1.f;
+			g_Pulsar3RolvWeight = 0.f;
+		}
 		noExploiterPool = true; // the 6.1 exploiter pool was trained at 15 Hz: wrong rate for this lineage's arenas
 	}
 
@@ -2266,7 +2341,22 @@ int main(int argc, char* argv[]) {
 	}
 	if (pulsar3Arg)
 		ConfigurePulsar3(cfg);
+	if (const char* e = std::getenv("GGL_P2GPU"); pulsar3Arg && e && e[0] && std::string(e) != "0")
+		ConfigureP2GPU(cfg);
 	ConfigureExploiterSettings(cfg);
+	// before anything reads the checkpoint folder (the team-phase marker below)
+	if (pulsar3Arg && P2GPUTrain() && !cfg.renderMode) {
+		ConfigureP2GPUTrain(cfg);
+		int serving = 0;
+		for (auto& b : cfg.externalOpponent.bots)
+			serving += b.trainServe;
+		if (serving != 4) {
+			std::cout << "[CONFIG] GGL_P2GPU=train needs 4 serving bots, found " << serving << ". Not starting.\n";
+			return 1;
+		}
+		RG_LOG("P2GPU CPU comparison run: folder " << cfg.checkpointFolder << ", wandb " << cfg.metricsRunName);
+	}
+
 	std::filesystem::path exploitersRoot = cfg.exploiterPool.exploitersFolder;
 	int numSlots = (int)cfg.exploiter.slotRoles.size();
 	if (exploiterSlot < 0 || exploiterSlot >= numSlots) {
@@ -2411,11 +2501,32 @@ int main(int argc, char* argv[]) {
 	const float frac2v2 = g_GCOFresh ? 0.f : (g_ExploiterExternal ? 0.4f : (gcoFleet ? GCO_FRAC_2V2 : PHASE_B_FRAC_2V2));
 	const float frac3v3 = g_GCOFresh ? 0.f : (g_ExploiterExternal ? 0.4f : (gcoFleet ? GCO_FRAC_3V3 : PHASE_B_FRAC_3V3));
 	auto fnArenas = [&](int n, float frac) { return gcoFleet ? (int)std::lround(n * frac) : (int)(n * frac); };
-	g_NumArenas2v2 = g_PhaseB ? fnArenas(cfg.numGames, frac2v2) : 0;
-	g_NumArenas3v3 = g_PhaseB ? fnArenas(cfg.numGames, frac3v3) : 0;
+	// Uneven arenas come off the top; 1v1 / 2v2 / 3v3 split what is left by their usual fractions
+	g_NumArenasUneven = 0;
+	if (g_PhaseB && pulsar3Arg && !g_ExploiterMode && !g_GCOMode && std::filesystem::exists(cfg.checkpointFolder / UNEVEN_MARKER)) {
+		std::ifstream unevenIn(cfg.checkpointFolder / UNEVEN_MARKER);
+		float share = UNEVEN_DEFAULT_FRAC;
+		std::string word;
+		if (unevenIn >> word) {
+			char* end = nullptr;
+			share = std::strtof(word.c_str(), &end);
+			if (end == word.c_str() || *end != 0 || !(share >= 0.f && share <= 0.5f)) {
+				std::cout << "[CONFIG] " << UNEVEN_MARKER << " must hold a share between 0 and 0.5, found \"" << word << "\". Not starting.\n";
+				return 1;
+			}
+		}
+		g_NumArenasUneven = UnevenArenaCount(cfg.numGames, share);
+		cfg.externalOpponent.serveUnevenTeams = true; // (2026-11-26, user-directed) bots play the uneven arenas too (Dice: only 2v1, its limit is 2 a side)
+	}
+	const int symmetricGames = cfg.numGames - g_NumArenasUneven;
+	g_NumArenas2v2 = g_PhaseB ? fnArenas(symmetricGames, frac2v2) : 0;
+	g_NumArenas3v3 = g_PhaseB ? fnArenas(symmetricGames, frac3v3) : 0;
 	RG_LOG("Team curriculum: PHASE " << (g_PhaseB ? "B" : "A") << " - "
-		<< (cfg.numGames - g_NumArenas2v2 - g_NumArenas3v3) << " 1v1 / "
+		<< (symmetricGames - g_NumArenas2v2 - g_NumArenas3v3) << " 1v1 / "
 		<< g_NumArenas2v2 << " 2v2 / " << g_NumArenas3v3 << " 3v3 arenas");
+	if (g_NumArenasUneven > 0)
+		RG_LOG("Uneven arenas: " << g_NumArenasUneven << " (2v1 / 3v1 / 3v2, " << g_NumArenasUneven / UNEVEN_SHAPES
+			<< " of each with the bigger team on each colour); external bots serve them (Dice: 2v1 only)");
 
 	// Skill tracker eval mix: same fractions over its own small fleet, team arenas trailing,
 	// at least one arena per team mode in PHASE B (16 arenas -> 11 1v1 / 3 2v2 / 2 3v3).
@@ -2429,10 +2540,14 @@ int main(int argc, char* argv[]) {
 	g_SkillArenas2v2 = (g_PhaseB && !g_GCOFresh) ? RS_MAX(1, fnArenas(g_SkillNumArenas, frac2v2)) : 0;
 	g_SkillArenas3v3 = (g_PhaseB && !g_GCOFresh) ? RS_MAX(1, fnArenas(g_SkillNumArenas, frac3v3)) : 0;
 	cfg.skillTracker.envCreateFn = SkillEnvCreateFunc;
+	// UNEVEN RATINGS (2026-11-27, user-directed): with uneven training arenas, the rating matches also play each uneven shape, twice
+	// (so each side size gets both colours), reported as Rating/1v2, Rating/1v3 and Rating/2v3 against the same old versions.
+	cfg.skillTracker.extraRatingArenas = g_NumArenasUneven > 0 ? 2 * UNEVEN_SHAPES : 0;
 	if (cfg.skillTracker.enabled)
 		RG_LOG("Skill tracker eval fleet: "
 			<< (g_SkillNumArenas - g_SkillArenas2v2 - g_SkillArenas3v3) << " 1v1 / "
-			<< g_SkillArenas2v2 << " 2v2 / " << g_SkillArenas3v3 << " 3v3 arenas");
+			<< g_SkillArenas2v2 << " 2v2 / " << g_SkillArenas3v3 << " 3v3 arenas"
+			<< (cfg.skillTracker.extraRatingArenas ? ", plus " + std::to_string(cfg.skillTracker.extraRatingArenas) + " uneven rating arenas" : std::string()));
 
 	// GGL_CONFIG_DUMP=1 (tools/gco_health/launch_arm.py): print the effective arm configuration and exit BEFORE the Learner (and so the GPU) is touched. A launch-time check that an arm name
 	// parses and wires the levers the ledger entry says it does (served bots, serve share, old versions, kickoff mix, folder).

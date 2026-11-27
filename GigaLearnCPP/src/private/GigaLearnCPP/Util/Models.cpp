@@ -3,6 +3,27 @@
 #include <torch/csrc/api/include/torch/serialize.h>
 #include <torch/csrc/api/include/torch/nn/utils/convert_parameters.h>
 #include <torch/nn/modules/normalization.h>
+#include <ATen/autocast_mode.h>
+
+namespace {
+	// BF16 autocast for the current thread, restored on exit. The weight-cast cache is off: a cached cast would outlive
+	// the optimizer step that changes the weight.
+	struct Bf16Region {
+		bool enabled = at::autocast::is_autocast_enabled(at::kCUDA);
+		at::ScalarType dtype = at::autocast::get_autocast_dtype(at::kCUDA);
+		bool cache = at::autocast::is_autocast_cache_enabled();
+		Bf16Region() {
+			at::autocast::set_autocast_enabled(at::kCUDA, true);
+			at::autocast::set_autocast_dtype(at::kCUDA, at::kBFloat16);
+			at::autocast::set_autocast_cache_enabled(false);
+		}
+		~Bf16Region() {
+			at::autocast::set_autocast_enabled(at::kCUDA, enabled);
+			at::autocast::set_autocast_dtype(at::kCUDA, dtype);
+			at::autocast::set_autocast_cache_enabled(cache);
+		}
+	};
+}
 
 GGL::Model::Model(
 	const char* modelName,
@@ -104,6 +125,26 @@ static torch::Tensor ForwardResidual(
 	return x;
 }
 
+// The first `count` modules of a flat seq, applying the residual spans that lie inside them.
+static torch::Tensor ForwardRange(
+	torch::nn::Sequential& seq, const std::vector<std::pair<int, int>>& spans, torch::Tensor x, int count) {
+
+	std::vector<torch::Tensor> saved(spans.size());
+	for (int i = 0; i < count; i++) {
+
+		for (int s = 0; s < (int)spans.size(); s++)
+			if (spans[s].first == i)
+				saved[s] = x;
+
+		x = GGL::ForwardSeqModule(seq->ptr(i), x);
+
+		for (int s = 0; s < (int)spans.size(); s++)
+			if (spans[s].second == i && saved[s].defined())
+				x = x + saved[s];
+	}
+	return x;
+}
+
 torch::Tensor GGL::Model::Forward(torch::Tensor input, bool halfPrec) {
 
 	if (torch::GradMode::is_enabled())
@@ -134,6 +175,18 @@ torch::Tensor GGL::Model::Forward(torch::Tensor input, bool halfPrec) {
 			: ForwardResidual(seqHalf, residualSpans, halfInput);
 		return halfOutput.to(torch::kFloat);
 	} else {
+		if (learnBf16 && torch::GradMode::is_enabled() && input.is_cuda()) {
+			// The output layer stays fp32: a BF16 output has 8 significand bits, too coarse for value residuals and
+			// action logits. A model without one (a trunk) runs every layer under autocast.
+			const int body = (int)seq->size() - (config.addOutputLayer ? 1 : 0);
+			torch::Tensor x;
+			{
+				Bf16Region region;
+				x = ForwardRange(seq, residualSpans, input, body);
+			}
+			x = x.to(torch::kFloat);
+			return config.addOutputLayer ? ForwardSeqModule(seq->ptr(body), x) : x;
+		}
 		return residualSpans.empty()
 			? seq->forward(input)
 			: ForwardResidual(seq, residualSpans, input);

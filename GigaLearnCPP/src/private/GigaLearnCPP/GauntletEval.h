@@ -35,4 +35,8 @@ namespace GGL {
 
 		RG_NO_COPY(GauntletEval);
 	};
+
+	// Policy against policy by the gauntlet's game rules (offline head-to-head, GGL_H2H_MATCH): the loaded policy is side A, blue in
+	// even arenas and orange in odd ones, against `opp` (same architecture). env holds `games` 1v1 arenas with their reset and terminals.
+	MatchResult PlayPolicyMatch(class PPOLearner* ppo, RLGC::EnvSet& env, struct ModelSet& opp, int games, float maxSeconds, bool deterministic, unsigned seed);
 }

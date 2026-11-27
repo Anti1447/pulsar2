@@ -288,6 +288,13 @@ void RLGC::EnvSet::StepSecondHalf(const IList& actionIndices, bool async) {
 						state.lastRewards[arenaIdx].resize(rewards[arenaIdx].size());
 
 					state.lastRewards[arenaIdx][rewardIdx] = rewardToSave;
+
+					if (state.rewardMagnitudes[arenaIdx].size() != rewards[arenaIdx].size())
+						state.rewardMagnitudes[arenaIdx].assign(rewards[arenaIdx].size(), 0);
+					float magnitude = 0;
+					for (int i = 0; i < gs.players.size(); i++)
+						magnitude += std::fabs(output[i] * weightedReward.weight);
+					state.rewardMagnitudes[arenaIdx][rewardIdx] = magnitude;
 				}
 			}
 

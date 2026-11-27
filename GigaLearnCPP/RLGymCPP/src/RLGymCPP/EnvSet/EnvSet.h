@@ -48,6 +48,9 @@ namespace RLGC {
 		// ungated, so they are never bucketed.)
 		std::vector<float> gatedPosRewards;
 		std::vector<std::vector<float>> lastRewards; // Only from the first arena
+		// Per arena, per reward: this step's |weight x final reward| summed over the arena's players (after any ZeroSum wrapper), for the
+		// Reward Share % panels. Only filled when EnvSetConfig::saveRewards is set.
+		std::vector<std::vector<float>> rewardMagnitudes;
 		std::vector<uint8_t> terminals;
 
 		std::vector<int> arenaPlayerStartIdx = {};
@@ -64,6 +67,7 @@ namespace RLGC {
 			rewards.resize(numPlayers);
 			gatedPosRewards.resize(numPlayers);
 			lastRewards.resize(arenas.size());
+			rewardMagnitudes.resize(arenas.size());
 			terminals.resize(arenas.size());
 		}
 	};
