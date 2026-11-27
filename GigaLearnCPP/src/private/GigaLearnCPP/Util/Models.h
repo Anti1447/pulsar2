@@ -159,7 +159,12 @@ namespace GGL {
 			return total;
 		}
 
-		virtual ~Model() = default;
+		// The optimizer holds references to the parameters: without this, every freed model (evicted policy version or
+		// rating reference, every 25M steps) kept its weights allocated on the GPU
+		virtual ~Model() { delete optim; }
+
+		Model(const Model&) = delete; // a copy would share optim and delete it twice
+		Model& operator=(const Model&) = delete;
 	};
 
 	class ModelSet {
