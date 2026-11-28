@@ -80,6 +80,12 @@ Status: holding.
   pay fell to about 1/30 per decision. A policy trained against the new term has not been shown unable to farm it.
 - Applied: yes. Backfilled: no. Provenance: `docs/reward_scenarios/WavedashGainReward_2026-11-26.md`.
 
+Audit 2026-11-27 22:00 (CPU replay, v3, tick 4, 921,600 sampled decisions each; 10.100B against 10.670B): the reward share rose
+from about 0.2% to 1.4% over 10.2-10.7B. Gain payments per decision 0.00011 to 0.00178, mean value 0.58 to 0.87, on the floor
+94% to 99%, another payment within 2 s 2% to 15%, straightness between those 0.98 to 0.99, loops (straightness under 0.5) 0.0%
+to 0.1%. Ball touched within 3 s after a payment 54.7% against 46.4% after any decision (correlation, not cause). No wall-dash
+loop found. Tool: `tests/test_wavedash_audit.cpp`.
+
 ## P3 One shaping term dominates the reward mix
 Root cause (hypothesis): `CarEnergyPotentialReward` takes most of |weight x reward|, diluting other terms.
 Status: open (what share is best is unknown).
@@ -95,6 +101,13 @@ Status: open (what share is best is unknown).
 - Predicted: watch shares, speed, gauntlet.
 - Observed (to 2026-11-27): share about 45-55%; speed readings about 1,150-1,380. Confounded with P2.A3 and continued training.
 - Applied: yes. Backfilled: no.
+
+### P3.A3 2026-11-27, about 10.723B, weight 50 to 32
+- What and why: user wants the share near 40% (was 51.8%). 32 is the weight that gives 40% if other terms' pay stays put.
+- Predicted: by 11.2B, share 37-43%; `Player/Speed` (baseline 1255) down by under 5%; touch ratio (0.0058), ratings
+  (1253 / 544 / 490) and gauntlet (Nexto 1v1 33.4%, 10 checks) not clearly down.
+- Observed: pending.
+- Applied: yes. Backfilled: no. Overlaps P10.A1 (same restart).
 
 ## P4 1v1 gauntlet fell after team play was added
 Root cause (hypothesis, not isolated): training exposure moved away from 1v1 (Phase B, then 15% uneven arenas).
@@ -153,6 +166,16 @@ Status: open.
   minutes; cache 9.0 to 4.5 GB. Lasting gain so far under 1 GB.
 - Applied: yes. Backfilled: no.
 
+### P7.A4 2026-11-27 21:50, second WSL restart (light mode on, game starting)
+- What and why: same as P7.A3.
+- Predicted: about 5 GB of PC RAM freed for a while, then creeping back.
+- Observed at 21:55: restart and trainer start unattended. WSL's Windows memory 15.6 GB before, 15.8 GB after; PC 30 to 28 GB
+  used with Rocket League (3.6 GB) now running; cache inside WSL 9.2 to 4.6 GB. First attempt would have been skipped: the
+  previous run's hidden script held the shared log open (fixed with one log per run, found before the shutdown time).
+- Applied: yes. Backfilled: no.
+
+---
+
 ## P8 Bot picks up less boost than wanted
 Root cause (hypothesis, not measured): the pickup term is a small part of the reward mix (about 1.4% share).
 Status: open.
@@ -164,6 +187,50 @@ Status: open.
 - Observed: pending.
 - Applied: yes. Backfilled: no.
 - Provenance: Pulsar3, tick 4, `docs/REWARD_CHANGE_LOG.md`. Starts in light mode.
+
+## P9 Bot loses most kickoffs
+Root cause (hypothesis, not measured): kickoff play is under-practised (kickoffs were 20% of arena resets, and a smaller share
+of training steps).
+Status: open.
+
+### P9.A1 2026-11-27, about 10.13B, KickoffState share 0.20 to 0.25
+- What and why: user asked for a few more kickoff resets. Pulsar3 only; the other four reset slices go 0.20 to 0.1875 each.
+- Predicted: by 10.6B, gauntlet 1v1 first touch for us up from 21.2% (8 checks, 9.78-10.11B; against Nexto 2.5%, GalactusV2 0%,
+  ChronosV2 4.9%, Dice 0%, Pulsar2 98.8%) and bots' training kickoff first touch down (Nexto 68.8%, GalactusV2 65.3%,
+  ChronosV2 63.9%). A small effect or none is plausible. Guard: touch ratio (0.0058), gauntlet win rates and ratings
+  (1213 / 512 / 426) not clearly down.
+- Observed (10.14-10.60B, 10 gauntlet checks against the 10 before): missed. Our 1v1 first touch 21.1% to 17.5% (Pulsar2 99.1
+  to 79.4, ChronosV2 4.3 to 8.0, Nexto 2.0 to 0.2). Guards held: four-bot win rate 18.1 to 17.7%, touch ratio 0.0058 to
+  0.0060, ratings 1209/508/423 to 1227/531/457 (not attributable; overlaps P8.A1). The training-side bot first-touch panels
+  barely move (look cumulative) and were not used. User kept 25%.
+- Applied: yes. Backfilled: no.
+- Provenance: Pulsar3, tick 4, `EnvCreateFunc` reset mix. Overlaps P8.A1 (boost weight, about 0.5B earlier).
+
+## P10 Teammates crowd and bump each other
+Root cause (hypothesis, not measured): nothing penalizes a same-team bump (the bump callback ignores teammates), and the only
+related term, `TeammateSpacingPenalty`, is small.
+Status: open.
+
+### P10.A1 2026-11-27, about 10.723B, spacing penalty 2 to 3
+- What and why: user wants fewer teammate bumps; +50% on the distance penalty.
+- Predicted: by 11.2B, spacing penalty raw pay per decision shrinks in size (reward/decision / weight; baseline reward/decision
+  -0.04212 at weight 2), 2v2 (8.1%) and 3v3 (4.5%) gauntlet not clearly down. Bumps themselves are not measured.
+- Observed: pending.
+- Applied: yes. Backfilled: no. Overlaps P3.A3.
+
+## P11 Reward mix does not match the behaviour wanted (air chains, demos, positioning)
+Root cause (hypothesis, not measured): those terms pay too little to shape behaviour next to car energy.
+Status: open.
+
+### P11.A1 2026-11-27, about 10.73B, six weights at once
+- What and why (user): ConsecutiveAirTouch 60 to 120, Demo 37.5 to 50, OffensiveDemo 75 to 100, WavedashGain 20 to 15,
+  TeamPressure 0.15 to 0.2, Offside 0.1 to 0.15 (code values before the 30 Hz halving for the last two).
+- Predicted: by 11.2B, shares roughly: consecutive air 0.3%, demos 0.09% and 0.16%, wavedash about 1.5% unless use changes,
+  team pressure 0.7%, offside 1.8% (falling if it positions better). Guard: touch ratio 0.0058, car speed 1255, ratings
+  1253 / 544 / 490, Nexto 1v1 33.4% (10 checks) not clearly down. With P3.A3 and P10.A1 in the same window, one change cannot
+  be credited alone.
+- Observed: pending.
+- Applied: yes. Backfilled: no.
 
 ---
 

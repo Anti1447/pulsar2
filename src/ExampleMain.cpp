@@ -78,7 +78,7 @@ static float g_TrainGamma = TRAIN_GAMMA;      // what MakeEnv threads into Build
 // 2026-11-26 evening (user-directed): Pulsar3 pays WavedashGainReward (speed gained by the dodge, +25% toward the ball) at 20 instead of
 // the per-landing WavedashReward at 12. The CPU comparison run keeps the old one at 1 (and Rolv 0), as the RocketGPU trial does.
 static bool g_Pulsar3OldWavedash = false;
-static float g_Pulsar3WavedashWeight = 20.f;
+static float g_Pulsar3WavedashWeight = 15.f; // 20 -> 15 on 2026-11-27 (user-directed)
 static float g_Pulsar3RolvWeight = 5.f;
 static float g_RewardStepScale = 1.f;         // per-step reward terms (BuildRewards stepScale)
 static constexpr float PULSAR3_GAMMA = 0.99846f;       // 15 s half-life at 30 Hz: 0.5^(1/450)
@@ -216,25 +216,25 @@ std::vector<WeightedReward> BuildRewardsPulsar3(float gamma, float stepScale) {
 	return {
 		{ new BallToGoalPotentialReward(gamma), 75.f },
 		{ new ZeroSumReward(new TouchAccelReward(), TEAM_SPIRIT), 10.f },
-		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 37.5f },
+		{ new ZeroSumReward(new DemoReward(), TEAM_SPIRIT), 50.f }, /* 2026-11-27 user-directed: 37.5 -> 50 */
 		// 2026-11-24 (user-directed, from memory of the weights): OffensiveDemo 75, VerifiedShot 25, ConsecutiveAirTouch 60, WallJumpToBall 15 added to the Pulsar3 stack.
-		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 75.f },
+		{ new ZeroSumReward(new OffensiveDemoReward(), TEAM_SPIRIT), 100.f }, /* 2026-11-27 user-directed: 75 -> 100 */
 		{ new ZeroSumReward(new BallProximityPotentialReward(gamma), TEAM_SPIRIT), 4.f },
 		{ new ZeroSumReward(new GuardedPickupBoostReward(), TEAM_SPIRIT), 8.f }, // 6 -> 8 on 2026-11-27 (user-directed)
 		{ new ZeroSumReward(new AerialTouchReward(), TEAM_SPIRIT), 120.f },
 		{ new ZeroSumReward(new AirInterceptPotentialReward(gamma), TEAM_SPIRIT), 75.f },
-		{ new ZeroSumReward(new ConsecutiveAirTouchReward(gamma), TEAM_SPIRIT), 60.f },
+		{ new ZeroSumReward(new ConsecutiveAirTouchReward(gamma), TEAM_SPIRIT), 120.f }, /* 2026-11-27 user-directed: 60 -> 120 */
 		{ new ZeroSumReward(new WallJumpToBallReward(gamma), TEAM_SPIRIT), 15.f },
 		{ new ZeroSumReward(new OpposedSaveReward(), TEAM_SPIRIT), 25.f },
 		{ new ZeroSumReward(new VerifiedShotReward(), TEAM_SPIRIT), 25.f },
-		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 50.f }, // 75 -> 25 on 2026-11-26, 25 -> 50 later that night (both user-directed)
+		{ new ZeroSumReward(new CarEnergyPotentialReward(gamma), TEAM_SPIRIT), 32.f }, // 75 -> 25 on 2026-11-26, 25 -> 50 later that night, 50 -> 32 on 2026-11-27 for about a 40% reward share (all user-directed)
 		{ new TimeCostReward(), 0.01f * stepScale },
-		{ new ZeroSumReward(new TeamPressureReward(), TEAM_SPIRIT), 0.15f * stepScale },
+		{ new ZeroSumReward(new TeamPressureReward(), TEAM_SPIRIT), 0.2f * stepScale }, /* 2026-11-27 user-directed: 0.15 -> 0.2 (0.1 per step at 30 Hz) */
 		// 2026-11-25 (user-directed) KickoffRaceReward (ZeroSum, 60) removed: its 45-step window is 1.5 s at 30 Hz and the earliest kickoff touch comes later, so it paid nothing.
 		{ new KickoffOutcomeReward(), 30.f },
-		{ new OffsidePenalty(), 0.1f * stepScale },
+		{ new OffsidePenalty(), 0.15f * stepScale }, /* 2026-11-27 user-directed: 0.1 -> 0.15 (0.075 per step at 30 Hz) */
 		{ new TooFarFromTheBallPenalty(3000.f, 4000.f, 5000.f, 500.f), 0.2f * stepScale },
-		{ new TeammateSpacingPenalty(1000.f, 1500.f), 2.f * stepScale },
+		{ new TeammateSpacingPenalty(1000.f, 1500.f), 3.f * stepScale }, // 2 -> 3 on 2026-11-27 (user-directed, against crowding and teammate bumps)
 		{ new RolvWavedashReward(), g_Pulsar3RolvWeight },
 		// 2026-11-24 (user-directed): the simple WavedashReward (CommonRewards.h: 1.0 on the landing step after a flip began airborne) at 10. Bare, NOT zero-sum.
 		{ g_Pulsar3OldWavedash ? static_cast<Reward*>(new WavedashReward()) : static_cast<Reward*>(new WavedashGainReward()), g_Pulsar3WavedashWeight },
@@ -773,14 +773,18 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena, int orang
 		return result;
 	}
 	AirDrillState* airDrill = new AirDrillState();
+	// 2026-11-27 (user-directed): Pulsar3 only, KickoffState 0.20 -> 0.25 of all resets, the other four slices 0.20 -> 0.1875 each. Other lineages keep
+	// five equal slices. Revert: set kickoffShare to 0.20f.
+	const float kickoffShare = g_Pulsar3 ? 0.25f : 0.20f;
+	const float otherShare = (1.f - kickoffShare) / 4.f;
 	result.stateSetter = new CombinedState({
 		// Ground touch bootstrap - the proven anti-freeze state
 		// 2026-11-11: Weight decreased 0.30 -> 0.25 (user-directed) to make room for AirPlayState (0.15 -> 0.20).
 		// 2026-11-13 (user-directed): DemoLaneState 0.10 added; carved from BallNearCar 0.25 -> 0.20 and RandomState 0.15 -> 0.10 (AirPlay, which was just raised, untouched).
 		// Revert: delete the DemoLane line, BallNearCar 0.25, Random 0.15.
-		{ new BallNearCarState(600, 900), 0.20f },
+		{ new BallNearCarState(600, 900), otherShare },
 		// Aerial takeoff/climb-to-touch drill (the completion rung)
-		{ airDrill, 0.20f },
+		{ airDrill, otherShare },
 		// ADVANCED-AIR SEEDING (2026-07-20, user-directed): flip-reset-ready +
 		// air-carry setups so the ZERO-RATE mechanics get VISITED - reward alone
 		// can't shape unentered states. Strong 0.15 slice (biggest single air-
@@ -796,11 +800,11 @@ static EnvCreateResult MakeEnv(int playersPerTeam, bool practiceArena, int orang
 		// under-represented in training rows vs match time (1.1/0.43/0.35% vs 9.2/3.2/2.3% in 1v1/2v2/3v3) and the 1v1 gauntlet reads 0/96
 		// first touches. Of ALL resets now: wall 6%, flip-reset-ready 7%, air-carry 7%. Shared by main and --gco.
 		// Revert: AirPlay 0.30, Kickoff 0.10.
-		{ new AirPlayState(), 0.20f },
-		{ new KickoffState(), 0.20f },
+		{ new AirPlayState(), otherShare },
+		{ new KickoffState(), kickoffShare },
 		// Sole source of chaotic/defensive/air-recovery states (bounds widened to corners/goal lines)
 		// 2026-11-13 (user-directed): DemoLaneState removed from the mix (header/test kept); its 0.10 went to RandomState 0.10 -> 0.20. BallNearCar stays 0.20.
-		{ new RandomState(true, true, false), 0.20f },
+		{ new RandomState(true, true, false), otherShare },
 	});
 	result.terminalConditions = terminalConditions;
 
