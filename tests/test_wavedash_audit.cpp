@@ -59,7 +59,9 @@ TEST(WavedashAudit_policy_rollout) {
 	torch::manual_seed(7);
 
 	const int n = env.state.numPlayers;
-	struct Car { bool flipping = false, ground = true; int flipId = 0, paysThisFlip = 0, lastPay = -1000, flipAge = 0; };
+	struct Car { bool flipping = false, ground = true; int flipId = 0, paysThisFlip = 0, lastPay = -1000, flipAge = 0;
+		// WavedashGainReward payments: where they happen and whether the car goes somewhere between them
+		int lastGain = -1000; Vec lastGainPos = {}; float path = 0; std::vector<int> waitingGain, waitingAny; };
 	std::vector<Car> cars(n);
 	int64_t decisions = 0, pays = 0, flips = 0, flipping = 0, grounded = 0, groundedFlipping = 0, paidAgain = 0, quickRepeat = 0;
 	std::map<int, int64_t> payAge, gaps, exactGap;
@@ -70,6 +72,10 @@ TEST(WavedashAudit_policy_rollout) {
 	double payUpZ = 0, payZ = 0;
 	int64_t onFloor = 0, onWall = 0, onCeiling = 0;
 	std::vector<bool> all(n, true);
+	// per surface (floor, wall/ramp, ceiling): gain payments and value
+	int64_t gPays[3] = {}; double gValue[3] = {};
+	int64_t chained = 0, loops = 0, gTouched = 0, gProbes = 0, aTouched = 0, aProbes = 0;
+	double straightSum = 0, loopValue = 0, gSpeed = 0, allSpeed = 0;
 	std::vector<uint8_t> fresh(arenas, 1);
 	std::vector<int> actions(n, 0);
 	for (int step = 0; step < steps; step++) {
@@ -90,6 +96,30 @@ TEST(WavedashAudit_policy_rollout) {
 				const bool paid = env.state.rewards[start + j] > 500.f;
 				const float gain = env.state.rewards[start + j] - (paid ? 1000.f : 0.f);
 				if (gain > 1e-3f) { gainSum += gain; gainPays++; }
+				c.path += p.vel.Length() * (4.f / 120.f);
+				allSpeed += p.vel.Length();
+				// was the ball touched within 3 s (90 decisions) of a gain payment, and of any decision (sampled)?
+				auto settle = [&](std::vector<int>& waiting, int64_t& touched) {
+					for (size_t w = 0; w < waiting.size();) {
+						if (p.ballTouchedStep) { touched++; waiting.erase(waiting.begin() + w); }
+						else if (step - waiting[w] >= 90) waiting.erase(waiting.begin() + w);
+						else w++;
+					}
+				};
+				settle(c.waitingGain, gTouched);
+				settle(c.waitingAny, aTouched);
+				if ((step + start + j) % 97 == 0) { c.waitingAny.push_back(step); aProbes++; }
+				if (gain > 1e-3f) {
+					const int surface = p.pos.z < 60 ? 0 : (p.pos.z > 1950 ? 2 : 1);
+					gPays[surface]++; gValue[surface] += gain; gSpeed += p.vel.Length();
+					c.waitingGain.push_back(step); gProbes++;
+					if (step - c.lastGain <= 60) { // another payment within 2 s: how straight was the way between them?
+						const float straight = c.path > 1.f ? (p.pos - c.lastGainPos).Length() / c.path : 0.f;
+						chained++; straightSum += straight;
+						if (straight < 0.5f) { loops++; loopValue += gain; }
+					}
+					c.lastGain = step; c.lastGainPos = p.pos; c.path = 0;
+				}
 				{
 					char line[300];
 					const Action& act = p.prevAction;
@@ -143,6 +173,15 @@ TEST(WavedashAudit_policy_rollout) {
 	std::printf("WAVEDASH_AUDIT decisions_between_pays(gap:count)");
 	for (auto& kv : exactGap) if (pays && kv.second * 50 > pays) std::printf(" %d:%.1f%%", kv.first, 100.0 * kv.second / pays);
 	std::printf("\nWAVEDASH_GAIN pays_per_decision=%.6f mean_value_when_paid=%.4f value_per_decision=%.6f share_of_old_pays=%.4f", (double)gainPays / decisions, gainPays ? gainSum / gainPays : 0, gainSum / decisions, pays ? (double)gainPays / pays : 0);
+	const int64_t g = gPays[0] + gPays[1] + gPays[2];
+	const double gv = gValue[0] + gValue[1] + gValue[2];
+	std::printf("\nGAIN_WHERE pays floor %.1f%% wall_or_ramp %.1f%% ceiling %.1f%% | value floor %.1f%% wall_or_ramp %.1f%% ceiling %.1f%%",
+		g ? 100.0 * gPays[0] / g : 0, g ? 100.0 * gPays[1] / g : 0, g ? 100.0 * gPays[2] / g : 0,
+		gv ? 100.0 * gValue[0] / gv : 0, gv ? 100.0 * gValue[1] / gv : 0, gv ? 100.0 * gValue[2] / gv : 0);
+	std::printf("\nGAIN_CHAIN again_within_2s %.1f%% of pays | mean straightness (distance/path) %.3f | loops (straightness<0.5) %.1f%% of pays, %.1f%% of value",
+		g ? 100.0 * chained / g : 0, chained ? straightSum / chained : 0, g ? 100.0 * loops / g : 0, gv ? 100.0 * loopValue / gv : 0);
+	std::printf("\nGAIN_USE ball touched within 3 s: after a gain payment %.2f%% (n=%lld), after any decision %.2f%% (n=%lld) | speed at payment %.0f, all %.0f",
+		gProbes ? 100.0 * gTouched / gProbes : 0, (long long)gProbes, aProbes ? 100.0 * aTouched / aProbes : 0, (long long)aProbes, g ? gSpeed / g : 0, allSpeed / decisions);
 	std::printf("\nWAVEDASH_AUDIT where floor_z<60 %.2f%% wall_or_ramp %.2f%% ceiling %.2f%%", pays ? 100.0 * onFloor / pays : 0, pays ? 100.0 * onWall / pays : 0, pays ? 100.0 * onCeiling / pays : 0);
 	std::printf("\nWAVEDASH_AUDIT at_pay mean_z=%.1f mean_up_z=%.3f\n", pays ? payZ / pays : 0, pays ? payUpZ / pays : 0);
 }

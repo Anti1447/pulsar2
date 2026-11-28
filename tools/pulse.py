@@ -64,6 +64,12 @@ def pct(subset, bots, mode=None):
     return round(100 * won / games, 1) if games else None
 
 
+# Nexto first (user preference): wins-draws-losses and goals-free win share per mode, with longer windows because one check is noisy
+for label, subset in (('latest', rows[-1:]), ('last 8', rows[-8:]), ('8 before', rows[-16:-8]), ('last 40', rows[-40:])):
+    n = [r['Nexto'] for r in subset if 'Nexto' in r]
+    w, d, l, g = (sum(x.get(k, 0) for x in n) for k in ('wins', 'draws', 'losses', 'games'))
+    print(f"NEXTO {label} @{subset[-1]['total_timesteps'] / 1e9:.3f}B: 1v1 {pct(subset, ['Nexto'])}% ({w}W {d}D {l}L of {g})"
+          f" | 2v2 {pct(subset, ['Nexto'], '2v2')}% | 3v3 {pct(subset, ['Nexto'], '3v3')}%")
 for label, subset in (('latest', rows[-1:]), ('last 4', rows[-4:]), ('4 before', rows[-8:-4])):
     print(f"gauntlet {label} @{subset[-1]['total_timesteps'] / 1e9:.3f}B: 1v1 four {pct(subset, four)} | Pulsar2 {pct(subset, ['Pulsar2'])}"
           f" | 2v2 {pct(subset, everyone, '2v2')} | 3v3 {pct(subset, everyone, '3v3')}")
